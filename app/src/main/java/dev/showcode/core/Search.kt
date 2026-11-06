@@ -80,14 +80,22 @@ private fun inWindow(parcel: Parcel, window: SearchWindow, now: Long, thresholds
     window != SearchWindow.URGENT || urgencyOf(parcel, now, thresholds) != Urgency.SAFE
 
 /**
- * 匹配哪些字段是**闭集**：码 / 点名 / 组显示名 / 承运商 / 柜号。
+ * 匹配哪些字段是**闭集**：码 / 点名 / 组显示名 / 承运商 / 柜号 / 运单号 / 平台订单号。
  *
  * ⚠️ 不含 `raw`。原文里躺着营业时间、运单号、发货城市，搜「18:00」或一串 12 位数字
  * 会把完全无关的件点回来——误命中的代价是他走到错的点，漏命中的代价只是再搜一次。
  */
 private fun matchesCanonical(parcel: Parcel, groupName: String, needle: String): Boolean {
     if (needle.isEmpty()) return true
-    val fields = listOf(parcel.code, parcel.pointName, groupName, parcel.carrier, parcel.lockerNo.orEmpty())
+    val fields = listOf(
+        parcel.code,
+        parcel.pointName,
+        groupName,
+        parcel.carrier,
+        parcel.lockerNo.orEmpty(),
+        parcel.trackingNo.orEmpty(),
+        parcel.orderSn.orEmpty(),
+    )
     // 码额外再用「去掉分隔符」的形状比一次：真人脑子里记的是「527712」这一串数字，
     // 而短信里的写法是「5-2-7712」。这一格不匹配，检索在最常用的那个输入方式上就是坏的。
     val bareCode = parcel.code.replace("-", "")

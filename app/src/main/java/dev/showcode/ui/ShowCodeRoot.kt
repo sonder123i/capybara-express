@@ -2,7 +2,6 @@ package dev.showcode.ui
 
 import android.Manifest
 import android.appwidget.AppWidgetManager
-import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
@@ -11,59 +10,152 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import dev.showcode.BuildConfig
 import dev.showcode.app
 import dev.showcode.core.DeepLinkLadder
-import dev.showcode.core.HealthIssue
 import dev.showcode.core.IdentityCode
 import dev.showcode.core.IdentityKind
 import dev.showcode.core.Owner
 import dev.showcode.core.PointAlias
-import dev.showcode.core.recentlyPicked
 import dev.showcode.core.PickupPointGroup
+import dev.showcode.core.shouldShowBackgroundNote
+import dev.showcode.core.account.AccountState
+import dev.showcode.core.account.Platform
 import dev.showcode.core.bodyFingerprint
 import dev.showcode.core.groupByPoint
 import dev.showcode.core.mergePreview
+import dev.showcode.core.nextStopAfter
 import dev.showcode.core.suspectDuplicates
+import dev.showcode.ui.account.AccountListScreen
+import dev.showcode.ui.account.PlatformLoginScreen
+import dev.showcode.ui.parcels.ParcelDetailScreen
+import dev.showcode.ui.glass.GlassCompat
+import dev.showcode.ui.glass.GlassRuntimeGuard
+import dev.showcode.ui.glass.GlassTier
+import dev.showcode.ui.glass.rememberHighTextContrast
+import dev.showcode.ui.home.HomeEmpty
+import dev.showcode.ui.home.HomeScreen
+import dev.showcode.ui.home.HomeUiState
+import dev.showcode.ui.identity.IdentityEditScreen
+import dev.showcode.ui.identity.IdentityListScreen
+import dev.showcode.ui.identity.ShortcutPinning
+import dev.showcode.ui.inbox.ManualImportScreen
+import dev.showcode.ui.inbox.UnrecognizedScreen
+import dev.showcode.ui.onboarding.OnboardStep
+import dev.showcode.ui.onboarding.OnboardingScreen
+import dev.showcode.ui.onsite.IdentityShowScreen
+import dev.showcode.ui.onsite.OnsiteScreen
+import dev.showcode.ui.onsite.TilesScreen
 import dev.showcode.ui.points.MergePreviewScreen
 import dev.showcode.ui.points.PointDetailScreen
+import dev.showcode.ui.rules.RuleEditScreen
+import dev.showcode.ui.rules.RuleListScreen
+import dev.showcode.ui.settings.NotifyAppsScreen
+import dev.showcode.ui.settings.SettingsScreen
+import dev.showcode.ui.theme.LocalNavigationMotion
+import dev.showcode.ui.theme.MotionProfile
+import dev.showcode.ui.theme.StartupChoreography
+import dev.showcode.ui.theme.StartupLogoAnimation
+import dev.showcode.ui.theme.MotionTokens
+import dev.showcode.ui.theme.NavigationPages
+import dev.showcode.ui.theme.drawEnvironment
+import dev.showcode.ui.theme.rememberNavigationMotionState
+import dev.showcode.ui.theme.rememberReducedMotion
+import dev.showcode.widget.PickupWidgetProvider
+import dev.showcode.widget.WidgetNav
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
+import dev.showcode.data.AccountSyncEngine
+import dev.showcode.data.AUTO_SYNC_DELAY_MS
+import dev.showcode.data.AutoSyncDecision
+import dev.showcode.data.syncSuccessMessage
+import dev.showcode.data.AccountSyncResult
+import dev.showcode.data.decideAutoSync
+import dev.showcode.data.hasValidatedNetwork
 import dev.showcode.data.DemoData
+import dev.showcode.data.DemoIdentity
 import dev.showcode.data.PickupReminder
 import dev.showcode.data.InstalledApp
 import dev.showcode.data.unrecognizedBadgeCount
-
-/** 检查剪贴板内容 */
-private fun checkClipboard(context: android.content.Context): String {
-    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
-    return clipboard.primaryText ?: ""
-}
+import dev.showcode.core.Slog
 
 private enum class Route {
-    HOME, LOOKUP, ONSITE, TILES, SETTINGS, UNRECOGNIZED, MANUAL_IMPORT, ONBOARDING, POINT_DETAIL,
+    HOME, ONSITE, TILES, SETTINGS, UNRECOGNIZED, MANUAL_IMPORT, ONBOARDING, POINT_DETAIL,
     MERGE_PREVIEW, RULES, RULE_EDIT, IDENTITY_LIST, IDENTITY_ADD, IDENTITY_SHOW, NOTIFY_APPS,
+    ACCOUNT_LIST, ACCOUNT_LOGIN, PARCEL_DETAIL,
+}
+
+/**
+ * 三个主屏在导航里的位置。换屏的方向与连续进度都按它算（教务 NavigationMotionState 的口径）：
+ * 0 → 2 是向右，2 → 0 是向左，中途被打断就从当前进度接着走。
+ * 子屏不占位置——它们是另一层（层级页），不参与这排滑杆。
+ */
+private fun tabIndexOf(route: Route): Int? = when (route) {
+    Route.HOME -> 0
+    Route.IDENTITY_LIST -> 1
+    Route.SETTINGS -> 2
+    else -> null
+}
+
+/**
+ * 子屏的层级深度：决定推入/弹出方向。主层（三个主屏）是 0，子屏按它盖在谁身上给 1/2。
+ * 静态深度对这棵路由树够用：每条边要么变深（推入）要么变浅（弹出），
+ * 唯一的同层互切（手动录入 ↔ 收容页）按推入处理，方向反了也只是一次 22dp 的方向感差异。
+ */
+private fun depthOf(route: Route?): Int = when (route) {
+    null -> 0
+    Route.TILES -> 2
+    Route.MERGE_PREVIEW -> 2
+    Route.RULE_EDIT -> 2
+    Route.IDENTITY_SHOW -> 2
+    Route.ACCOUNT_LOGIN -> 2
+    Route.PARCEL_DETAIL -> 2
+    Route.ONBOARDING -> 0
+    else -> 1
 }
 
 /* 合并后撤销条的驻留时长。story-6 的 user_side 写的是「五秒内屏幕下方有个已合并 · 撤销」。 */
@@ -83,6 +175,13 @@ fun ShowCodeRoot() {
     var route by rememberSaveable {
         mutableStateOf(if (repository.prefs.onboardingDone) Route.HOME else Route.ONBOARDING)
     }
+
+    /* 出示类屏幕的常亮由根路由统一持有：换屏走 Crossfade，两屏同时活着时
+       各管一个 Window flag 会互相清掉（见 ui/KeepScreenOn.kt）。
+       现场模式、平铺总览、身份码出示——三屏都是「手机举在别人面前」的场景。 */
+    KeepScreenOn(
+        enabled = route == Route.ONSITE || route == Route.TILES || route == Route.IDENTITY_SHOW,
+    )
     var pointKey by rememberSaveable { mutableStateOf("") }
     // 点名要在导航时存下来：该点的件全取完之后分组会消失，
     // 而现场模式的空态仍然要把「我来对地方了」这句话讲完整。
@@ -94,6 +193,8 @@ fun ShowCodeRoot() {
     var manualReturn by rememberSaveable { mutableStateOf(Route.HOME) }
     var onboardStep by rememberSaveable { mutableStateOf(OnboardStep.WELCOME) }
     var detailKey by rememberSaveable { mutableStateOf("") }
+    /* 包裹详情有两个入口：现场（on-site）和在途小节。返回键要回你来的地方。 */
+    var parcelDetailReturn by rememberSaveable { mutableStateOf(Route.ONSITE) }
     /* 合并预览与「刚合过一次」的撤销态。预览内容里有 List，存不进 Saveable，
        而进程在弹层开着时被杀掉是无关紧要的丢失——重开一次预览就行。 */
     var pendingMerge by remember { mutableStateOf<dev.showcode.core.MergePreview?>(null) }
@@ -104,6 +205,18 @@ fun ShowCodeRoot() {
     var rulePrefillRaw by rememberSaveable { mutableStateOf("") }
     var ruleReturn by rememberSaveable { mutableStateOf(Route.SETTINGS) }
     var notifyReturn by rememberSaveable { mutableStateOf(Route.SETTINGS) }
+    /* 平台账号从设置、首页空态、首次引导三处都能进；返回要回你来的地方。 */
+    var accountReturn by rememberSaveable { mutableStateOf(Route.SETTINGS) }
+    /* 账号列表是设置页的子屏；登录页是账号列表的子屏。账号列表读的是加密表，
+       登录成功后必须重读一次，否则返回时还是「未绑定」。 */
+    var accounts by remember { mutableStateOf(repository.accounts.list()) }
+    var loginPlatformId by rememberSaveable { mutableStateOf(Platform.PDD.id) }
+    var accountSyncing by remember { mutableStateOf<String?>(null) }
+    var accountSyncMessage by remember { mutableStateOf<String?>(null) }
+    /** 正在跑的抓取。进入登录页前必须取消，否则它会和登录页抢同一个 CookieManager。 */
+    var accountSyncJob by remember { mutableStateOf<Job?>(null) }
+    var parcelDetailId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val accountScope = rememberCoroutineScope()
     /** 正在出示哪一张。存 id 不存对象：码被删掉时那一屏必须跟着退回去，而不是展示一张已经不存在的码。 */
     var identityShowId by rememberSaveable { mutableStateOf(0L) }
     /** 那颗「打开官方 App」的按钮能不能按。随 ON_RESUME 重算，不进渲染。 */
@@ -121,25 +234,67 @@ fun ShowCodeRoot() {
     var smsAttempted by rememberSaveable { mutableStateOf(false) }
     var widgetAdded by remember { mutableStateOf(false) }
     /* 查快递页面的剪贴板文本预填。 */
-    var lookupPrefill by rememberSaveable { mutableStateOf("") }
-    var lookupReturn by rememberSaveable { mutableStateOf(Route.HOME) }
 
-    // 演示数据只在进入时生成一次，把截止时刻冻结住——之后倒计时才会真的往下走。
-    // 「已取」只改这个集合，一个字都不落库，所以退出演示后不残留任何示例内容。
-    val demoParcels = remember { DemoData.parcels(System.currentTimeMillis()) }
+    /* 演示数据在进程内只生成一次，并用同一个锚点冻结全部时效。
+       录制时渲染用 [demoNow] 而不是真实时钟：倒计时、紧急度、分组顺序都不会自己跳，
+       同一场演示里每一帧都可截。每次进入只清「已取」，相对时长与排序完全一致。
+       「已取」只改内存集合，一个字都不落库，退出后真实数据不受影响。 */
+    val demoNow = remember { System.currentTimeMillis() }
+    val demoParcels = remember(demoNow) { DemoData.parcels(demoNow) }
+    val demoAccounts = remember(demoNow) { DemoData.accounts(demoNow) }
     val demoPicked = remember { mutableStateListOf<Long>() }
+    /* 演示身份码：同样只在内存里。进演示时铺演示码，退出即清——真实身份码表一行都不碰。 */
+    val demoIdentityCodes = remember { mutableStateListOf<IdentityCode>() }
 
     val now = rememberTickingNow(30_000L)
     val thresholds by repository.thresholds.collectAsState()
+    /* 演示用固定阈值，不读用户改过的设置：否则同一套演示在不同设备/不同设置下
+       会算出不同的临期与排序，录制素材就不确定了。 */
+    val demoThresholds = remember { dev.showcode.core.UrgencyThresholds() }
 
     val realGroups = remember(appData.parcels, appData.aliases, now, thresholds) {
         groupByPoint(appData.parcels, now, thresholds, appData.aliases)
     }
-    val sampleGroups = remember(demoParcels, now, thresholds) { groupByPoint(demoParcels, now, thresholds) }
-    val demoGroups = remember(demoParcels, demoPicked.toList(), now, thresholds) {
-        groupByPoint(demoParcels.filterNot { demoPicked.contains(it.id) }, now, thresholds)
+    /* 在途/待补信息的件：独立小节，不参与待取计数。
+       到站但 pointKey 为空的（详情失败先入列）也放这里，等下次同步补点。 */
+    val realInTransit = remember(appData.parcels) {
+        appData.parcels
+            .filter {
+                !it.picked && (
+                    it.stage == dev.showcode.core.Stage.IN_TRANSIT ||
+                        it.stage == dev.showcode.core.Stage.DELIVERING ||
+                        (it.stage == dev.showcode.core.Stage.AT_STATION && it.pointKey.isBlank())
+                    )
+            }
+            .sortedByDescending { it.receivedAt }
+    }
+    val sampleGroups = remember(demoParcels, demoNow, demoThresholds) {
+        groupByPoint(demoParcels, demoNow, demoThresholds)
+    }
+    val demoGroups = remember(demoParcels, demoPicked.toList(), demoNow, demoThresholds) {
+        groupByPoint(demoParcels.filterNot { demoPicked.contains(it.id) }, demoNow, demoThresholds)
     }
     val activeGroups = if (demo) demoGroups else realGroups
+    /** 演示态一律用冻结时钟；真实态才走会跳的 now。 */
+    val renderNow = if (demo) demoNow else now
+
+    /* 收工卡上的下一站。演示态恒为 null：enterDemo 会清空 demoPicked，
+       从收工卡跳过去会让上一个点刚取掉的件全部复活。 */
+    val nextStop = remember(activeGroups, pointKey, renderNow, demo) {
+        if (demo) null else nextStopAfter(pointKey, activeGroups, renderNow)
+    }
+
+    /* 主屏换屏：单进度连续运动（教务 NavigationMotionState 同源）。
+       tabRoute 为 null（子屏）时主层不渲染，但 lastTabIndex 要记住「来时在哪一 tab」，
+       否则从设置进子屏再回来会被当成回首页。 */
+    val reducedMotion = rememberReducedMotion()
+    var lastTabIndex by rememberSaveable { mutableIntStateOf(0) }
+    val tabRoute = tabIndexOf(route)
+    LaunchedEffect(tabRoute) { if (tabRoute != null) lastTabIndex = tabRoute }
+    val navMotion = rememberNavigationMotionState(
+        selected = tabRoute ?: lastTabIndex,
+        reduced = reducedMotion,
+    )
 
     /* 轻提示只报字面重叠的一对，且用户说过「不是」之后就永久闭嘴。
        AC4 的红线是绝不自动合并，所以这里只产生一个候选、不产生任何数据变化。 */
@@ -160,6 +315,7 @@ fun ShowCodeRoot() {
         if ((route == Route.IDENTITY_LIST || route == Route.IDENTITY_ADD) && installedApps.isEmpty()) {
             installedApps = repository.installedApps()
         }
+        if (route == Route.ACCOUNT_LIST && !demo) accounts = repository.accounts.list()
     }
 
     /* 每次进待取页都刷一遍收件箱。首页那颗「立即刷新」胶囊被拿掉的前提就是这一条——
@@ -217,6 +373,130 @@ fun ShowCodeRoot() {
 
     // 通知监听权只能在系统设置里给，回来时必须重新读一次，否则按钮会一直挂着
     val lifecycleOwner = LocalLifecycleOwner.current
+    /* 前台静默同步：一个进程只自动跑一次（节流与跳过判据见 data/AutoSync.kt）。
+       它不弹任何东西，也不改当前路由；失败的结局只落在账号卡的 lastSyncResult 上。 */
+    var autoSyncRan by remember { mutableStateOf(false) }
+
+    suspend fun runAccountSync(
+        targets: List<dev.showcode.core.account.BoundAccount>,
+        tag: String,
+    ): AccountSyncResult? {
+        var added = 0
+        var updated = 0
+        var succeeded = 0
+        val lines = mutableListOf<String>()
+        for (account in targets) {
+            val activity = context as? android.app.Activity
+            if (activity == null || activity.isFinishing || activity.isDestroyed) {
+                Slog.i(tag) { "stop: activity 不在了" }
+                break
+            }
+            accountSyncing = account.id
+            accountSyncMessage = null
+            Slog.i(tag) { "start ${account.platform.id}" }
+            /* 一个账号失败不能中止其余账号：按账号记台账，循环继续。
+               取消是另一回事，必须原样抛出去，否则取消会被当成一次普通失败吞掉。 */
+            val result = try {
+                AccountSyncEngine.sync(activity, repository, account)
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                Slog.i(tag) { "fail ${account.platform.id}" }
+                null
+            }
+            accountSyncing = null
+            /* 账号表在加密库里，读它也要下 IO；Compose 状态只在这里（主线程）改。 */
+            accounts = withContext(Dispatchers.IO) { repository.accounts.list() }
+            if (result == null) {
+                /* 失败原因已经由 AccountSyncEngine 写进账号状态；这里只把它抬到状态行。
+                   不弹窗、不置 ACTIVE、不推进 last_sync_at——那几条都在引擎里。 */
+                val reason = accounts.firstOrNull { it.id == account.id }?.lastSyncResult
+                    ?: "这次没同步上"
+                lines += "${account.platform.label}：$reason"
+                Slog.i(tag) { "fail ${account.platform.id}: $reason" }
+                continue
+            }
+            succeeded++
+            added += result.added
+            updated += result.updated
+            lines += "${account.platform.label}：${syncSuccessMessage(result)}"
+            Slog.i(tag) {
+                "ok ${account.platform.id}: added=${result.added} updated=${result.updated}"
+            }
+        }
+        val joined = lines.joinToString("；")
+        val single = lines.singleOrNull()?.substringAfter("：").orEmpty()
+        accountSyncMessage = when {
+            joined.isEmpty() -> null
+            // 单账号保持既有文案；多账号才逐家列出来，不让失败被最后一条覆盖。
+            tag == "AutoSync" && targets.size == 1 ->
+                if (single == "同步成功 · 没有新件") "刚刚同步 · 没有新件"
+                else "刚刚同步 · " + single.removePrefix("同步成功 · ")
+            tag == "AutoSync" -> "刚刚同步 · $joined"
+            else -> joined
+        }
+        // 全部账号都失败才算整体失败；只要有一个成功，其余失败只留在状态行里。
+        if (succeeded == 0) return null
+        return AccountSyncResult(added, updated, 0, 0, 0, 0, System.currentTimeMillis())
+    }
+
+    /* 手动刷新：用户主动按的，就该现在跑——不套那 15 分钟节流；
+       但必须和任何正在跑的同步互斥，避免同时开两个 WebView 抓同一家。 */
+    var manualSyncBusy by remember { mutableStateOf(false) }
+    var manualSyncMessage by remember { mutableStateOf<String?>(null) }
+    /* 每失败一次自增：刷新键只据此晃两下，不需要把「失败」这个词再传一遍。 */
+    var manualSyncFailSignal by remember { mutableIntStateOf(0) }
+    LaunchedEffect(manualSyncMessage) {
+        if (manualSyncMessage != null) {
+            delay(8_000)
+            manualSyncMessage = null
+        }
+    }
+    fun startManualSync() {
+        if (accountSyncing != null || manualSyncBusy) {
+            Slog.i("ManualSync") { "ignore: 已有同步在跑" }
+            return
+        }
+        if (demo) {
+            manualSyncMessage = context.getString(dev.showcode.R.string.home_refresh_demo)
+            Slog.i("ManualSync") { "demo: 不联网" }
+            return
+        }
+        /* 手动刷新也要先看联网：没有出口的 Wi-Fi 会让每次点击都白等十几秒，
+           而且失败还会往账号卡上写一条不该写的「没同步上」。 */
+        if (!hasValidatedNetwork(context)) {
+            manualSyncMessage = "这次没联网，先没同步。"
+            Slog.i("ManualSync") { "offline: 不发起抓取" }
+            return
+        }
+        manualSyncBusy = true
+        manualSyncMessage = null
+        accountSyncJob = accountScope.launch {
+            /* 账号表读取下 IO；没账号这条消息也在这里给，主线程不做 DB 读。 */
+            val targets = withContext(Dispatchers.IO) {
+                repository.accounts.list().filter { it.enabled }
+            }
+            if (targets.isEmpty()) {
+                manualSyncBusy = false
+                manualSyncMessage = context.getString(dev.showcode.R.string.home_refresh_no_account)
+                Slog.i("ManualSync") { "no account" }
+                return@launch
+            }
+            val result = runAccountSync(targets, "ManualSync")
+            manualSyncBusy = false
+            if (result == null) manualSyncFailSignal++
+            manualSyncMessage = if (result != null) {
+                /* runAccountSync 已经把逐账号结果拼成一句；失败账号也在里面，
+                   不能再用总计数覆盖掉它的名字。 */
+                accountSyncMessage ?: syncSuccessMessage(result)
+            } else {
+                /* 全部失败也要按账号交代是哪家没同步上；没有台账时才退回那句通用文案。 */
+                accountSyncMessage ?: context.getString(dev.showcode.R.string.home_refresh_failed)
+            }
+            Slog.i("ManualSync") { "done: $manualSyncMessage" }
+        }
+    }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -231,6 +511,45 @@ fun ShowCodeRoot() {
                 // 快照上——用户中途卸载了它，那颗按钮就该改口，而不是「点了没反应」。
                 val shown = repository.data.value.identityCodes.firstOrNull { it.id == identityShowId }
                 identityAppInstalled = shown?.appPackage?.let { repository.isAppInstalled(it) } == true
+
+                /* 等首屏画完再起同步。用户正在登录时不跑：抓取会清 CookieManager，
+                   会把登录页刚拿到的会话一起清掉。 */
+                if (route != Route.ACCOUNT_LOGIN) {
+                    accountSyncJob = accountScope.launch {
+                        delay(AUTO_SYNC_DELAY_MS)
+                        /* 账号表读 DB/Keystore 之外的列，下 IO；判据本身仍是纯函数。 */
+                        val bound = withContext(Dispatchers.IO) { repository.accounts.list() }
+                        val lastSuccess = bound.mapNotNull { it.lastSyncAt }.maxOrNull()
+                        val decision = decideAutoSync(
+                            demo = demo,
+                            accounts = bound,
+                            syncing = accountSyncing != null || manualSyncBusy,
+                            online = hasValidatedNetwork(context),
+                            lastSuccessAt = lastSuccess,
+                            now = System.currentTimeMillis(),
+                            alreadyRanThisSession = autoSyncRan,
+                            /* 上次是瞬时失败？那半小时内不再自动重撞；
+                               手动刷新不走这条退避。 */
+                            lastTransientFailureAt = repository.prefs.lastTransientFailureAt
+                                .takeIf { it > 0 },
+                        )
+                        when (decision) {
+                            is AutoSyncDecision.Skip -> {
+                                Slog.i("AutoSync") { "skip: ${decision.reason}" }
+                                /* 无网络只留一句中性提示：不弹窗，也不写库。 */
+                                if (decision.offline) accountSyncMessage = "这次没联网，先没同步。"
+                            }
+                            is AutoSyncDecision.Run -> {
+                                autoSyncRan = true
+                                Slog.i("AutoSync") {
+                                    "run: " + decision.accounts.joinToString { it.platform.id }
+                                }
+                                // 状态行已由 runAccountSync 按账号汇总，这里不再覆盖。
+                                runAccountSync(decision.accounts, "AutoSync")
+                            }
+                        }
+                    }
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -247,7 +566,8 @@ fun ShowCodeRoot() {
         if (smsGranted) repository.backfillSms()
         if (advanceAfterSms) {
             advanceAfterSms = false
-            if (smsGranted) onboardStep = OnboardStep.NOTIFICATION
+            /* 允许/拒绝都继续往下走：短信不是必须补上的一步。 */
+            onboardStep = OnboardStep.NOTIFICATION
         }
     }
 
@@ -300,23 +620,29 @@ fun ShowCodeRoot() {
         route = Route.ONSITE
     }
 
-    fun enterDemo(key: String) {
+    /** 一键进入演示：从首页开场，而不是直接跳进某个点。 */
+    fun enterDemo() {
         demo = true
         demoPicked.clear()
-        pointKey = key
-        pointName = sampleGroups.firstOrNull { it.key == key }?.name.orEmpty()
+        demoIdentityCodes.clear()
+        demoIdentityCodes.addAll(DemoIdentity.seed(demoNow))
+        pointKey = ""
+        pointName = ""
         focusParcelId = null
-        route = Route.ONSITE
+        route = Route.HOME
     }
 
     /** 退出演示即清空演示痕迹；引导没走完时回到引导，而不是首页。 */
     fun exitDemo() {
         demo = false
         demoPicked.clear()
+        demoIdentityCodes.clear()
         if (repository.prefs.onboardingDone) {
             route = Route.HOME
         } else {
-            onboardStep = OnboardStep.SMS
+            /* 从引导页进的演示，退出就回到欢迎页：那颗「先看完整演示」还在原地，
+               可以马上再进一遍。 */
+            onboardStep = OnboardStep.WELCOME
             route = Route.ONBOARDING
         }
     }
@@ -334,9 +660,22 @@ fun ShowCodeRoot() {
                     demo = false
                     openPoint(key, realGroups.firstOrNull { it.key == key }?.name.orEmpty())
                 }
-                WidgetNav.ROUTE_DEMO -> enterDemo(sampleGroups.firstOrNull()?.key.orEmpty())
+                WidgetNav.ROUTE_DEMO -> enterDemo()
                 WidgetNav.ROUTE_UNRECOGNIZED -> route = Route.UNRECOGNIZED
                 WidgetNav.ROUTE_IDENTITY -> route = Route.IDENTITY_LIST
+                /* 划词进来：手动导入页带着那段原文。这里不自动跑解析，也不自动落库——
+                   用户按「自动提取」和「保存」各一下，是这一屏本来就有的两道确认。
+                   空文本什么都不做：它到不了这里（`TextIntake` 已经挡掉），
+                   但万一到了，停在原处比把人扔到首页更像话。 */
+                WidgetNav.ROUTE_MANUAL -> {
+                    val text = WidgetNav.textOf(intent).orEmpty()
+                    if (text.isNotEmpty()) {
+                        manualPrefill = text
+                        manualSourceBody = null
+                        manualReturn = Route.HOME
+                        route = Route.MANUAL_IMPORT
+                    }
+                }
                 else -> route = Route.HOME
             }
         }
@@ -347,7 +686,8 @@ fun ShowCodeRoot() {
        引导的第一步例外：那时没有「来路」可回，返回就该退出。 */
     BackHandler(enabled = route != Route.HOME && !(route == Route.ONBOARDING && onboardStep == OnboardStep.WELCOME)) {
         when (route) {
-            Route.ONSITE -> if (demo) exitDemo() else route = Route.HOME
+            // 演示从首页开场，返回就回演示首页；退出演示只走那条常驻的「退出」。
+            Route.ONSITE -> route = Route.HOME
             Route.TILES -> route = Route.ONSITE
             Route.POINT_DETAIL -> route = Route.HOME
             Route.MERGE_PREVIEW -> {
@@ -369,10 +709,9 @@ fun ShowCodeRoot() {
             Route.IDENTITY_SHOW -> route = Route.IDENTITY_LIST
             Route.NOTIFY_APPS -> route = notifyReturn
             Route.MANUAL_IMPORT -> route = manualReturn
-            Route.LOOKUP -> {
-                lookupPrefill = ""
-                route = lookupReturn
-            }
+            Route.ACCOUNT_LIST -> route = accountReturn
+            Route.ACCOUNT_LOGIN -> route = Route.ACCOUNT_LIST
+            Route.PARCEL_DETAIL -> route = parcelDetailReturn
             Route.ONBOARDING -> {
                 val steps = OnboardStep.entries
                 onboardStep = steps[(steps.indexOf(onboardStep) - 1).coerceAtLeast(0)]
@@ -385,6 +724,18 @@ fun ShowCodeRoot() {
         repository.healthReport(now)
     }
 
+    /* 后台可疑是首页唯一保留的说明（中性灰、可关闭）。关闭只对这一轮 lastSyncAt 有效：
+       真的同步过一次之后时间戳会变，问题再来时它会重新出现，既不会一次关掉永久失明，
+       也不会每次进首页都再弹一遍。 */
+    var backgroundNoteDismissedFor by remember {
+        mutableStateOf(repository.prefs.backgroundNoteDismissedForSyncAt)
+    }
+    val showBackgroundNote = shouldShowBackgroundNote(
+        worst = healthReport.worst,
+        lastSyncAt = appData.lastSyncAt,
+        dismissedForSyncAt = backgroundNoteDismissedFor,
+    )
+
     /* 剪贴板自动填的「这条你已经导过了」判据。两批都要：
        只取待取件的 raw 的话，用户从收容页那条复制原文回来会被再填一次——
        而那个列表存在的理由恰恰是「这条还没处理完」，不是「这条不存在」。
@@ -393,34 +744,53 @@ fun ShowCodeRoot() {
         appData.parcels.mapTo(mutableSetOf()) { bodyFingerprint(it.raw) } +
             appData.unrecognized.map { bodyFingerprint(it.body) }
     }
-    /* 最近查询过的快递单号（剪贴板里的），避免重复填。 */
-    val lookupHistory = rememberSaveable { mutableStateListOf<String>() }
 
-    val homeState = HomeUiState(
-        loaded = appData.loaded,
-        groups = realGroups,
-        empty = when {
-            !appData.loaded -> HomeEmpty.NONE
-            realGroups.isNotEmpty() -> HomeEmpty.NONE
-            appData.monthlyPicked > 0 -> HomeEmpty.ALL_DONE
-            else -> HomeEmpty.FIRST_TIME
-        },
-        monthlyPicked = appData.monthlyPicked,
-        lastSyncAt = appData.lastSyncAt,
-        syncing = appData.syncing,
-        lastSyncResult = appData.lastSyncResult,
-        lastSyncFailed = appData.lastSyncFailed,
-        unrecognizedCount = unrecognizedBadgeCount(appData.unrecognized),
-        /* 检索那句「你可能已经取过了」的依据。和下面的 recentlyPicked 不是一回事：
-           那栏是误触补救出口、只留窗口内那几条（判据在 core/recentlyPicked），
-           而一个月前取走的那件也值得被检索认出来。 */
-        pickedParcels = remember(appData.parcels) { appData.parcels.filter { it.picked } },
-        recentlyPicked = remember(appData.parcels, now) { recentlyPicked(appData.parcels, now) },
-        showWidgetHint = !repository.prefs.widgetHintDismissed && realGroups.isNotEmpty(),
-        smsPermissionGranted = smsGranted,
-        notificationAccessGranted = notificationGranted,
-        suspect = suspect,
-    )
+    val homeState = if (demo) {
+        /* 演示态完全独立：不读真实件、不读权限、不带任何同步/收容/提醒入口。
+           空态只剩「全部取完」——录制收尾那一段正好用上。 */
+        HomeUiState(
+            loaded = true,
+            groups = demoGroups,
+            empty = if (demoGroups.isEmpty()) HomeEmpty.ALL_DONE else HomeEmpty.NONE,
+            monthlyPicked = demoPicked.size,
+            lastSyncAt = demoNow,
+            syncing = false,
+            lastSyncResult = null,
+            lastSyncFailed = false,
+            unrecognizedCount = 0,
+            pickedParcels = demoParcels.filter { it.picked },
+            inTransit = emptyList(),
+            showWidgetHint = false,
+            smsPermissionGranted = true,
+            notificationAccessGranted = true,
+            suspect = null,
+        )
+    } else {
+        HomeUiState(
+            loaded = appData.loaded,
+            groups = realGroups,
+            empty = when {
+                !appData.loaded -> HomeEmpty.NONE
+                realGroups.isNotEmpty() || realInTransit.isNotEmpty() -> HomeEmpty.NONE
+                appData.monthlyPicked > 0 -> HomeEmpty.ALL_DONE
+                else -> HomeEmpty.FIRST_TIME
+            },
+            monthlyPicked = appData.monthlyPicked,
+            lastSyncAt = appData.lastSyncAt,
+            syncing = appData.syncing,
+            lastSyncResult = appData.lastSyncResult,
+            lastSyncFailed = appData.lastSyncFailed,
+            unrecognizedCount = unrecognizedBadgeCount(appData.unrecognized),
+            /* 检索那句「你可能已经取过了」的依据。已取的件不进待取区，但检索仍要能回答
+               「这串你今天已经取过了」——那是提示，不是一份已取列表。 */
+            pickedParcels = remember(appData.parcels) { appData.parcels.filter { it.picked } },
+            inTransit = realInTransit,
+            showWidgetHint = !repository.prefs.widgetHintDismissed && realGroups.isNotEmpty(),
+            smsPermissionGranted = smsGranted,
+            notificationAccessGranted = notificationGranted,
+            suspect = suspect,
+        )
+    }
 
     /* 底栏那层玻璃的输入。判决在 ui/glass/GlassCompat，这里只把它收齐——
        prefs 不是可观察的，所以用户刚在设置里改完的那一下必须由本地状态接住。 */
@@ -485,387 +855,614 @@ fun ShowCodeRoot() {
                 },
             ),
     ) {
-        Crossfade(
-            targetState = route,
-            animationSpec = MotionTokens.RouteChange,
+        /* 换屏分两层：三个主屏之间是**同一层连续运动**（NavigationPages，单进度、可中断接续），
+           进出子屏才是层级转场——推入 22dp / 前页让 6dp / hierarchySpring 0.76-220（教务 Page 同式）。
+           AnimatedContent 的 key 取「层」而不是 route：主屏互切不换层，任何子屏才真正换层。 */
+        val hierarchyEnterPx = with(scrollDensity) { MotionProfile.HierarchyEnterDp.dp.roundToPx() }
+        val hierarchyBehindPx = with(scrollDensity) { MotionProfile.HierarchyBehindDp.dp.roundToPx() }
+        AnimatedContent(
+            modifier = Modifier
+                .fillMaxSize()
+                /* 玻璃真正取样于这一层：没有它，底栏只是在内容上盖一层半透明白，
+                   背后的卡片标题会原样压进图标里（截屏可见）。 */
+                .layerBackdrop(glassBackdrop)
+                /* 启动入场：只在绘制 lambda 里读 contentProgress，避免每帧重组整棵树。
+                   alpha/translationY 与参考工程 MainActivity 的页面层同值（16dp）。 */
+                .graphicsLayer {
+                    val entry = StartupLogoAnimation.contentProgress
+                    alpha = entry
+                    translationY = (1f - entry) * 16.dp.toPx()
+                },
+            targetState = if (tabRoute != null) null else route,
+            transitionSpec = {
+                val forward = depthOf(targetState) >= depthOf(initialState)
+                val floatSpring = MotionProfile.hierarchySpring()
+                val offsetSpring = spring<IntOffset>(
+                    dampingRatio = 0.76f,
+                    stiffness = 220f,
+                    visibilityThreshold = IntOffset.VisibilityThreshold,
+                )
+                if (reducedMotion) {
+                    (fadeIn(snap()) togetherWith fadeOut(snap()))
+                } else if (forward) {
+                    // 推入：新页从右 +22dp 滑入，被盖住的前页向左让 6dp。
+                    (slideInHorizontally(offsetSpring) { hierarchyEnterPx } +
+                        fadeIn(floatSpring)) togetherWith
+                        (slideOutHorizontally(offsetSpring) { -hierarchyBehindPx } +
+                            fadeOut(floatSpring))
+                } else {
+                    // 弹出：顶层向右退回 +22dp，露出的前页从 -6dp 回位。
+                    (slideInHorizontally(offsetSpring) { -hierarchyBehindPx } +
+                        fadeIn(floatSpring)) togetherWith
+                        (slideOutHorizontally(offsetSpring) { hierarchyEnterPx } +
+                            fadeOut(floatSpring))
+                }
+            },
             label = "route",
         ) { currentRoute ->
-            when (currentRoute) {
-                Route.HOME -> HomeScreen(
-                    state = homeState,
-                    now = now,
-                    sampleGroups = sampleGroups,
-                    onOpenPoint = { key -> openPoint(key, realGroups.firstOrNull { it.key == key }?.name.orEmpty()) },
-                    onOpenDemo = { key -> enterDemo(key) },
-                    onRestoreParcel = { parcel -> repository.undoPicked(parcel.id) },
-                    report = healthReport,
-                    onOpenSettings = { route = Route.SETTINGS },
-                    onFixWorst = {
-                        when (healthReport.worst) {
-                            HealthIssue.SMS_DENIED -> requestSmsPermission()
-                            HealthIssue.NOTIFICATION_DENIED -> openNotificationSettings()
-                            else -> openAppDetails()
+            if (currentRoute == null) {
+                NavigationPages(state = navMotion) { page ->
+                    when (page) {
+                        0 -> HomeScreen(
+                            state = homeState,
+                            now = renderNow,
+                            headerMinimized = barMinimized,
+                            sampleGroups = sampleGroups,
+                            isDemo = demo,
+                            onExitDemo = { exitDemo() },
+                            onOpenPoint = { key ->
+                                openPoint(key, activeGroups.firstOrNull { it.key == key }?.name.orEmpty())
+                            },
+                            onOpenParcel = { parcel ->
+                                parcelDetailReturn = Route.HOME
+                                parcelDetailId = parcel.id
+                                route = Route.PARCEL_DETAIL
+                            },
+                            onOpenDemo = { enterDemo() },
+                            showBackgroundNote = showBackgroundNote,
+                            onDismissBackgroundNote = {
+                                val at = appData.lastSyncAt ?: 0L
+                                backgroundNoteDismissedFor = at
+                                repository.prefs.backgroundNoteDismissedForSyncAt = at
+                            },
+                            onOpenSettings = { route = Route.SETTINGS },
+                            onOpenUnrecognized = { route = Route.UNRECOGNIZED },
+                            onManualImport = {
+                                manualPrefill = ""
+                                manualSourceBody = null
+                                manualReturn = Route.HOME
+                                route = Route.MANUAL_IMPORT
+                            },
+                            onDismissWidgetHint = { repository.prefs.widgetHintDismissed = true },
+                            onPinWidget = { requestPinWidget() },
+                            onOpenAccounts = {
+                                accountReturn = Route.HOME
+                                route = Route.ACCOUNT_LIST
+                            },
+                            onOpenNotificationSettings = { openNotificationSettings() },
+                            onRefresh = { if (!demo) repository.refreshNow() },
+                            accountsSyncing = accountSyncing != null || manualSyncBusy,
+                            manualSyncMessage = manualSyncMessage,
+                            manualSyncFailedSignal = manualSyncFailSignal,
+                            onManualSync = { startManualSync() },
+                            /* 演示态没有「管理这个点」：那会进真实的合并/别名流程。
+                               长按菜单在这一态直接不提供。 */
+                            onManagePoint = if (demo) {
+                                null
+                            } else {
+                                { group ->
+                                    detailKey = group.key
+                                    route = Route.POINT_DETAIL
+                                }
+                            },
+                            onSuspectYes = { if (!demo) suspect?.let { openMergePreview(it.first, it.second) } },
+                            onSuspectNo = { if (!demo) suspect?.let { repository.dismissSuspect(it.dismissKey) } },
+                            mergeUndoName = if (demo) null else lastMerge?.targetName,
+                            onUndoMerge = {
+                                if (!demo) {
+                                    lastMerge?.let { repository.undoMerge(it.aliasKey) }
+                                    lastMerge = null
+                                }
+                            },
+                        )
+
+                        1 -> {
+                            /* 进这一格先擦掉上一轮的结局：挂着上一张那句「没打开」回到列表，
+                               会被读成「这一次也没打开」——而这一次你根本还没按。 */
+                            LaunchedEffect(Unit) { identityLaunch = null }
+                            IdentityListScreen(
+                                /* 演示态读演示码；三种写操作全部走内存分支，一行业都不进真实库。 */
+                                codes = if (demo) demoIdentityCodes.toList() else appData.identityCodes,
+                                // 该列哪几家是判据，在 core 那边筛（只列真装着的）。
+                                entries = DeepLinkLadder.entriesFor(installedApps.mapTo(mutableSetOf()) { it.packageName }),
+                                launch = identityLaunch,
+                                onAdd = { route = Route.IDENTITY_ADD },
+                                // 预置那一行不落库、不进出示屏：点一下就是那一下想要的跳转。
+                                // 用途跟着这一行走：淘宝/拼多多/菜鸟是身份码，京东/小红书是订单列表。
+                                onOpenEntry = { entry ->
+                                    identityLaunch = repository.openOfficialApp(entry.packageName, entry.purpose)
+                                },
+                                onPinEntry = { entry, label ->
+                                    ShortcutPinning.request(context, entry, label)
+                                },
+                                onShow = { code ->
+                                    identityShowId = code.id
+                                    route = Route.IDENTITY_SHOW
+                                },
+                                onToggleDynamic = { id, dynamic ->
+                                    if (demo) {
+                                        DemoIdentity.setDynamic(demoIdentityCodes, id, dynamic)
+                                    } else {
+                                        repository.setIdentityDynamic(id, dynamic)
+                                    }
+                                },
+                                onDelete = { id ->
+                                    if (demo) {
+                                        DemoIdentity.delete(demoIdentityCodes, id)
+                                    } else {
+                                        repository.deleteIdentityCode(id)
+                                    }
+                                },
+                            )
                         }
-                    },
-                    onOpenUnrecognized = { route = Route.UNRECOGNIZED },
-                    onManualImport = {
-                        manualPrefill = ""
-                        manualSourceBody = null
-                        manualReturn = Route.HOME
-                        route = Route.MANUAL_IMPORT
-                    },
-                    onDismissWidgetHint = { repository.prefs.widgetHintDismissed = true },
-                    onPinWidget = { requestPinWidget() },
-                    onRequestSmsPermission = { requestSmsPermission() },
-                    onOpenNotificationSettings = { openNotificationSettings() },
-                    onRefresh = { repository.refreshNow() },
-                    onManagePoint = { group ->
-                        detailKey = group.key
-                        route = Route.POINT_DETAIL
-                    },
-                    onSuspectYes = { suspect?.let { openMergePreview(it.first, it.second) } },
-                    onSuspectNo = { suspect?.let { repository.dismissSuspect(it.dismissKey) } },
-                    mergeUndoName = lastMerge?.targetName,
-                    onUndoMerge = {
-                        lastMerge?.let { repository.undoMerge(it.aliasKey) }
-                        lastMerge = null
-                    },
-                    onOpenLookup = {
-                        lookupPrefill = ""
-                        // 检查剪贴板内容
-                        val clipboardText = checkClipboard(context)
-                        if (clipboardText.isNotEmpty()) {
-                            lookupPrefill = clipboardText
-                        }
-                        lookupReturn = Route.HOME
-                        route = Route.LOOKUP
-                    },
-                )
 
-                Route.ONSITE -> {
-                    val group = activeGroups.firstOrNull { it.key == pointKey }
-                    OnsiteScreen(
-                        pointName = pointName,
-                        items = group?.items.orEmpty(),
-                        now = now,
-                        isDemo = demo,
-                        focusParcelId = focusParcelId,
-                        lastPickupAt = appData.lastPickupAt,
-                        allPickedHere = if (demo) {
-                            demoParcels.any { it.pointKey == pointKey && demoPicked.contains(it.id) }
-                        } else {
-                            appData.parcels.any { it.pointKey == pointKey && it.picked }
-                        },
-                        onBack = { if (demo) exitDemo() else route = Route.HOME },
-                        onExitDemo = { exitDemo() },
-                        onOpenTiles = { currentId ->
-                            focusParcelId = currentId
-                            route = Route.TILES
-                        },
-                        familyLabel = familyLabel,
-                        onMarkPicked = { parcel ->
-                            if (demo) demoPicked.add(parcel.id) else repository.markPicked(parcel.id)
-                        },
-                        onUndoPicked = { parcel ->
-                            if (demo) demoPicked.remove(parcel.id) else repository.undoPicked(parcel.id)
-                        },
-                        onRefresh = { if (!demo) repository.refreshNow() },
-                    )
-                }
-
-                Route.TILES -> {
-                    val group = activeGroups.firstOrNull { it.key == pointKey }
-                    TilesScreen(
-                        pointName = pointName,
-                        items = group?.items.orEmpty(),
-                        isDemo = demo,
-                        onBack = { route = Route.ONSITE },
-                        onPick = { parcel ->
-                            focusParcelId = parcel.id
-                            route = Route.ONSITE
-                        },
-                    )
-                }
-
-                Route.SETTINGS -> SettingsScreen(
-                    thresholds = thresholds,
-                    parcels = appData.parcels,
-                    now = now,
-                    report = healthReport,
-                    smsGranted = smsGranted,
-                    notificationEnabled = notificationGranted,
-                    unrecognizedCount = unrecognizedBadgeCount(appData.unrecognized),
-                    ruleCount = appData.rules.size,
-                    onOpenRules = {
-                        ruleReturn = Route.SETTINGS
-                        route = Route.RULES
-                    },
-                    notifyCount = appData.notifyApps.size,
-                    reminderOn = repository.prefs.reminderOn,
-                    onReminderOn = { on ->
-                        repository.prefs.reminderOn = on
-                        /* 在他**主动要这条提醒**的这一刻才问权限，不在启动时拦人。
-                           拒了也不回滚开关：那一格下面会红着一行说「没给权限它不会响」，
-                           比偷偷关掉一个他刚打开的开关诚实。 */
-                        if (on && !canPostNotifications) {
-                            postNotificationLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                        }
-                    },
-                    notificationGranted = canPostNotifications,
-                    /* 开关显示的**就是**存下来的偏好：熔断那一档已经按家族的做法去掉了
-                       （只取证不动作），所以不再有"开关写着开、其实没玻璃"这种状态。 */
-                    glassBarOn = glassBarOn,
-                    glassBarAvailable = Build.VERSION.SDK_INT >= GlassCompat.MIN_BACKDROP_SDK,
-                    onGlassBarOn = { on ->
-                        glassBarOn = on
-                        repository.prefs.glassBarOn = on
-                    },
-                    onOpenNotify = {
-                        notifyReturn = Route.SETTINGS
-                        route = Route.NOTIFY_APPS
-                    },
-                    onOpenUnrecognized = {
-                        unrecognizedReturn = Route.SETTINGS
-                        route = Route.UNRECOGNIZED
-                    },
-                    familyLabel = familyLabel,
-                    onFamilyLabel = {
-                        repository.prefs.familyLabel = it
-                        familyLabel = repository.prefs.familyLabel
-                    },
-                    onLockerHours = { repository.setLockerDueSoonHours(it) },
-                    onStationMinutes = { repository.setStationDueSoonMinutes(it) },
-                    onRestoreDefaults = { repository.restoreThresholdDefaults() },
-                    onRequestSms = { requestSmsPermission() },
-                    onOpenNotificationSettings = { openNotificationSettings() },
-                    onOpenAppDetails = { openAppDetails() },
-                )
-
-                Route.LOOKUP -> dev.showcode.ui.tools.LookupTabScreen(
-                    prefilledText = lookupPrefill,
-                    knownBodies = knownBodies,
-                    history = lookupHistory,
-                    onBack = {
-                        lookupPrefill = ""
-                        route = lookupReturn
-                    },
-                    onSave = { code, pointName, lockerNo, raw ->
-                        val stored = repository.manualAdd(code, pointName, lockerNo, raw)
-                        if (stored) {
-                            // 记入历史记录（去重后加到头部，最多保留 10 条）
-                            lookupHistory.removeAll { it == raw }
-                            lookupHistory.add(0, raw)
-                            if (lookupHistory.size > 10) lookupHistory.removeAt(10)
-                            lookupPrefill = ""
-                            // 成功就回首页
-                            route = lookupReturn
-                        }
-                        stored
-                    },
-                )
-
-                Route.UNRECOGNIZED -> UnrecognizedScreen(
-                    messages = appData.unrecognized,
-                    mutedSenders = appData.mutedSenders,
-                    now = now,
-                    onBack = { route = unrecognizedReturn },
-                    onExtract = { message ->
-                        manualPrefill = message.body
-                        manualSourceBody = message.body
-                        manualReturn = Route.UNRECOGNIZED
-                        route = Route.MANUAL_IMPORT
-                    },
-                    onDismiss = { message -> repository.dismissUnrecognized(message.id) },
-                    onMuteSender = { message -> repository.muteSender(message.sender) },
-                    onUnmuteSender = { key -> repository.unmuteSender(key) },
-                    onWriteRule = { message ->
-                        rulePrefillRaw = message.body
-                        ruleReturn = Route.UNRECOGNIZED
-                        route = Route.RULE_EDIT
-                    },
-                )
-
-                Route.RULES -> RuleListScreen(
-                    rules = appData.rules,
-                    onBack = { route = ruleReturn },
-                    onAdd = {
-                        rulePrefillRaw = ""
-                        route = Route.RULE_EDIT
-                    },
-                    onToggle = { id, enabled -> repository.setRuleEnabled(id, enabled) },
-                    onDelete = { id -> repository.deleteParseRule(id) },
-                )
-
-                Route.RULE_EDIT -> RuleEditScreen(
-                    prefillRaw = rulePrefillRaw,
-                    now = now,
-                    onBack = { route = Route.RULES },
-                    onCheck = { pattern, pointName, sample ->
-                        repository.checkRule(pattern, pointName, sample, appData.rules.size)
-                    },
-                    onSave = { pattern, pointName, lockerNo -> repository.addParseRule(pattern, pointName, lockerNo) },
-                )
-
-                Route.IDENTITY_LIST -> {
-                    /* 进这一格先擦掉上一轮的结局：挂着上一张那句「没打开」回到列表，
-                       会被读成「这一次也没打开」——而这一次你根本还没按。 */
-                    LaunchedEffect(Unit) { identityLaunch = null }
-                    IdentityListScreen(
-                        codes = appData.identityCodes,
-                        // 该列哪几家是判据，在 core 那边筛（只列真装着的）。
-                        entries = DeepLinkLadder.entriesFor(installedApps.mapTo(mutableSetOf()) { it.packageName }),
-                        launch = identityLaunch,
-                        onAdd = { route = Route.IDENTITY_ADD },
-                        // 预置那一行不落库、不进出示屏：点一下就是那一下想要的跳转。
-                        onOpenEntry = { pkg -> identityLaunch = repository.openOfficialApp(pkg) },
-                        onShow = { code ->
-                            identityShowId = code.id
-                            route = Route.IDENTITY_SHOW
-                        },
-                        onToggleDynamic = { id, dynamic -> repository.setIdentityDynamic(id, dynamic) },
-                        onDelete = { id -> repository.deleteIdentityCode(id) },
-                    )
-                }
-
-                Route.IDENTITY_ADD -> IdentityEditScreen(
-                    existingCount = appData.identityCodes.size,
-                    apps = installedApps,
-                    onBack = { route = Route.IDENTITY_LIST },
-                    onSave = { label, value, kind, dynamic, note, appPackage ->
-                        repository.addIdentityCode(label, value, kind, dynamic, note, appPackage)
-                    },
-                )
-
-                Route.IDENTITY_SHOW -> {
-                    /* 按 id 现取。那张码可能刚被删掉，这时候必须退回去，而不是继续出示一张
-                       已经不存在的码——它屏上看起来仍然完全正常，而那正是最坏的失效。 */
-                    val code = appData.identityCodes.firstOrNull { it.id == identityShowId }
-                    if (code == null) {
-                        LaunchedEffect(Unit) { route = Route.IDENTITY_LIST }
-                    } else {
-                        /* 进屏先算一次装没装、并把上一轮的跳转结局擦掉。两件事都不能只靠 ON_RESUME：
-                           冷启动之后 设置 → 身份码 → 出示 这条路上不会再有一次 resume，而留着上一轮的
-                           「没装」会让人以为这次也没装。 */
-                        LaunchedEffect(code.id) {
-                            identityLaunch = null
-                            identityAppInstalled = code.appPackage?.let { repository.isAppInstalled(it) } == true
-                        }
-                        IdentityShowScreen(
-                            code = code,
-                            appInstalled = identityAppInstalled,
-                            launch = identityLaunch,
-                            onBack = { route = Route.IDENTITY_LIST },
-                            onOpenApp = { openOfficialApp(code) },
+                        2 -> SettingsScreen(
+                            thresholds = if (demo) demoThresholds else thresholds,
+                            parcels = if (demo) demoParcels else appData.parcels,
+                            now = renderNow,
+                            report = healthReport,
+                            smsGranted = if (demo) true else smsGranted,
+                            notificationEnabled = if (demo) true else notificationGranted,
+                            unrecognizedCount = if (demo) 0 else unrecognizedBadgeCount(appData.unrecognized),
+                            ruleCount = if (demo) 0 else appData.rules.size,
+                            onOpenRules = {
+                                ruleReturn = Route.SETTINGS
+                                route = Route.RULES
+                            },
+                            notifyCount = if (demo) 0 else appData.notifyApps.size,
+                            reminderOn = if (demo) false else repository.prefs.reminderOn,
+                            onReminderOn = { on ->
+                                if (!demo) repository.prefs.reminderOn = on
+                                /* 在他**主动要这条提醒**的这一刻才问权限，不在启动时拦人。
+                                   拒了也不回滚开关：那一格下面会红着一行说「没给权限它不会响」，
+                                   比偷偷关掉一个他刚打开的开关诚实。 */
+                                if (on && !canPostNotifications && !demo) {
+                                    postNotificationLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            },
+                            notificationGranted = canPostNotifications,
+                            accountCount = if (demo) demoAccounts.size else accounts.size,
+                            accountIssue = if (demo) false else accounts.any { it.state != AccountState.ACTIVE },
+                            onOpenAccounts = {
+                                accountReturn = Route.SETTINGS
+                                route = Route.ACCOUNT_LIST
+                            },
+                            /* 开关显示的**就是**存下来的偏好：熔断那一档已经按家族的做法去掉了
+                               （只取证不动作），所以不再有"开关写着开、其实没玻璃"这种状态。 */
+                            glassBarOn = glassBarOn,
+                            glassBarAvailable = Build.VERSION.SDK_INT >= GlassCompat.MIN_BACKDROP_SDK,
+                            onGlassBarOn = { on ->
+                                if (!demo) {
+                                    glassBarOn = on
+                                    repository.prefs.glassBarOn = on
+                                }
+                            },
+                            onOpenNotify = {
+                                notifyReturn = Route.SETTINGS
+                                route = Route.NOTIFY_APPS
+                            },
+                            onOpenUnrecognized = {
+                                unrecognizedReturn = Route.SETTINGS
+                                route = Route.UNRECOGNIZED
+                            },
+                            familyLabel = if (demo) "妈妈" else familyLabel,
+                            onFamilyLabel = {
+                                if (!demo) {
+                                    repository.prefs.familyLabel = it
+                                    familyLabel = repository.prefs.familyLabel
+                                }
+                            },
+                            onLockerHours = { if (!demo) repository.setLockerDueSoonHours(it) },
+                            onStationMinutes = { if (!demo) repository.setStationDueSoonMinutes(it) },
+                            onRestoreDefaults = { if (!demo) repository.restoreThresholdDefaults() },
+                            onRequestSms = { if (!demo) requestSmsPermission() },
+                            onOpenNotificationSettings = { if (!demo) openNotificationSettings() },
+                            onOpenAppDetails = { if (!demo) openAppDetails() },
+                            isDemo = demo,
+                            onExitDemo = { exitDemo() },
+                            onStartDemo = { enterDemo() },
                         )
                     }
                 }
+            } else {
+                when (currentRoute) {
+                    Route.ONSITE -> {
+                        val group = activeGroups.firstOrNull { it.key == pointKey }
+                        OnsiteScreen(
+                            pointKey = pointKey,
+                            pointName = pointName,
+                            pointKind = group?.kind,
+                            items = group?.items.orEmpty(),
+                            now = renderNow,
+                            isDemo = demo,
+                            focusParcelId = focusParcelId,
+                            lastPickupAt = if (demo) demoNow else appData.lastPickupAt,
+                            allPickedHere = if (demo) {
+                                demoParcels.any { it.pointKey == pointKey && demoPicked.contains(it.id) }
+                            } else {
+                                appData.parcels.any { it.pointKey == pointKey && it.picked }
+                            },
+                            nextStop = nextStop,
+                            onBack = { route = Route.HOME },
+                            onExitDemo = { exitDemo() },
+                            onOpenTiles = { currentId ->
+                                focusParcelId = currentId
+                                route = Route.TILES
+                            },
+                            familyLabel = familyLabel,
+                            onMarkPicked = { parcel ->
+                                if (demo) demoPicked.add(parcel.id) else repository.markPicked(parcel.id)
+                            },
+                            onUndoPicked = { parcel ->
+                                if (demo) demoPicked.remove(parcel.id) else repository.undoPicked(parcel.id)
+                            },
+                            onOpenNextPoint = { stop -> openPoint(stop.key, stop.name) },
+                            onRefresh = { if (!demo) repository.refreshNow() },
+                            /* 只走淘宝自己：没装时不要落到浏览器兜底（那条 tbopen 深链会被
+                               Chrome 接住），而是让现场体给「已复制单号，去淘宝粘贴搜索」。 */
+                            onOpenTaobao = {
+                                if (demo) dev.showcode.core.LaunchOutcome.Opened
+                                else repository.openTaobaoLookup()
+                            },
+                            onOpenParcelDetail = { parcel ->
+                                parcelDetailReturn = Route.ONSITE
+                                parcelDetailId = parcel.id
+                                route = Route.PARCEL_DETAIL
+                            },
+                        )
+                    }
 
-                Route.NOTIFY_APPS -> NotifyAppsScreen(
-                    apps = appData.notifyApps,
-                    now = now,
-                    onBack = { route = notifyReturn },
-                    onToggle = { pkg, disabled -> repository.setNotifyAppDisabled(pkg, disabled) },
-                )
+                    Route.TILES -> {
+                        val group = activeGroups.firstOrNull { it.key == pointKey }
+                        TilesScreen(
+                            pointName = pointName,
+                            items = group?.items.orEmpty(),
+                            isDemo = demo,
+                            onBack = { route = Route.ONSITE },
+                            onPick = { parcel ->
+                                focusParcelId = parcel.id
+                                route = Route.ONSITE
+                            },
+                        )
+                    }
 
-                Route.MANUAL_IMPORT -> ManualImportScreen(
-                    prefillRaw = manualPrefill,
-                    knownBodies = knownBodies,
-                    // 芯片只有四个位置，最常用的那个必须在第一个：按该点现有件数排。
-                    knownPoints = appData.parcels.groupingBy { it.pointName }.eachCount()
-                        .entries.sortedByDescending { it.value }.map { it.key },
-                    onBack = { route = manualReturn },
-                    onSave = { code, name, locker, raw, owner ->
-                        val stored = repository.manualAdd(code, name, locker, raw, owner, resolvesUnrecognizedOf = manualSourceBody)
-                        if (stored) {
-                            manualSourceBody = null
-                            manualPrefill = ""
-                            // 从引导里手动导入成功 = 用户已经拿到价值，引导可以收尾了
-                            if (manualReturn == Route.ONBOARDING) repository.prefs.onboardingDone = true
-                            manualReturn = Route.HOME
-                            route = Route.HOME
-                        }
-                        // 失败时留在原地：用户已经打好的字不能被清掉，那比一句报错重要。
-                        stored
-                    },
-                )
 
-                Route.POINT_DETAIL -> {
-                    val group = realGroups.firstOrNull { it.key == detailKey }
-                    val history = remember(detailKey, appData.aliases) { repository.mergeHistoryFor(detailKey) }
-                    PointDetailScreen(
-                        group = group,
-                        history = history,
-                        otherGroups = realGroups,
-                        aliases = appData.aliases,
+                    Route.UNRECOGNIZED -> UnrecognizedScreen(
+                        messages = appData.unrecognized,
+                        mutedSenders = appData.mutedSenders,
                         now = now,
-                        onBack = { route = Route.HOME },
-                        onOpenPoint = { g -> openPoint(g.key, g.name) },
-                        onSplit = { alias -> repository.undoMerge(alias.aliasKey) },
-                        onSetOwner = { parcel, owner -> repository.setParcelOwner(parcel.id, owner) },
-                        onMergeOtherIntoThis = { other ->
-                            group?.let { openMergePreview(other, it, preferTarget = it) }
+                        onBack = { route = unrecognizedReturn },
+                        onExtract = { message ->
+                            manualPrefill = message.body
+                            manualSourceBody = message.body
+                            manualReturn = Route.UNRECOGNIZED
+                            route = Route.MANUAL_IMPORT
+                        },
+                        onDismiss = { message -> repository.dismissUnrecognized(message.id) },
+                        onMuteSender = { message -> repository.muteSender(message.sender) },
+                        onUnmuteSender = { key -> repository.unmuteSender(key) },
+                        onWriteRule = { message ->
+                            rulePrefillRaw = message.body
+                            ruleReturn = Route.UNRECOGNIZED
+                            route = Route.RULE_EDIT
                         },
                     )
-                }
 
-                Route.MERGE_PREVIEW -> pendingMerge?.let { preview ->
-                    MergePreviewScreen(
-                        preview = preview,
-                        keepTarget = keepTarget,
-                        onKeepTarget = { keepTarget = it },
-                        onConfirm = { confirmMerge() },
-                        onCancel = { pendingMerge = null; route = mergeReturn },
+                    Route.RULES -> RuleListScreen(
+                        rules = appData.rules,
+                        onBack = { route = ruleReturn },
+                        onAdd = {
+                            rulePrefillRaw = ""
+                            route = Route.RULE_EDIT
+                        },
+                        onToggle = { id, enabled -> repository.setRuleEnabled(id, enabled) },
+                        onDelete = { id -> repository.deleteParseRule(id) },
                     )
-                }
 
-                Route.ONBOARDING -> OnboardingScreen(
-                    step = onboardStep,
-                    report = healthReport,
-                    smsGranted = smsGranted,
-                    notificationEnabled = notificationGranted,
-                    widgetAdded = widgetAdded,
-                    smsAttempted = smsAttempted,
-                    onStep = { onboardStep = it },
-                    onEnterDemo = { enterDemo(sampleGroups.firstOrNull()?.key.orEmpty()) },
-                    onRequestSms = { requestSmsPermission(fromOnboarding = true) },
-                    onOpenNotificationSettings = { openNotificationSettings() },
-                    onPinWidget = { requestPinWidget() },
-                    onManualImport = {
-                        manualPrefill = ""
-                        manualSourceBody = null
-                        manualReturn = Route.ONBOARDING
-                        route = Route.MANUAL_IMPORT
-                    },
-                    onFinish = {
-                        repository.prefs.onboardingDone = true
-                        onboardStep = OnboardStep.WELCOME
-                        route = Route.HOME
-                    },
-                )
+                    Route.RULE_EDIT -> RuleEditScreen(
+                        prefillRaw = rulePrefillRaw,
+                        now = now,
+                        onBack = { route = Route.RULES },
+                        onCheck = { pattern, pointName, sample ->
+                            repository.checkRule(pattern, pointName, sample, appData.rules.size)
+                        },
+                        onSave = { pattern, pointName, lockerNo -> repository.addParseRule(pattern, pointName, lockerNo) },
+                    )
+
+                    Route.IDENTITY_ADD -> IdentityEditScreen(
+                        existingCount = if (demo) demoIdentityCodes.size else appData.identityCodes.size,
+                        apps = installedApps,
+                        onBack = { route = Route.IDENTITY_LIST },
+                        onSave = { label, value, kind, dynamic, note, appPackage ->
+                            if (demo) {
+                                /* 演示态落内存、id 取负数；校验已经在编辑屏里跑过一遍。 */
+                                DemoIdentity.add(
+                                    demoIdentityCodes, label, value, kind, dynamic, note, appPackage, demoNow,
+                                )
+                            } else {
+                                repository.addIdentityCode(label, value, kind, dynamic, note, appPackage)
+                            }
+                        },
+                    )
+
+                    Route.IDENTITY_SHOW -> {
+                        /* 按 id 现取。那张码可能刚被删掉，这时候必须退回去，而不是继续出示一张
+                           已经不存在的码——它屏上看起来仍然完全正常，而那正是最坏的失效。 */
+                        val codes = if (demo) demoIdentityCodes else appData.identityCodes
+                        val code = codes.firstOrNull { it.id == identityShowId }
+                        if (code == null) {
+                            LaunchedEffect(Unit) { route = Route.IDENTITY_LIST }
+                        } else {
+                            /* 进屏先算一次装没装、并把上一轮的跳转结局擦掉。两件事都不能只靠 ON_RESUME：
+                               冷启动之后 设置 → 身份码 → 出示 这条路上不会再有一次 resume，而留着上一轮的
+                               「没装」会让人以为这次也没装。 */
+                            LaunchedEffect(code.id) {
+                                identityLaunch = null
+                                identityAppInstalled = code.appPackage?.let { repository.isAppInstalled(it) } == true
+                            }
+                            IdentityShowScreen(
+                                code = code,
+                                appInstalled = identityAppInstalled,
+                                launch = identityLaunch,
+                                onBack = { route = Route.IDENTITY_LIST },
+                                onOpenApp = { openOfficialApp(code) },
+                            )
+                        }
+                    }
+
+                    Route.NOTIFY_APPS -> NotifyAppsScreen(
+                        apps = appData.notifyApps,
+                        now = now,
+                        onBack = { route = notifyReturn },
+                        onToggle = { pkg, disabled -> repository.setNotifyAppDisabled(pkg, disabled) },
+                    )
+
+                    Route.ACCOUNT_LIST -> AccountListScreen(
+                        accounts = if (demo) demoAccounts else accounts,
+                        onBack = { route = accountReturn },
+                        onLogin = { platform ->
+                            if (!demo) {
+                                /* 进入登录路由先停掉正在跑的抓取：它清理 Cookie 的时机
+                                   不能落在用户刚拿到登录会话之后。 */
+                                accountSyncJob?.cancel()
+                                accountSyncJob = null
+                                accountSyncing = null
+                                manualSyncBusy = false
+                                loginPlatformId = platform.id
+                                route = Route.ACCOUNT_LOGIN
+                            }
+                        },
+                        onToggle = { account, enabled ->
+                            if (!demo) {
+                                repository.accounts.setEnabled(account, enabled)
+                                accounts = repository.accounts.list()
+                            }
+                        },
+                        onDelete = { account ->
+                            if (!demo) {
+                                repository.accounts.remove(account)
+                                accounts = repository.accounts.list()
+                            }
+                        },
+                        syncing = if (demo) null else accountSyncing,
+                        syncMessage = if (demo) null else accountSyncMessage,
+                        onSync = { account ->
+                            if (!demo && accountSyncing == null) {
+                                accountSyncing = account.id
+                                accountSyncMessage = null
+                                accountScope.launch {
+                                    val result = AccountSyncEngine.sync(
+                                        context as? android.app.Activity,
+                                        repository,
+                                        account,
+                                    )
+                                    accountSyncing = null
+                                    /* 账号表读在 IO；失败原因也在这份新快照里取，主线程不做 DB 读。 */
+                                    val fresh = withContext(Dispatchers.IO) { repository.accounts.list() }
+                                    accounts = fresh
+                                    accountSyncMessage = when {
+                                        /* 失败原因已经写进账号状态里；直接把它抬到这条消息上，
+                                           别让用户只看到一句「没同步上」却不知道要不要重新登录。 */
+                                        result == null -> fresh.firstOrNull { it.id == account.id }
+                                            ?.lastSyncResult
+                                            ?: "这次没同步上"
+                                        result.added == 0 && result.updated == 0 -> "同步成功 · 没有新件"
+                                        else -> "新增 ${result.added} · 更新 ${result.updated}"
+                                    }
+                                }
+                            }
+                        },
+                        onDebugImport = if (BuildConfig.DEBUG && !demo) {
+                            {
+                                val cookie = android.webkit.CookieManager.getInstance()
+                                    .getCookie(Platform.PDD.cookieHost).orEmpty()
+                                if (dev.showcode.core.account.Session.parse(cookie).has(Platform.PDD)) {
+                                    /* 调试入口也要走兜底：加密失败只是不绑定，不崩。 */
+                                    if (repository.accounts.bind(Platform.PDD, null, cookie)
+                                            is dev.showcode.data.AccountStore.BindResult.Ok
+                                    ) {
+                                        accounts = repository.accounts.list()
+                                    }
+                                }
+                            }
+                        } else {
+                            null
+                        },
+                    )
+
+                    Route.ACCOUNT_LOGIN -> {
+                        val platform = Platform.of(loginPlatformId) ?: Platform.PDD
+                        PlatformLoginScreen(
+                            platform = platform,
+                            onBack = { route = Route.ACCOUNT_LIST },
+                            onBound = { cookie ->
+                                /* 加密/写库都下 IO；成功才换路由。失败返回 false，
+                                   登录页留在原地给可重试提示，既有账号状态不动。 */
+                                val saved = withContext(Dispatchers.IO) {
+                                    when (val bind = repository.accounts.bind(platform, null, cookie)) {
+                                        is dev.showcode.data.AccountStore.BindResult.Ok ->
+                                            repository.accounts.list() to true
+                                        dev.showcode.data.AccountStore.BindResult.Failed ->
+                                            emptyList<dev.showcode.core.account.BoundAccount>() to false
+                                    }
+                                }
+                                if (saved.second) {
+                                    accounts = saved.first
+                                    route = Route.ACCOUNT_LIST
+                                }
+                                saved.second
+                            },
+                        )
+                    }
+
+                    Route.PARCEL_DETAIL -> {
+                        /* 演示态从独立内存集取件，绝不回落到真实包裹表。 */
+                        val parcel = if (demo) {
+                            demoParcels.firstOrNull { it.id == parcelDetailId }
+                        } else {
+                            appData.parcels.firstOrNull { it.id == parcelDetailId }
+                        }
+                        ParcelDetailScreen(
+                            parcel = parcel,
+                            onBack = { route = parcelDetailReturn },
+                            onOpenTaobao = {
+                                if (demo) dev.showcode.core.LaunchOutcome.Opened
+                                else repository.openTaobaoLookup()
+                            },
+                            isDemo = demo,
+                        )
+                    }
+
+                    Route.MANUAL_IMPORT -> ManualImportScreen(
+                        prefillRaw = manualPrefill,
+                        knownBodies = knownBodies,
+                        // 芯片只有四个位置，最常用的那个必须在第一个：按该点现有件数排。
+                        knownPoints = appData.parcels.groupingBy { it.pointName }.eachCount()
+                            .entries.sortedByDescending { it.value }.map { it.key },
+                        onBack = { route = manualReturn },
+                        onSave = { code, name, locker, raw, owner ->
+                            val stored = repository.manualAdd(code, name, locker, raw, owner, resolvesUnrecognizedOf = manualSourceBody)
+                            if (stored) {
+                                manualSourceBody = null
+                                manualPrefill = ""
+                                // 从引导里手动导入成功 = 用户已经拿到价值，引导可以收尾了
+                                if (manualReturn == Route.ONBOARDING) repository.prefs.onboardingDone = true
+                                manualReturn = Route.HOME
+                                route = Route.HOME
+                            }
+                            // 失败时留在原地：用户已经打好的字不能被清掉，那比一句报错重要。
+                            stored
+                        },
+                    )
+
+                    Route.POINT_DETAIL -> {
+                        val group = realGroups.firstOrNull { it.key == detailKey }
+                        val history = remember(detailKey, appData.aliases) { repository.mergeHistoryFor(detailKey) }
+                        PointDetailScreen(
+                            group = group,
+                            history = history,
+                            otherGroups = realGroups,
+                            aliases = appData.aliases,
+                            now = now,
+                            onBack = { route = Route.HOME },
+                            onOpenPoint = { g -> openPoint(g.key, g.name) },
+                            onSplit = { alias -> repository.undoMerge(alias.aliasKey) },
+                            onSetOwner = { parcel, owner -> repository.setParcelOwner(parcel.id, owner) },
+                            onMergeOtherIntoThis = { other ->
+                                group?.let { openMergePreview(other, it, preferTarget = it) }
+                            },
+                        )
+                    }
+
+                    Route.MERGE_PREVIEW -> pendingMerge?.let { preview ->
+                        MergePreviewScreen(
+                            preview = preview,
+                            keepTarget = keepTarget,
+                            onKeepTarget = { keepTarget = it },
+                            onConfirm = { confirmMerge() },
+                            onCancel = { pendingMerge = null; route = mergeReturn },
+                        )
+                    }
+
+                    Route.ONBOARDING -> OnboardingScreen(
+                        step = onboardStep,
+                        report = healthReport,
+                        accountCount = accounts.size,
+                        smsGranted = smsGranted,
+                        notificationEnabled = notificationGranted,
+                        widgetAdded = widgetAdded,
+                        smsAttempted = smsAttempted,
+                        onStep = { onboardStep = it },
+                        onEnterDemo = { enterDemo() },
+                        onOpenAccounts = {
+                            accountReturn = Route.ONBOARDING
+                            route = Route.ACCOUNT_LIST
+                        },
+                        onRequestSms = { requestSmsPermission(fromOnboarding = true) },
+                        onOpenNotificationSettings = { openNotificationSettings() },
+                        onPinWidget = { requestPinWidget() },
+                        onManualImport = {
+                            manualPrefill = ""
+                            manualSourceBody = null
+                            manualReturn = Route.ONBOARDING
+                            route = Route.MANUAL_IMPORT
+                        },
+                        onFinish = {
+                            repository.prefs.onboardingDone = true
+                            onboardStep = OnboardStep.WELCOME
+                            route = Route.HOME
+                        },
+                    )
+
+                    // 三个主屏永远在 NavigationPages 那一层，这里不会到达。
+                    else -> Unit
+                }
             }
         }
 
         /* 三个主屏共用的底栏。子屏不画它：现场模式那一屏只该有那张码和那颗按钮，一排键摆在那儿
            是挡道的；引导屏也没有「另一个去处」可言。 */
         if (route == Route.HOME || route == Route.IDENTITY_LIST || route == Route.SETTINGS) {
-            ShowCodeNavBar(
-                current = when (route) {
-                    Route.IDENTITY_LIST -> NavBarTab.IDENTITY
-                    Route.SETTINGS -> NavBarTab.SETTINGS
-                    else -> NavBarTab.HOME
-                },
-                onHome = { route = Route.HOME },
-                onIdentity = { route = Route.IDENTITY_LIST },
-                onSettings = { route = Route.SETTINGS },
-                modifier = Modifier.align(Alignment.BottomCenter),
-                minimized = barMinimized,
-                onExpandRequest = { barMinimized = false },
-                tier = glassTier,
-                backdrop = glassBackdrop,
-                highTextContrast = highTextContrast,
-                lensFreshness = lensFreshness,
-            )
+            /* 导航运动状态经 CompositionLocal 发下去：底栏松手时要把位置与速度播种进同一发条。
+               「页面与胶囊是同一个动作」就是在这里握的手（教务同款接线）。 */
+            CompositionLocalProvider(LocalNavigationMotion provides navMotion) {
+                ShowCodeNavBar(
+                    current = when (route) {
+                        Route.IDENTITY_LIST -> NavBarTab.IDENTITY
+                        Route.SETTINGS -> NavBarTab.SETTINGS
+                        else -> NavBarTab.HOME
+                    },
+                    onHome = { route = Route.HOME },
+                    onIdentity = { route = Route.IDENTITY_LIST },
+                    onSettings = { route = Route.SETTINGS },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        /* 底栏比页面晚 15% 入场、位移 12dp；只加绘制层，不改底栏内部。 */
+                        .graphicsLayer {
+                            val entry = StartupChoreography.navEntry(StartupLogoAnimation.contentProgress)
+                            alpha = entry
+                            translationY = (1f - entry) * 12.dp.toPx()
+                        },
+                    minimized = barMinimized,
+                    onExpandRequest = { barMinimized = false },
+                    tier = glassTier,
+                    backdrop = glassBackdrop,
+                    highTextContrast = highTextContrast,
+                    lensFreshness = lensFreshness,
+                )
+            }
         }
     }
 
 }
+

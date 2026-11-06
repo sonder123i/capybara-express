@@ -87,8 +87,14 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.core:core-ktx:1.16.0")
+    /* 系统 splash 只负责首帧；启动动画靠 setOnExitAnimationListener 接住图标 bounds。
+       版本与只读参考工程一致。 */
+    implementation("androidx.core:core-splashscreen:1.2.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    /* document-start JS 注入（账号同步的 WebView 钩子）从 P1 起转正。 */
+    implementation("androidx.webkit:webkit:1.14.0")
 
     /* 折射引擎的 GL 冒烟探针（androidTest）：EGL/着色器在这台设备上起不起来。 */
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

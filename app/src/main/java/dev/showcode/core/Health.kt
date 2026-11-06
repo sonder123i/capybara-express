@@ -6,13 +6,11 @@ package dev.showcode.core
  * 所以这个模型必须常驻自检，不能只在 onboarding 检查一次。
  */
 enum class HealthIssue {
-    /** 短信权限被拒或被系统收回：主通道没了。 */
-    SMS_DENIED,
-
-    /** 通知监听没开：微信/菜鸟/京东/丰巢 的推送来源全漏。 */
-    NOTIFICATION_DENIED,
-
-    /** 权限都正常却长时间没同步过：最可能的解释是后台进程被国产 ROM 杀了。 */
+    /**
+     * 权限都正常却长时间没同步过：最可能的解释是后台进程被国产 ROM 杀了。
+     * 这是唯一会进 [HealthReport.issues] 的项——它对应「件可能根本没进来」，
+     * 而短信、通知监听只是补充手段：没开不该在首页常驻报警，只在设置里留中性条目。
+     */
     BACKGROUND_SUSPECTED,
 
     /** 小米「通知类短信」开关。无法程序化查询，只能按厂商常驻提醒，且只进体检表不进横条。 */
@@ -20,15 +18,12 @@ enum class HealthIssue {
 }
 
 data class HealthReport(
-    /** 可程序化判定的失效项，按严重度排序。首页横条只报这里的最严重一项。 */
+    /** 可程序化判定、会进首页说明的失效项。权限缺失不在其中，只进设置页体检表。 */
     val issues: List<HealthIssue>,
-    /** 只能人工确认的提醒项（分机型开关）。只出现在体检表里，不参与横条。 */
+    /** 只能人工确认的提醒项（分机型开关）。只出现在体检表里，不参与首页。 */
     val manualChecks: List<HealthIssue>,
 ) {
     val worst: HealthIssue? get() = issues.firstOrNull()
-
-    /** 除最严重一项外还有几项——横条上的「还有 N 项」。 */
-    val restCount: Int get() = (issues.size - 1).coerceAtLeast(0)
 
     val allGood: Boolean get() = issues.isEmpty() && manualChecks.isEmpty()
 }
@@ -52,9 +47,10 @@ fun healthReport(
     hasUnpicked: Boolean,
 ): HealthReport {
     val issues = buildList {
-        if (!smsGranted) add(HealthIssue.SMS_DENIED)
-        if (!notificationEnabled) add(HealthIssue.NOTIFICATION_DENIED)
-        if (smsGranted && notificationEnabled && hasUnpicked &&
+        /* 短信、通知监听都只是补充手段：没开不进 issues、不上首页，只在设置·权限体检里
+           用中性灰说明。主路径是平台账号，后台异常判定也要求通知监听正常——
+           关掉通知后「该同步却没同步」失去可信信号，此时报警只会变成误报。 */
+        if (notificationEnabled && hasUnpicked &&
             lastSyncAt != null && now - lastSyncAt > BACKGROUND_SUSPECT_MS
         ) {
             add(HealthIssue.BACKGROUND_SUSPECTED)
@@ -65,3 +61,16 @@ fun healthReport(
     }
     return HealthReport(issues = issues, manualChecks = manualChecks)
 }
+
+/**
+ * 首页只保留这一条中性灰、可关闭的说明：后台可疑（件可能真的没进来）。
+ * 关闭记在当时的 [lastSyncAt] 上——真的同步过一次之后时间戳会变，问题再来时说明会重新出现，
+ * 既不会一次关掉永久失明，也不会每进一次首页就再弹一次。
+ */
+fun shouldShowBackgroundNote(
+    worst: HealthIssue?,
+    lastSyncAt: Long?,
+    dismissedForSyncAt: Long,
+): Boolean = worst == HealthIssue.BACKGROUND_SUSPECTED &&
+    lastSyncAt != null &&
+    lastSyncAt != dismissedForSyncAt

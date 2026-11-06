@@ -133,7 +133,7 @@ export const LAST_PICKUP_LABEL = '最近一次取件：昨天 18:32'
 export const PERMISSION_ALERT = '取件码自动收录已暂停 · 通知监听被关闭'
 
 /** 去开启的具体路径提示。H5 mockup 无法跳系统设置，必须至少给出路径 */
-export const PERMISSION_FIX_PATH = '系统设置 → 应用与通知 → 通知使用权 → 开启「亮码」'
+export const PERMISSION_FIX_PATH = '系统设置 → 应用与通知 → 通知使用权 → 开启「卡皮巴拉快递助手」'
 
 /** 未识别角标计数（edge.json → unrecognized-badge）。只在通用组件显示一次 */
 export const UNRECOGNIZED_COUNT = 2

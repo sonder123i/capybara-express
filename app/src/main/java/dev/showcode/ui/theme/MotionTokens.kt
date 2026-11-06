@@ -16,13 +16,52 @@ import androidx.compose.ui.unit.dp
  * 400 / 400(dialog) / 1400(emphasis) ms，外加几个具名弹簧。这里**只声明真的有人消费的那几条**：
  * 留一个没人消费的 token，和「M3 给了 5 个容器 role、代码消费 0 个」是同一种毛病。
  *
- * 缓动曲线只对底栏动效族搬了（那几条是弹簧不是 tween）；换屏的 `RouteChange` 等仍用 tween
- * 默认缓动——教务的页面切换与胶囊共用一根弹簧（`NavigationMotionState`），那一层不在本轮范围。
+ * 缓动曲线只对底栏动效族搬了（那几条是弹簧不是 tween）；换屏的缓动与弹簧在
+ * `NavigationMotion.kt` 的 MotionProfile / ModuleMotion 里（2026-10-19 起归那一层管）。
  */
+/**
+ * 缓动曲线族。教务 `MotionTokens.kt` 的同源移植——之前这里只有弹簧，没有曲线，
+ * 所以 tween 全在吃默认缓动；现在每条曲线都「按用途」取，而不是顺手 default。
+ */
+object MotionEasing {
+    /** 常规过渡（Material 3 默认族）。 */
+    val Standard = androidx.compose.animation.core.CubicBezierEasing(0.4f, 0.0f, 0.2f, 1.0f)
+
+    /** 强调过渡：起步更决，收尾更稳。 */
+    val Emphasized = androidx.compose.animation.core.CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f)
+
+    /** 元素进入：快出慢入。 */
+    val FastOutSlowIn = androidx.compose.animation.core.CubicBezierEasing(0.0f, 0.0f, 0.2f, 1.0f)
+
+    /** 连续运动。 */
+    val Linear = androidx.compose.animation.core.CubicBezierEasing(0.0f, 0.0f, 1.0f, 1.0f)
+
+    /** 元素退出：慢出快入。 */
+    val Accelerate = androidx.compose.animation.core.CubicBezierEasing(0.4f, 0.0f, 1.0f, 1.0f)
+}
+
+/**
+ * 时长表，逐值来自教务 `MotionTokens.kt` 的 `MotionDuration`（第 16–46 行）：
+ * Fast 120 / Medium 220 / Number 180 / Slow 400 / ExpandCollapse 250 / NavIndicator 260 / NavLabel 180。
+ * 只声明真的有人消费的条目，避免留下死配置。
+ */
+object MotionDuration {
+    const val Fast = 120
+    const val Medium = 220
+    const val Number = 180
+    const val Slow = 400
+    const val ExpandCollapse = 250
+    const val NavIndicator = 260
+    const val NavLabel = 180
+}
+
 object MotionTokens {
 
-    /** 换屏（底栏三格之间、以及进出现场模式）。 */
-    val RouteChange: FiniteAnimationSpec<Float> = tween(durationMillis = 200)
+    /* 换屏动效不在这一张表里：主屏之间归 `NavigationMotion.kt` 的 MotionProfile
+       （pageSpring 0.74/180 + 8/12dp/0.985），子屏层级归 hierarchySpring（22dp/6dp）。
+       这里曾立过 RouteChange/RouteExit/RouteEnterDistance 那六条，2026-10-19 全部删除——
+       它们声明了却始终没人消费（上一版只做了淡化），和「M3 给了 5 个容器 role、
+       代码消费 0 个」是同一种死配置。 */
 
     /** 无玻璃回退档（教务 `FallbackNavigationBar`）的选中度渐变：tween(220)。 */
     val FallbackWeight: FiniteAnimationSpec<Float> = tween(durationMillis = 220)
@@ -40,22 +79,4 @@ object MotionTokens {
 
     /** 液态控件落位：`liquidSettle(0.80, 420)`——收起形态的整栏收拢/单胶囊弹出共用。 */
     val LiquidSettle: FiniteAnimationSpec<Float> = spring(dampingRatio = 0.80f, stiffness = 420f)
-
-    /**
-     * 换屏的位移、缩放与错峰，逐条取自教务 `MotionProfile`：
-     * `PageTransitionSpec(enterDistance 8, exitDistance 12, exitScale 0.985)`、
-     * `DetailStaggerMillis = 35`。
-     *
-     * 位移**只有 8/12dp**——小得要留意才看得出，这正是它显得"稳"而不是"在动"的原因。
-     * 上一版只做了淡化，没有位移也没有缩放。
-     */
-    val RouteEnterDistance: Dp = 8.dp
-    val RouteExitDistance: Dp = 12.dp
-    const val RouteExitScale = 0.985f
-
-    /** 出场比入场短一档，换屏才不像两边各自慢慢挪。 */
-    val RouteExit: FiniteAnimationSpec<Float> = tween(durationMillis = 160)
-
-    /** 模块错峰：教务 `MotionProfile.DetailStaggerMillis`。 */
-    const val DetailStaggerMillis = 35L
 }

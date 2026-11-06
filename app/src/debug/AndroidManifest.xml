@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- P0 探针专用：只进 debug 变体，release 仍然没有网络权限。 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application>
+        <activity
+            android:name=".debug.P0ProbeActivity"
+            android:exported="true"
+            android:label="P0 探针"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.ShowCode" />
+    </application>
+</manifest>

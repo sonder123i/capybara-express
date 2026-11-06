@@ -3,6 +3,7 @@ package dev.showcode.ui.onboarding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,9 +52,9 @@ import dev.showcode.ui.theme.UrgencyDueSoon
 import dev.showcode.ui.theme.UrgencyDueSoonTint
 import dev.showcode.ui.theme.UrgencySafe
 
-enum class OnboardStep { WELCOME, SMS, NOTIFICATION, WIDGET, READY }
+enum class OnboardStep { WELCOME, ACCOUNTS, SMS, NOTIFICATION, WIDGET, READY }
 
-private const val TOTAL_STEPS = 4
+private const val TOTAL_STEPS = 5
 
 /**
  * 首次启动引导（story-1）。核心决策只有一条：**先理解价值，再请求权限**。
@@ -66,12 +67,14 @@ private const val TOTAL_STEPS = 4
 fun OnboardingScreen(
     step: OnboardStep,
     report: HealthReport,
+    accountCount: Int,
     smsGranted: Boolean,
     notificationEnabled: Boolean,
     widgetAdded: Boolean,
     smsAttempted: Boolean,
     onStep: (OnboardStep) -> Unit,
     onEnterDemo: () -> Unit,
+    onOpenAccounts: () -> Unit,
     onRequestSms: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
     onPinWidget: () -> Unit,
@@ -85,7 +88,15 @@ fun OnboardingScreen(
             .windowInsetsPadding(WindowInsets.systemBars)
     ) {
         when (step) {
-            OnboardStep.WELCOME -> Welcome(onEnterDemo = onEnterDemo, onSetup = { onStep(OnboardStep.SMS) })
+            OnboardStep.WELCOME -> Welcome(
+                onEnterDemo = onEnterDemo,
+                onSetup = { onStep(OnboardStep.ACCOUNTS) },
+            )
+            OnboardStep.ACCOUNTS -> AccountStep(
+                onBind = onOpenAccounts,
+                onSms = { onStep(OnboardStep.SMS) },
+                onSkip = { onStep(OnboardStep.NOTIFICATION) },
+            )
             OnboardStep.SMS -> SmsStep(
                 denied = smsAttempted && !smsGranted,
                 onAllow = onRequestSms,
@@ -103,6 +114,7 @@ fun OnboardingScreen(
             )
             OnboardStep.READY -> ReadyStep(
                 report = report,
+                accountCount = accountCount,
                 smsGranted = smsGranted,
                 notificationEnabled = notificationEnabled,
                 widgetAdded = widgetAdded,
@@ -138,10 +150,10 @@ private fun Welcome(onEnterDemo: () -> Unit, onSetup: () -> Unit) {
             PrivacyPromise()
         }
         Column(modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp)) {
-            // 主 CTA 是先看演示，不是先要权限
-            PrimaryButton(text = stringResource(R.string.ob_cta_demo), onClick = onEnterDemo)
+            // 主 CTA 是绑定平台账号；演示降为「先看看」的次级选择。
+            PrimaryButton(text = stringResource(R.string.ob_cta_bind), onClick = onSetup)
             Spacer(Modifier.height(10.dp))
-            GhostButton(text = stringResource(R.string.ob_cta_setup), onClick = onSetup)
+            GhostButton(text = stringResource(R.string.ob_cta_demo), onClick = onEnterDemo)
             Spacer(Modifier.height(8.dp))
             Text(
                 text = stringResource(R.string.ob_footer),
@@ -219,6 +231,53 @@ private fun StepBar(step: OnboardStep, onSkip: () -> Unit) {
     }
 }
 
+/**
+ * 账号绑定步骤：这是主路径。短信不在这里当主角，只留一句「也可以这样」的次级入口。
+ */
+@Composable
+private fun AccountStep(onBind: () -> Unit, onSms: () -> Unit, onSkip: () -> Unit) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        StepBar(step = OnboardStep.ACCOUNTS, onSkip = onSkip)
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(start = 20.dp, end = 20.dp, top = 16.dp)
+        ) {
+            Text(text = stringResource(R.string.ob_account_title), style = ShowCodeText.Headline, color = Ink)
+            Spacer(Modifier.height(10.dp))
+            Text(text = stringResource(R.string.ob_account_body), style = ShowCodeText.Body, color = InkSecondary)
+            Spacer(Modifier.height(18.dp))
+            NumberedStep(number = 1, text = stringResource(R.string.ob_account_point_1))
+            NumberedStep(number = 2, text = stringResource(R.string.ob_account_point_2))
+            NumberedStep(number = 3, text = stringResource(R.string.ob_account_point_3))
+            Spacer(Modifier.height(18.dp))
+            PrivacyPromise()
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = stringResource(R.string.ob_account_sms_optional),
+                modifier = Modifier
+                    .clickable(onClick = onSms)
+                    .padding(top = 10.dp),
+                style = ShowCodeText.Action,
+                color = AccentInk,
+            )
+            /* 补一句「抖音/小红书也在这条路上」：它紧贴上面那颗链接，不重复主路径的说法。 */
+            Text(
+                text = stringResource(R.string.ob_account_platform_note),
+                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+                style = ShowCodeText.Caption,
+                color = InkMuted,
+            )
+        }
+        Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp, top = 8.dp)) {
+            PrimaryButton(text = stringResource(R.string.ob_account_bind_cta), onClick = onBind)
+            Spacer(Modifier.height(8.dp))
+            GhostButton(text = stringResource(R.string.ob_account_skip_cta), onClick = onSkip)
+        }
+    }
+}
+
 @Composable
 private fun SmsStep(denied: Boolean, onAllow: () -> Unit, onDecline: () -> Unit, onSkip: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -238,7 +297,7 @@ private fun SmsStep(denied: Boolean, onAllow: () -> Unit, onDecline: () -> Unit,
                 CompareCard(
                     title = stringResource(R.string.ob_sms_allow_title),
                     desc = stringResource(R.string.ob_sms_allow_desc),
-                    highlighted = true,
+                    highlighted = false,
                     modifier = Modifier.weight(1f),
                 )
                 CompareCard(
@@ -252,13 +311,23 @@ private fun SmsStep(denied: Boolean, onAllow: () -> Unit, onDecline: () -> Unit,
             PrivacyPromise()
             if (denied) {
                 Spacer(Modifier.height(16.dp))
-                InfoAlert(text = stringResource(R.string.ob_sms_denied))
+                /* 短信是补充手段：拒绝后只留一句中性说明，不出现警示色，也不催再次授权。 */
+                Text(
+                    text = stringResource(R.string.ob_sms_denied),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(SurfaceCard, ShowCodeShapes.Md)
+                        .padding(12.dp),
+                    style = ShowCodeText.Meta,
+                    color = InkSecondary,
+                )
             }
         }
         Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp, top = 8.dp)) {
-            PrimaryButton(text = stringResource(R.string.ob_sms_allow_cta), onClick = onAllow)
+            // 主按钮是「不用短信」：短信始终是补充手段，不引导用户把它当必选项。
+            PrimaryButton(text = stringResource(R.string.ob_sms_continue_cta), onClick = onDecline)
             Spacer(Modifier.height(8.dp))
-            GhostButton(text = stringResource(R.string.ob_sms_deny_cta), onClick = onDecline)
+            GhostButton(text = stringResource(R.string.ob_sms_allow_optional_cta), onClick = onAllow)
         }
     }
 }
@@ -378,6 +447,7 @@ private fun NumberedStep(number: Int, text: String) {
 @Composable
 private fun ReadyStep(
     report: HealthReport,
+    accountCount: Int,
     smsGranted: Boolean,
     notificationEnabled: Boolean,
     widgetAdded: Boolean,
@@ -411,6 +481,7 @@ private fun ReadyStep(
             Spacer(Modifier.height(16.dp))
             Text(text = stringResource(R.string.ob_ready_health), style = ShowCodeText.Caption, color = InkMuted)
             Spacer(Modifier.height(8.dp))
+            CheckRow(title = stringResource(R.string.ob_account_check), ok = accountCount > 0)
             CheckRow(title = stringResource(R.string.health_sms), ok = smsGranted)
             CheckRow(title = stringResource(R.string.health_notification), ok = notificationEnabled)
             CheckRow(title = stringResource(R.string.ob_widget_title), ok = widgetAdded)

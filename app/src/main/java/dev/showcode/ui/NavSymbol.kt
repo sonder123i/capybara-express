@@ -23,7 +23,8 @@ import kotlin.math.sin
  * 底栏三枚字形：待取件（包裹）/ 身份码（二维码）/ 设置（滑杆）。
  *
  * 画法照教务 `PhosphorNavigationIcon` 的做法：256 网格、16f 圆头描边、
- * **双层 duotone**（填充层 α = `0.08 + 0.16·weight`，描边层用 tint 本色），
+ * **双层 duotone**（填充层 α = `0.08 + 0.16·weight`，描边层用 tint 本色）——
+ * 运行态放大看，选中日历仍是蓝描边+约 20% 蓝填充，不是实心色块；
  * 动效状态一点不进渲染器——所有采样副本画的是同一帧。
  *
  * ⚠️ [modifier] 必须带**尺寸**（教务调用点传的是 `Modifier.size(24.dp)`）：
@@ -46,6 +47,7 @@ fun NavSymbolIcon(
     Canvas(modifier) {
         val t = phase().coerceIn(0f, 1f)
         val weight = selection.coerceIn(0f, 1f)
+        /* 未选中近纯描边；选中约 24% 填充 + 描边（教务运行态放大图同式）。 */
         val fill = tint.copy(alpha = tint.alpha * (0.08f + 0.16f * weight))
         scale(size.width / 256f, size.height / 256f, Offset.Zero) {
             when (symbol) {

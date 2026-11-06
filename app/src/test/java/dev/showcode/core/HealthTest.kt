@@ -1,6 +1,7 @@
 package dev.showcode.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -24,21 +25,30 @@ class HealthTest {
     }
 
     @Test
-    fun `短信被拒是最严重项`() {
+    fun `短信与通知监听都未开也不产生首页失效项 - 它们只是补充手段`() {
         val report = healthReport(
             smsGranted = false, notificationEnabled = false, lastSyncAt = null, now = now, isXiaomi = false, hasUnpicked = true,
         )
-        assertEquals(HealthIssue.SMS_DENIED, report.worst)
-        assertEquals(1, report.restCount)
+        assertTrue("权限缺失只进设置页，不进首页，实际 ${report.issues}", report.issues.isEmpty())
+        assertNull(report.worst)
     }
 
     @Test
-    fun `只缺通知监听时它就是最严重项`() {
+    fun `只缺通知监听时首页也没有失效项`() {
         val report = healthReport(
             smsGranted = true, notificationEnabled = false, lastSyncAt = now, now = now, isXiaomi = false, hasUnpicked = true,
         )
-        assertEquals(HealthIssue.NOTIFICATION_DENIED, report.worst)
-        assertEquals(0, report.restCount)
+        assertTrue(report.issues.isEmpty())
+        assertNull(report.worst)
+    }
+
+    @Test
+    fun `通知监听关掉后长时间没同步也不怀疑后台 - 没有可信信号`() {
+        val report = healthReport(
+            smsGranted = true, notificationEnabled = false,
+            lastSyncAt = now - 24 * HOUR_MS, now = now, isXiaomi = false, hasUnpicked = true,
+        )
+        assertTrue("关掉通知后「该同步却没过」不可信，报警只会变成误报，实际 ${report.issues}", report.issues.isEmpty())
     }
 
     @Test
@@ -51,12 +61,12 @@ class HealthTest {
     }
 
     @Test
-    fun `权限没开时不重复报后台问题 - 原因已经更清楚了`() {
+    fun `短信没开不影响后台判定 - 通知监听正常时照常怀疑后台`() {
         val report = healthReport(
             smsGranted = false, notificationEnabled = true,
             lastSyncAt = now - 24 * HOUR_MS, now = now, isXiaomi = false, hasUnpicked = true,
         )
-        assertEquals(listOf(HealthIssue.SMS_DENIED), report.issues)
+        assertEquals(listOf(HealthIssue.BACKGROUND_SUSPECTED), report.issues)
     }
 
     @Test
@@ -98,5 +108,22 @@ class HealthTest {
             smsGranted = false, notificationEnabled = false, lastSyncAt = null, now = now, isXiaomi = true, hasUnpicked = true,
         )
         assertTrue(report.manualChecks.isEmpty())
+    }
+
+    @Test
+    fun `首页说明只在后台可疑时出现 - 关掉后同一轮同步内不再出现`() {
+        assertTrue(shouldShowBackgroundNote(HealthIssue.BACKGROUND_SUSPECTED, now, dismissedForSyncAt = 0L))
+        assertFalse(shouldShowBackgroundNote(HealthIssue.BACKGROUND_SUSPECTED, now, dismissedForSyncAt = now))
+    }
+
+    @Test
+    fun `下一轮真的同步过之后说明重新可见 - 一次关闭不会永久失明`() {
+        assertTrue(shouldShowBackgroundNote(HealthIssue.BACKGROUND_SUSPECTED, now, dismissedForSyncAt = now - HOUR_MS))
+    }
+
+    @Test
+    fun `没有后台可疑时首页没有任何权限横幅`() {
+        assertFalse(shouldShowBackgroundNote(null, now, dismissedForSyncAt = 0L))
+        assertFalse(shouldShowBackgroundNote(HealthIssue.MIUI_SMS_CLASS, now, dismissedForSyncAt = 0L))
     }
 }

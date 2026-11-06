@@ -1,7 +1,6 @@
 package dev.showcode.ui.onsite
 
 import android.app.Activity
-import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -56,6 +55,7 @@ import dev.showcode.ui.LaunchOutcomeLine
 import dev.showcode.ui.identity.QrMatrixCanvas
 import dev.showcode.ui.theme.OnsiteInk
 import dev.showcode.ui.theme.OnsiteSurface
+import dev.showcode.ui.theme.environmentBackground
 import dev.showcode.ui.theme.TabularNumbers
 import dev.showcode.ui.theme.UrgencyDueSoon
 
@@ -90,7 +90,7 @@ fun IdentityShowScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(OnsiteSurface)
+            .environmentBackground()
             .windowInsetsPadding(WindowInsets.systemBars),
     ) {
         Row(
@@ -282,11 +282,14 @@ fun IdentityShowScreen(
 }
 
 /**
- * 抬亮度 + 不许熄屏，离开时原样还回去。
+ * 抬亮度，离开时原样还回去。
  *
  * 柜机那个相机把屏幕当一个自发光方块测光，用户平时留在 30％ 时同一张码要重试好几次。
  * 但**不是拉到 1.0**：扫码要的是对比不是最大亮度，夜里在楼下取件时 1.0 是拿屏幕照人眼。
  * 所以是「抬到不低于 0.7，本来就更高的不降下来」。
+ *
+ * 常亮那半条由根路由统一持有（见 `ui/KeepScreenOn.kt`）——换屏是 Crossfade，两屏同时活着时
+ * 各管一个 Window flag 会互相清掉。这里只剩「抬亮度」这一件身份码专属的事。
  *
  * 写在 DisposableEffect 而不是别的地方，是因为「离开这一屏」有三条路：
  * 返回键、Home、进程被杀。前两条都必须恢复用户自己的亮度，第三条由系统接手。
@@ -297,10 +300,8 @@ private fun KeepScreenBright() {
     DisposableEffect(view) {
         val window = (view.context as? Activity)?.window
         val previous = window?.attributes?.screenBrightness
-        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window?.let { it.attributes = it.attributes.apply { screenBrightness = IdentityCodes.liftedBrightness(previous) } }
         onDispose {
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             window?.let { it.attributes = it.attributes.apply { screenBrightness = previous ?: -1f } }
         }
     }

@@ -42,26 +42,29 @@ private fun tabular() = TextStyle.Default.copy(fontFeatureSettings = "tnum")
  * 现场模式不从这里取值——那一屏的字号由 CodeFontSize 按码长算出来，契约是 21:1。
  */
 object ShowCodeText {
+    /* 字重对齐教务 `Type.kt`：正文 Normal(400)、标题 SemiBold(600)、强调 Bold(700)。
+       不再用 ExtraBold——「全都很重」等于没有层级。 */
+
     /** 状态角标：临期/过期风险这种两三个字的标签。 */
-    val Micro = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Bold, lineHeight = 16.sp)
+    val Micro = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium, lineHeight = 16.sp)
 
     /** 辅助文字：单位、柜号、时间戳。 */
-    val Caption = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Normal, lineHeight = 17.sp)
+    val Caption = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Normal, lineHeight = 18.sp)
 
     /** 说明与次要正文，管理模式里用量最大的一档。 */
     val Meta = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Normal, lineHeight = 19.sp)
 
-    /** 行内可点动作：去开启 / 撤销 / 查看。字号同 Meta，靠字重区分「这是按钮」。 */
-    val Action = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold, lineHeight = 19.sp)
+    /** 行内可点动作：去开启 / 撤销 / 查看。字号同 Meta，靠颜色与字重区分「这是按钮」。 */
+    val Action = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, lineHeight = 19.sp)
 
     /** 正文。 */
     val Body = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Normal, lineHeight = 20.sp)
 
     /** 条目主文字：卡里的一行、列表项的标题。 */
-    val Item = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, lineHeight = 22.sp)
+    val Item = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, lineHeight = 22.sp)
 
     /** 区块标题。 */
-    val Section = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 23.sp)
+    val Section = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold, lineHeight = 24.sp)
 
     /**
      * 引导页的装饰档。emoji 不是文字，它要的是「占多大一块图形」而不是排版层级；
@@ -72,11 +75,11 @@ object ShowCodeText {
     /** 示例数据的水印。同样不是排版层级，是压在卡面上的一层图形。 */
     val Watermark = TextStyle(fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.15.em)
 
-    /** 屏标题。 */
-    val Headline = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 27.sp)
+    /** 屏标题。教务 `headlineSmall` 是 20/28 SemiBold。 */
+    val Headline = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.SemiBold, lineHeight = 28.sp)
 
     /** 取件点卡上的件数。必须 tabular，数字变化时整行不许左右晃。 */
-    val Count = TextStyle(fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 30.sp) + tabular()
+    val Count = TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Bold, lineHeight = 30.sp) + tabular()
 
     /** 卡片里的取件码本体：等宽 + tabular。 */
     val Code = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace) + tabular()
@@ -96,8 +99,10 @@ object ShowCodeText {
  * Pill 不算字阶的一档：色条和徽章要的是胶囊，不是「更大的圆角」。
  */
 object ShowCodeShapes {
+    /** 教务 `AppShapes`：extraSmall 8 / small 12 / medium 16 / large 24 / extraLarge 28。
+        本仓库只消费前两档与胶囊；卡片统一到 medium 16，和参考工程的 `RoundedCornerShape(16.dp)` 对齐。 */
     val Sm = RoundedCornerShape(8.dp)
-    val Md = RoundedCornerShape(14.dp)
+    val Md = RoundedCornerShape(16.dp)
     val Pill = RoundedCornerShape(50)
 }
 

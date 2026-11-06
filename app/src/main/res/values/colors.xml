@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="window_background">#FFFFFFFF</color>
-    <color name="ic_launcher_background">#FFFFFFFF</color>
+    <!-- 从图标原图外缘取样：浅薄荷绿。自适应背景层与启动页背景共用。 -->
+    <color name="ic_launcher_background">#FFD9FCEC</color>
 </resources>

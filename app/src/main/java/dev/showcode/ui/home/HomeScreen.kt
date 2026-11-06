@@ -1,9 +1,16 @@
 package dev.showcode.ui.home
 
 import androidx.annotation.StringRes
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,12 +26,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
@@ -35,14 +45,25 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate as rotateScope
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -53,9 +74,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import dev.showcode.R
+import dev.showcode.ui.AnimatedValueText
+import dev.showcode.core.CodeKind
 import dev.showcode.core.MINUTE_MS
-import dev.showcode.core.HealthIssue
-import dev.showcode.core.HealthReport
 import dev.showcode.core.Parcel
 import dev.showcode.core.PickupPointGroup
 import dev.showcode.core.SuspectPair
@@ -65,10 +86,14 @@ import dev.showcode.core.searchParcels
 import dev.showcode.core.urgencyOf
 import dev.showcode.data.SyncResult
 import dev.showcode.ui.closingLabel
+import dev.showcode.ui.GoodsThumbnail
 import dev.showcode.ui.URGENCY_DUE_SOON_ICON
+import dev.showcode.ui.parcels.goodsThumbnailUrl
+import dev.showcode.ui.parcels.showsGoodsCard
 import dev.showcode.ui.navBarClearance
 import dev.showcode.ui.pointIconOf
 import dev.showcode.ui.pointKindLabel
+import dev.showcode.ui.stageLabel
 import dev.showcode.ui.relativeTimeText
 import dev.showcode.ui.theme.AccentInk
 import dev.showcode.ui.theme.AccentTint
@@ -78,15 +103,18 @@ import dev.showcode.ui.theme.Ink
 import dev.showcode.ui.theme.InkMuted
 import dev.showcode.ui.theme.InkWatermark
 import dev.showcode.ui.theme.InkSecondary
+import dev.showcode.ui.theme.ModuleMotion
+import dev.showcode.ui.theme.MotionEasing
 import dev.showcode.ui.theme.OnsiteSurface
+import dev.showcode.ui.theme.moduleEntrance
+import dev.showcode.ui.theme.rememberReducedMotion
 import dev.showcode.ui.theme.environmentBackground
 import dev.showcode.ui.theme.ShowCodeShapes
 import dev.showcode.ui.theme.ShowCodeText
 import dev.showcode.ui.theme.withTabular
 import dev.showcode.ui.theme.SurfaceCard
+import dev.showcode.ui.theme.SurfaceSunken
 import dev.showcode.ui.theme.TabularNumbers
-import dev.showcode.ui.theme.UrgencyAtRisk
-import dev.showcode.ui.theme.UrgencyAtRiskTint
 import dev.showcode.ui.theme.UrgencyDueSoon
 import dev.showcode.ui.theme.UrgencyDueSoonTint
 import dev.showcode.ui.theme.UrgencySafe
@@ -96,6 +124,8 @@ import dev.showcode.ui.points.SuspectHintCard
 import dev.showcode.ui.urgencyColor
 import dev.showcode.ui.urgencyLabel
 import kotlinx.coroutines.delay
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * 首页的三种空态。edge meta-3 的红线：本产品有 6 种语义完全不同的空态，绝不可共用文案。
@@ -118,8 +148,6 @@ data class HomeUiState(
     val lastSyncFailed: Boolean = false,
     /** 首页只放入口行与计数；完整列表住在未识别收容页（story-3 AC3）。 */
     val unrecognizedCount: Int,
-    /** 最近标记为已取的件。误触超过 3 秒撤销窗口之后，这里是唯一的补救出口。 */
-    val recentlyPicked: List<Parcel>,
     /** 收到第一个取件点后才出现的反向绑定横幅（story-3 AC5）。 */
     val showWidgetHint: Boolean,
     val smsPermissionGranted: Boolean,
@@ -131,6 +159,11 @@ data class HomeUiState(
      * 「没有这串」和「这串你今天已经取过了」是两句完全不同的话，而前者会让人白跑一趟。
      */
     val pickedParcels: List<Parcel> = emptyList(),
+    /**
+     * 在途/待补信息的件。不参与待取计数、不显示取件码，只回答「东西走到哪了」。
+     * 历史已签收件永远不进这里。
+     */
+    val inTransit: List<Parcel> = emptyList(),
 )
 
 /** 数据超过这个时长没同步过就算陈旧。陈旧的码比没有码更危险。 */
@@ -142,6 +175,9 @@ private const val CARD_ITEM_LIMIT = 3
 /** 卡片内一行的固定高度：有柜号与没柜号的行必须一样高，否则卡片高度会随数据抖动。 */
 private val CARD_ROW_HEIGHT = 30.dp
 
+/** 有商品缩略图的行：高度固定，图片 44dp，整行不随加载状态跳。 */
+private val GOODS_ROW_HEIGHT = 52.dp
+
 /**
  * 首页 = 管理模式。第一级是取件点，不是包裹（Story 2 AC2）。
  * 排序由 [dev.showcode.core.groupByPoint] 决定：紧急度优先，件数只是次级排序。
@@ -150,39 +186,53 @@ private val CARD_ROW_HEIGHT = 30.dp
 fun HomeScreen(
     state: HomeUiState,
     now: Long,
+    /** 与底栏同一个滚动意图：往下滚收起顶栏，往上滚展开。搜索开着时强制在场。 */
+    headerMinimized: Boolean,
     sampleGroups: List<PickupPointGroup>,
+    /** 宣传片录制态：不出现任何权限/同步/收容提示，数据全部来自演示内存集。 */
+    isDemo: Boolean = false,
+    onExitDemo: () -> Unit = {},
     onOpenPoint: (String) -> Unit,
-    onOpenDemo: (String) -> Unit,
-    onRestoreParcel: (Parcel) -> Unit,
-    report: HealthReport,
+    /** 在途项进详情。它没有取件点，只能按 parcel 打开展示。 */
+    onOpenParcel: (Parcel) -> Unit = {},
+    onOpenDemo: () -> Unit,
+    /** 首页唯一的常驻说明：后台可疑（件可能真的没进来）。中性灰、可关闭。 */
+    showBackgroundNote: Boolean,
+    onDismissBackgroundNote: () -> Unit,
     onOpenSettings: () -> Unit,
-    onFixWorst: () -> Unit,
     onOpenUnrecognized: () -> Unit,
     onManualImport: () -> Unit,
     onDismissWidgetHint: () -> Unit,
     onPinWidget: () -> Unit,
-    onRequestSmsPermission: () -> Unit,
+    /** 主路径：绑定平台账号。 */
+    onOpenAccounts: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
     onRefresh: () -> Unit,
-    onManagePoint: (PickupPointGroup) -> Unit,
+    /** 平台同步（自动或手动）进行中：刷新键禁用并在原地转。 */
+    accountsSyncing: Boolean = false,
+    /** 手动同步的一句话结局；null = 这一轮没有话要说。 */
+    manualSyncMessage: String? = null,
+    /** 每次「真的抓取且失败」自增；刷新键据此晃两下。 */
+    manualSyncFailedSignal: Int = 0,
+    onManualSync: () -> Unit = {},
+    onManagePoint: ((PickupPointGroup) -> Unit)?,
     onSuspectYes: () -> Unit,
     onSuspectNo: () -> Unit,
     mergeUndoName: String?,
     onUndoMerge: () -> Unit,
-    onOpenLookup: () -> Unit,
 ) {
     /* 检索的三个状态留在这一屏，没有提到 Root：它是「此刻正在找东西」这种临时意图，
        切去现场模式再回来还挂着搜索框，会让人以为屏上少掉的件被 App 藏起来了。 */
     var searchOpen by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var window by remember { mutableStateOf(SearchWindow.ALL) }
-    /* 打开查快递页。这一格放「从剪贴板里粘单号」的路径——不刷短信库，纯手填。 */
-    var lookupOpen by remember { mutableStateOf(false) }
 
     // 只选了窗（没打字）也算在筛；光打开搜索框但什么都不选，列表保持原样。
     val filtering = searchOpen && (query.isNotBlank() || window != SearchWindow.ALL)
     val result = if (searchOpen) searchParcels(state.groups, state.pickedParcels, query, window, now) else null
     val shownGroups = result?.groups ?: state.groups
+    val reducedMotion = rememberReducedMotion()
+
 
     /* 陈旧提示对任何一条收录通道都成立。以前它只被短信权限门住，
        于是「拒了短信、只开通知监听」这个完全合法的配置下，用户永远看不到「可能不是最新」。 */
@@ -201,64 +251,97 @@ fun HomeScreen(
         Column(
             modifier = Modifier.fillMaxSize(),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 20.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            /* 顶栏随滚动收起（教务「往下翻的时候一屏能多看一节」）：与底栏共用同一个滚动意图——
+               往下滚，顶栏收起、底栏收成胶囊；往上滚，两边一起回来。
+               搜索开着时顶栏强制在场：收起形态下没有开关能把它关掉。 */
+            AnimatedVisibility(
+                visible = !headerMinimized || searchOpen,
+                enter = ModuleMotion.expand(reducedMotion),
+                exit = ModuleMotion.collapse(reducedMotion),
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(R.string.home_title),
-                        style = ShowCodeText.Headline,
-                        color = Ink,
-                    )
-                    // 胶囊搬到这里来了：底栏要占的是它那个位置，而这句话不能跟着一起没了。
-                    SyncLine(state = state, now = now)
-                }
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    /* 查快递入口：从剪贴板里粘单号，直接识别 + 填充表单。
-                       跟有无取件无关——没件时更该用这个入口录一条。 */
-                    IconButton(
-                        onClick = onOpenLookup,
-                        modifier = Modifier.size(44.dp),
-                    ) {
-                        Icon(
-                            painter = androidx.compose.ui.res.painterResource(R.drawable.ic_lookup),
-                            contentDescription = stringResource(R.string.lookup_title),
-                            tint = InkSecondary,
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.home_title),
+                            style = ShowCodeText.Headline,
+                            color = Ink,
                         )
-                    }
-                    /* 一件都没有时不给这颗按钮：那时候搜索框不是路，是一条死路。 */
-                    if (state.groups.isNotEmpty()) {
-                        IconButton(
-                            onClick = { searchOpen = !searchOpen },
-                            modifier = Modifier.size(44.dp),
-                        ) {
-                            Icon(
-                                imageVector = if (searchOpen) Icons.Filled.Close else Icons.Filled.Search,
-                                contentDescription = stringResource(
-                                    if (searchOpen) R.string.home_search_close else R.string.home_search,
-                                ),
-                                tint = if (searchOpen) Ink else InkSecondary,
+                        if (isDemo) {
+                            /* 录制态用一句固定的标识替代同步时间：那里放真实时间会每天不同，
+                               而且演示数据本来就不该被读成「刚同步过的真实件」。 */
+                            Text(
+                                text = manualSyncMessage ?: stringResource(R.string.demo_home_marker),
+                                style = ShowCodeText.Meta,
+                                color = AccentInk,
                             )
+                        } else {
+                            // 胶囊搬到这里来了：底栏要占的是它那个位置，而这句话不能跟着一起没了。
+                            SyncLine(state = state, now = now, manualMessage = manualSyncMessage)
                         }
                     }
-                    // 顶栏不再有那颗设置图标：设置现在是底栏三颗键之一，
-                    // 同一屏上留两个入口会让人怀疑它们去的是不是同一个地方。
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (isDemo) {
+                            Text(
+                                text = stringResource(R.string.demo_exit),
+                                modifier = Modifier
+                                    .clickable(onClick = onExitDemo)
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                style = ShowCodeText.Action,
+                                color = AccentInk,
+                            )
+                        }
+                        /* 手动刷新：搜索左边、同一行。没有件、演示态也留着——
+                           「没有新件」恰恰是最需要手动问一次的时候，演示态则只回一句提示。 */
+                        RefreshAction(
+                            busy = accountsSyncing,
+                            enabled = !accountsSyncing,
+                            failedSignal = manualSyncFailedSignal,
+                            onClick = onManualSync,
+                        )
+                        /* 一件都没有时不给这颗按钮：那时候搜索框不是路，是一条死路。
+                           演示态也不给：打开搜索会弹软键盘，录制时不允许任何系统面板。 */
+                        if (state.groups.isNotEmpty() && !isDemo) {
+                            IconButton(
+                                onClick = { searchOpen = !searchOpen },
+                                modifier = Modifier.size(44.dp),
+                            ) {
+                                Icon(
+                                    imageVector = if (searchOpen) Icons.Filled.Close else Icons.Filled.Search,
+                                    contentDescription = stringResource(
+                                        if (searchOpen) R.string.home_search_close else R.string.home_search,
+                                    ),
+                                    tint = if (searchOpen) Ink else InkSecondary,
+                                )
+                            }
+                        }
+                        // 顶栏不再有那颗设置图标：设置现在是底栏三颗键之一，
+                        // 同一屏上留两个入口会让人怀疑它们去的是不是同一个地方。
+                    }
                 }
             }
 
-            // permission-health-bar：跨屏常驻、不可被滚动隐藏——它挂在 LazyColumn 外面。
-            // 权限失效是静默的，用户不会收到系统通知，只会觉得「最近好像没新快递」。
-            HealthBar(report = report, now = now, lastSyncAt = state.lastSyncAt, onFix = onFixWorst, onView = onOpenSettings)
+            // 首页只保留「后台可能被限制」这一条中性说明（可关闭）。
+            // 权限缺失（短信 / 通知监听）一律只进设置·权限体检，不再上首页。
+            if (!isDemo && showBackgroundNote) {
+                BackgroundNote(
+                    lastSyncAt = state.lastSyncAt,
+                    now = now,
+                    onView = onOpenSettings,
+                    onDismiss = onDismissBackgroundNote,
+                )
+            }
 
             // error-stale-data：不会被滚动隐藏——它挂在 LazyColumn 外面
-            if (isStale) {
+            if (isStale && !isDemo) {
                 StaleBar(
                     failed = state.lastSyncFailed,
                     lastSyncAt = state.lastSyncAt,
@@ -273,7 +356,7 @@ fun HomeScreen(
 
             /* 挂在 LazyColumn 外面，和权限条同一个理由：会随列表滚走的控件等于没有。
                搜索框尤其如此——手指还在打字，框自己往上跑出可视区，用户只会以为 App 卡了。 */
-            if (searchOpen) {
+            if (searchOpen && !isDemo) {
                 SearchRow(
                     query = query,
                     window = window,
@@ -293,10 +376,15 @@ fun HomeScreen(
                     item {
                         // CTA 进排序最靠前那个点：一进演示就该看到最大的那个码，
                         // story-1 的风险写得很清楚——演示必须在 5 秒内让人看到它。
-                        FirstTimeHeader(onOpenDemo = { sampleGroups.firstOrNull()?.let { onOpenDemo(it.key) } })
+                        FirstTimeHeader(
+                            onOpenAccounts = onOpenAccounts,
+                            onOpenDemo = onOpenDemo,
+                        )
                     }
                     items(sampleGroups, key = { "sample-${it.key}" }) { group ->
-                        SamplePointCard(group = group, now = now, onClick = { onOpenDemo(group.key) })
+                        Box(modifier = Modifier.moduleEntrance(0)) {
+                            SamplePointCard(group = group, now = now, onClick = onOpenDemo)
+                        }
                     }
                     item {
                         Text(
@@ -308,39 +396,44 @@ fun HomeScreen(
                     }
                 } else {
                     items(shownGroups, key = { it.key }) { group ->
-                        val hint = state.suspect
-                        /* 提示插在两张卡里更紧急那张的上方：它讲的是「这两张是同一件事」，
-                           放在其中任何一张上面都比放在列表尾巴上读得懂。 */
-                        if (hint != null && hint.first.key == group.key) {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                SuspectHintCard(pair = hint, onYes = onSuspectYes, onNo = onSuspectNo)
+                        Box(modifier = Modifier.moduleEntrance(0)) {
+                            val hint = state.suspect
+                            /* 提示插在两张卡里更紧急那张的上方：它讲的是「这两张是同一件事」，
+                               放在其中任何一张上面都比放在列表尾巴上读得懂。 */
+                            if (hint != null && hint.first.key == group.key) {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    SuspectHintCard(pair = hint, onYes = onSuspectYes, onNo = onSuspectNo)
+                                    PointCard(
+                                        group = group,
+                                        now = now,
+                                        onClick = { onOpenPoint(group.key) },
+                                        onManage = onManagePoint?.let { manage -> { manage(group) } },
+                                    )
+                                }
+                            } else {
                                 PointCard(
                                     group = group,
                                     now = now,
                                     onClick = { onOpenPoint(group.key) },
-                                    onManage = { onManagePoint(group) },
+                                    onManage = onManagePoint?.let { manage -> { manage(group) } },
                                 )
                             }
-                        } else {
-                            PointCard(
-                                group = group,
-                                now = now,
-                                onClick = { onOpenPoint(group.key) },
-                                onManage = { onManagePoint(group) },
-                            )
                         }
                     }
-                    // 空态、补救出口、招揽横幅这些是「没人找东西时」的路；正在筛的时候它们是噪声。
-                    if (!filtering) {
-                        if (state.empty == HomeEmpty.ALL_DONE) {
-                            item { AllDoneCard(monthlyPicked = state.monthlyPicked) }
+                    /* 待取清单下方：在途件单独一组，可折叠。它不参与待取计数。 */
+                    if (!filtering && state.inTransit.isNotEmpty()) {
+                        item {
+                            Box(modifier = Modifier.moduleEntrance(1)) {
+                                InTransitSection(
+                                    parcels = state.inTransit,
+                                    onOpen = onOpenParcel,
+                                )
+                            }
                         }
-
-                        // 误触「已取」超过 3 秒撤销窗口之后的唯一补救出口。
-                        // 设计里点名它落在「首页 / 历史」，批 1 还没有历史页，所以落在首页。
-                        if (state.recentlyPicked.isNotEmpty()) {
-                            item { RecentlyPickedSection(parcels = state.recentlyPicked, onRestore = onRestoreParcel) }
-                        }
+                    }
+                    // 空态与招揽横幅这些是「没人找东西时」的路；正在筛的时候它们是噪声。
+                    if (!filtering && state.empty == HomeEmpty.ALL_DONE) {
+                        item { AllDoneCard(monthlyPicked = state.monthlyPicked) }
                     }
 
                     if (filtering && shownGroups.isEmpty()) {
@@ -368,7 +461,11 @@ fun HomeScreen(
                 // 解析失败必须显性化（story-2 的 risk）：首页给入口行，完整列表在收容页。
                 // 这一行**不跟着筛选让位**——「你没搜到」不等于「没有东西没认出来」。
                 if (state.unrecognizedCount > 0) {
-                    item { UnrecognizedLinkRow(count = state.unrecognizedCount, onOpen = onOpenUnrecognized) }
+                    item {
+                        Box(modifier = Modifier.moduleEntrance(1)) {
+                            UnrecognizedLinkRow(count = state.unrecognizedCount, onOpen = onOpenUnrecognized)
+                        }
+                    }
                 }
 
                 if (!filtering) {
@@ -376,24 +473,24 @@ fun HomeScreen(
                     // 组件是全产品空间最紧张的表面，它必须永远保住「点名」那一行
                     // （stories.json ac_amendment 的回归教训）。
                     if (state.showWidgetHint) {
-                        item { WidgetHintBanner(onPin = onPinWidget, onDismiss = onDismissWidgetHint) }
+                        item {
+                            Box(modifier = Modifier.moduleEntrance(2)) {
+                                WidgetHintBanner(onPin = onPinWidget, onDismiss = onDismissWidgetHint)
+                            }
+                        }
                     }
 
-                    if (!state.smsPermissionGranted) {
+                    /* 短信导入不再占首页横幅位：它只是补充手段，入口在设置里。
+                       首页只保留「绑定平台账号」这条主路径与通知监听这类真正影响自动收件的提示。 */
+                    if (state.notificationAccessGranted.not()) {
                         item {
-                            EnableIngestCard(
-                                title = stringResource(R.string.home_enable_ingest),
-                                body = stringResource(R.string.home_enable_ingest_hint),
-                                onClick = onRequestSmsPermission,
-                            )
-                        }
-                    } else if (!state.notificationAccessGranted) {
-                        item {
-                            EnableIngestCard(
-                                title = stringResource(R.string.home_enable_notification),
-                                body = stringResource(R.string.home_enable_notification_hint),
-                                onClick = onOpenNotificationSettings,
-                            )
+                            Box(modifier = Modifier.moduleEntrance(2)) {
+                                EnableIngestCard(
+                                    title = stringResource(R.string.home_enable_notification),
+                                    body = stringResource(R.string.home_enable_notification_hint),
+                                    onClick = onOpenNotificationSettings,
+                                )
+                            }
                         }
                     }
                 }
@@ -401,17 +498,20 @@ fun HomeScreen(
                 // 手动导入是「拒绝短信权限也能用」的一等退路（edge s1 permission-sms-denied），
                 // 引导结束之后也必须常驻在列表末尾，**检索时也不藏**：
                 // 手上有条码而 App 认不出来的那一刻，正是它最值钱的时候。
-                item {
-                    Text(
-                        text = stringResource(R.string.home_manual_entry),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClick = onManualImport)
-                            .padding(vertical = 10.dp),
-                        style = ShowCodeText.Body,
-                        color = InkMuted,
-                        textAlign = TextAlign.Center,
-                    )
+                // 演示态不提供：它会弹出一屏输入框与软键盘，录制时不允许系统面板。
+                if (!isDemo) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.home_manual_entry),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(onClick = onManualImport)
+                                .padding(vertical = 10.dp),
+                            style = ShowCodeText.Body,
+                            color = InkMuted,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
             }
         }
@@ -431,7 +531,130 @@ fun HomeScreen(
 private const val SYNC_RESULT_MS = 8_000L
 
 @Composable
-private fun SyncLine(state: HomeUiState, now: Long) {
+private fun InTransitSection(parcels: List<Parcel>, onOpen: (Parcel) -> Unit) {
+    var expanded by rememberSaveable { mutableStateOf(true) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceCard, ShowCodeShapes.Md)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .semantics { contentDescription = "在途" },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text = "在途", style = ShowCodeText.Item, color = Ink)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "${parcels.size} 件",
+                style = ShowCodeText.Caption,
+                color = InkMuted,
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Icon(
+                imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expanded) "收起" else "展开",
+                tint = InkMuted,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                parcels.forEach { parcel ->
+                    InTransitRow(parcel = parcel, onClick = { onOpen(parcel) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InTransitRow(parcel: Parcel, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(top = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        goodsThumbnailUrl(parcel)?.let {
+            GoodsThumbnail(url = it, size = 46.dp)
+            Spacer(modifier = Modifier.width(12.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = parcel.goodsTitle ?: "包裹 ${parcel.trackingNo.orEmpty().takeLast(4).ifBlank { "信息待补" }}",
+                style = ShowCodeText.Body,
+                color = Ink,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = carrierAndTracking(parcel),
+                style = ShowCodeText.Caption,
+                color = InkMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = inTransitStatus(parcel),
+                style = ShowCodeText.Meta,
+                color = InkSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+private fun carrierAndTracking(parcel: Parcel): String {
+    val carrier = parcel.carrier.ifBlank { "快递" }
+    val tracking = parcel.trackingNo.orEmpty()
+    return if (tracking.isBlank()) "$carrier · 运单号待出"
+    else "$carrier · $tracking"
+}
+
+/** 在途件的一句最新状态；到站但没点的件说清楚「信息待补」，不冒充一张待取卡。 */
+@Composable
+internal fun inTransitStatus(parcel: Parcel): String {
+    if (parcel.stage == dev.showcode.core.Stage.AT_STATION && parcel.pointKey.isBlank()) {
+        return "待取 · 取件信息待补，下次同步会补全"
+    }
+    /* 物流页的 innerText 第一行往往是承运商和运单号，直接取会得出「运输中 · 申通快递」这种废话。
+       优先找带「预计…送达/到达」的那句，它才是用户真正想知道的状态。 */
+    val eta = IN_TRANSIT_ETA.find(parcel.raw)?.value
+    /* 淘宝给的是「物流运输中」，但用户看到的是「已发货」这一层；
+       原文里出现显式的「已发货」时就用它，不再退化到泛化的「运输中」。 */
+    val label = if (parcel.stage == dev.showcode.core.Stage.IN_TRANSIT &&
+        parcel.raw.contains("已发货")
+    ) {
+        "已发货"
+    } else {
+        stageLabel(parcel.stage)
+    }
+    if (eta != null) return "$label · $eta"
+    val lines = parcel.raw.lineSequence().map { it.trim() }.filter { it.isNotBlank() }
+    val latest = lines
+        .firstOrNull {
+            !it.startsWith("订单号") && !it.startsWith("收货地址") &&
+                !it.startsWith("复制") && !it.startsWith(":") &&
+                !CARRIER_ONLY.containsMatchIn(it)
+        }
+        .orEmpty()
+        .take(42)
+    return if (latest.isBlank() || latest == label) label else "$label · $latest"
+}
+
+private val IN_TRANSIT_ETA = Regex("预计[^，。；]{1,12}(送达|到达)")
+private val CARRIER_ONLY = Regex("[\\u4e00-\\u9fa5]{2,6}(快递|速运|物流|运输)")
+
+@Composable
+private fun SyncLine(state: HomeUiState, now: Long, manualMessage: String? = null) {
     // 没加载完不出声：那时「还没同步过」是把一次正常的读库演成一件缺了什么的事。
     if (!state.loaded) return
     val result = state.lastSyncResult
@@ -444,6 +667,8 @@ private fun SyncLine(state: HomeUiState, now: Long) {
         }
     }
     val text = when {
+        /* 手动平台的结局优先：它刚刚发生，比「更新于」更值得占这一行。 */
+        manualMessage != null -> manualMessage
         state.syncing -> stringResource(R.string.home_syncing)
         state.lastSyncFailed -> stringResource(R.string.home_sync_failed)
         showResult && result != null && result.added > 0 -> stringResource(R.string.home_sync_added, result.added)
@@ -455,7 +680,10 @@ private fun SyncLine(state: HomeUiState, now: Long) {
     Text(
         text = text,
         style = ShowCodeText.Caption,
-        color = if (state.lastSyncFailed) UrgencyDueSoon else InkMuted,
+        color = if (manualMessage == null && state.lastSyncFailed) UrgencyDueSoon else InkMuted,
+        /* 顶栏高度是定稿的：这一行永远只占一行，再长的原因也只截断，不许把 header 撑高。 */
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
     )
 }
 
@@ -523,58 +751,47 @@ private fun WindowChip(@StringRes labelRes: Int, selected: Boolean, onClick: () 
 }
 
 /**
- * 权限健康常驻横条（story-5 / edge permission-health-bar）。
- * 全部正常时**完全不出现**；出现时只报最严重一项 + 「还有 N 项」，
- * 点整条进体检表，[去开启] 直接修最严重那项。
+ * 首页唯一的常驻说明（中性灰、可关闭）。
+ * 只有「后台可能被限制」会走到这里：它对应「件可能根本没进来」。
+ * 短信、通知监听未开启不在这里出现——那些只是补充手段，只在设置·权限体检里中性表述。
  */
 @Composable
-private fun HealthBar(
-    report: HealthReport,
-    now: Long,
+private fun BackgroundNote(
     lastSyncAt: Long?,
-    onFix: () -> Unit,
+    now: Long,
     onView: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    val worst = report.worst ?: return
-    val neverSynced = stringResource(R.string.home_never_synced)
-    val text = when (worst) {
-        HealthIssue.SMS_DENIED -> stringResource(R.string.health_bar_sms)
-        HealthIssue.NOTIFICATION_DENIED -> stringResource(R.string.health_bar_notification)
-        HealthIssue.BACKGROUND_SUSPECTED -> stringResource(
-            R.string.health_bar_background,
-            lastSyncAt?.let { relativeTimeText(it, now) } ?: neverSynced,
-        )
-        // 小米项只进体检表，不进横条：它无法程序化判定，常驻报警会变成狼来了
-        HealthIssue.MIUI_SMS_CLASS -> return
-    }
+    val whenText = lastSyncAt?.let { relativeTimeText(it, now) }
+        ?: stringResource(R.string.home_never_synced)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(UrgencyAtRiskTint)
-            .clickable(onClick = onView)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .background(SurfaceSunken)
+            .padding(start = 16.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Filled.Warning, contentDescription = null, modifier = Modifier.size(18.dp), tint = UrgencyAtRisk)
-        Spacer(Modifier.width(8.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = text, style = ShowCodeText.Action, color = Ink)
-            if (report.restCount > 0) {
-                Text(
-                    text = stringResource(R.string.health_bar_more, report.restCount),
-                    style = ShowCodeText.Micro,
-                    color = InkMuted,
-                )
-            }
-        }
-        Spacer(Modifier.width(8.dp))
+        Text(
+            text = stringResource(R.string.health_bar_background, whenText),
+            modifier = Modifier.weight(1f),
+            style = ShowCodeText.Meta,
+            color = InkSecondary,
+        )
         Text(
             text = stringResource(R.string.health_bar_view),
             modifier = Modifier
-                .clickable(onClick = onFix)
-                .padding(start = 8.dp, top = 4.dp, bottom = 4.dp),
+                .clickable(onClick = onView)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
             style = ShowCodeText.Action,
-            color = UrgencyAtRisk,
+            color = InkMuted,
+        )
+        Text(
+            text = "✕",
+            modifier = Modifier
+                .clickable(onClick = onDismiss)
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            style = ShowCodeText.Meta,
+            color = InkMuted,
         )
     }
 }
@@ -673,8 +890,8 @@ private fun PointCard(
                     Spacer(Modifier.width(6.dp))
                 }
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    text = group.items.size.toString(),
+                AnimatedValueText(
+                    value = group.items.size.toString(),
                     style = ShowCodeText.Count,
                     color = Ink,
                 )
@@ -741,23 +958,93 @@ private fun PointCard(
 private fun CardParcelRow(parcel: Parcel, now: Long) {
     val hasLocker = parcel.lockerNo != null
     val urgency = urgencyOf(parcel, now)
+    val hasGoods = showsGoodsCard(parcel)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(CARD_ROW_HEIGHT),
+            .height(if (hasGoods) GOODS_ROW_HEIGHT else CARD_ROW_HEIGHT),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = parcel.code,
-            style = if (hasLocker) ShowCodeText.Code else ShowCodeText.CodeLarge,
-            color = Ink,
-        )
-        if (hasLocker) {
+        if (hasGoods) {
+            goodsThumbnailUrl(parcel)?.let { GoodsThumbnail(url = it, size = 44.dp) }
             Spacer(Modifier.width(8.dp))
-            Text(text = parcel.lockerNo.orEmpty(), style = ShowCodeText.Caption, color = InkMuted)
+        }
+        if (parcel.code.isBlank()) {
+            /* 空码不伪造数字：说清楚「暂无取件码」，并让阶段顶上来。 */
+            Text(
+                text = stringResource(R.string.no_pickup_code),
+                style = ShowCodeText.Caption,
+                color = InkMuted,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = stageLabel(parcel.stage),
+                style = ShowCodeText.Micro,
+                color = InkMuted,
+            )
+        } else {
+            Text(
+                text = parcel.code,
+                style = if (hasLocker) ShowCodeText.Code else ShowCodeText.CodeLarge,
+                color = Ink,
+            )
+            if (parcel.codeKind == CodeKind.SUFFIX) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.suffix_micro),
+                    style = ShowCodeText.Micro,
+                    color = InkMuted,
+                )
+            }
+            if (hasLocker) {
+                Spacer(Modifier.width(8.dp))
+                Text(text = parcel.lockerNo.orEmpty(), style = ShowCodeText.Caption, color = InkMuted)
+            }
+        }
+        /* 商品信息只在这一行里做「这是什么快递」的注脚：标题单行，店铺/价格一行小字。
+           有码时码仍然是最重的那一档，信息列只吃剩余宽度。 */
+        if (hasGoods) {
+            Spacer(Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                parcel.goodsTitle?.takeIf { it.isNotBlank() }?.let { title ->
+                    Text(
+                        text = title,
+                        style = ShowCodeText.Meta,
+                        color = Ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                /* 价格给固定宽度优先显示，店铺吃剩余宽度并截断：
+                   价格是「这是什么件」最硬的线索，不能因为店铺名长就被省略掉。 */
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    parcel.goodsPrice?.takeIf { it.isNotBlank() }?.let { price ->
+                        Text(
+                            text = price,
+                            style = ShowCodeText.Caption,
+                            color = InkSecondary,
+                            maxLines = 1,
+                        )
+                    }
+                    parcel.shopName?.takeIf { it.isNotBlank() }?.let { shop ->
+                        Text(
+                            text = shop,
+                            modifier = Modifier.weight(1f),
+                            style = ShowCodeText.Caption,
+                            color = InkMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        } else if (urgency != Urgency.SAFE) {
+            Spacer(Modifier.weight(1f))
         }
         if (urgency != Urgency.SAFE) {
-            Spacer(Modifier.weight(1f))
             Text(
                 text = urgencyLabel(urgency),
                 style = ShowCodeText.Micro,
@@ -790,7 +1077,7 @@ private fun SamplePointCard(group: PickupPointGroup, now: Long, onClick: () -> U
  * 演示入口必须在权限请求之前出现——「先给价值，再要权限」。
  */
 @Composable
-private fun FirstTimeHeader(onOpenDemo: () -> Unit) {
+private fun FirstTimeHeader(onOpenAccounts: () -> Unit, onOpenDemo: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -804,12 +1091,13 @@ private fun FirstTimeHeader(onOpenDemo: () -> Unit) {
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(12.dp))
+        /* 主 CTA 是绑定平台账号：它才是自动收件的主路径；演示是次级的「先看看」。 */
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp)
                 .background(Ink, ShowCodeShapes.Md)
-                .clickable(onClick = onOpenDemo),
+                .clickable(onClick = onOpenAccounts),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -818,7 +1106,16 @@ private fun FirstTimeHeader(onOpenDemo: () -> Unit) {
                 color = OnsiteSurface,
             )
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = stringResource(R.string.home_empty_first_time_demo),
+            modifier = Modifier
+                .clickable(onClick = onOpenDemo)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            style = ShowCodeText.Action,
+            color = AccentInk,
+        )
+        Spacer(Modifier.height(6.dp))
     }
 }
 
@@ -840,80 +1137,6 @@ private fun AllDoneCard(monthlyPicked: Int) {
             color = UrgencySafe,
             textAlign = TextAlign.Center,
         )
-    }
-}
-
-/**
- * 最近已取。这一区块的存在理由是「已取」记录的是物理事实，所以中途退出现场模式会保留它，
- * 于是 3 秒撤销窗口一过就没有回头路了——除非首页给一个出口。
- *
- * 默认**折叠成一行**：它是补救出口不是主路径，原来五整行常驻在首页最贵的位置上，
- * 把真正的待取件往下推。窗口缩到 6 小时之后（core 的 `RECENTLY_PICKED_WINDOW_MS`），
- * 再占一整块就更说不通。折叠不持久化——那是「这一次要不要看」，不是一项设置。
- */
-@Composable
-private fun RecentlyPickedSection(parcels: List<Parcel>, onRestore: (Parcel) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    val restoreLabel = stringResource(R.string.home_restore)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(SurfaceCard, ShowCodeShapes.Md)
-            .border(1.dp, Hairline, ShowCodeShapes.Md)
-            .padding(14.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { open = !open },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = if (open) stringResource(R.string.home_recently_picked_title)
-                else stringResource(R.string.home_recently_picked_count, parcels.size),
-                modifier = Modifier.weight(1f),
-                style = ShowCodeText.Caption,
-                color = InkMuted,
-            )
-            Text(
-                text = stringResource(if (open) R.string.home_collapse else R.string.home_expand),
-                style = ShowCodeText.Action,
-                color = InkMuted,
-            )
-        }
-        if (!open) return
-        Spacer(Modifier.height(6.dp))
-        parcels.forEach { parcel ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(40.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = parcel.code,
-                    style = ShowCodeText.CodeSmall,
-                    color = InkMuted,
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = parcel.pointName,
-                    modifier = Modifier.weight(1f),
-                    style = ShowCodeText.Caption,
-                    color = InkMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = restoreLabel,
-                    modifier = Modifier
-                        .clickable { onRestore(parcel) }
-                        .padding(start = 8.dp, top = 6.dp, bottom = 6.dp),
-                    style = ShowCodeText.Action,
-                    color = AccentInk,
-                )
-            }
-        }
     }
 }
 
@@ -1001,4 +1224,172 @@ private fun EnableIngestCard(title: String, body: String, onClick: () -> Unit) {
         Spacer(Modifier.height(4.dp))
         Text(text = body, style = ShowCodeText.Caption, color = InkMuted)
     }
+}
+
+/**
+ * 手动刷新键：和搜索同一行。
+ *
+ * 可见字形 20dp / 1.5dp 圆头描边，主观重量比搜索轻一档；触控区 44dp 是隐形的。
+ * 常态用 InkMuted，不放强调色；按下只缩 0.96、压一点透明度，不叠水波纹也不铺底色。
+ *
+ * 动画三段，全部由 busy / failedSignal 驱动，没有任何常驻循环：
+ * 1. 点击那一圈：0→360°，阻尼 1.0 的弹簧（≈560ms，不回弹、不反转）；
+ * 2. 超过约 700ms 还没结束：换成 20dp 环形进度，单个 90° 弧以 50°/s 慢慢走（一圈 7.2s）；
+ * 3. 结束：首圈没走完就先顺向补完再归位；失败另加 ±4°×80ms 的两下轻晃。
+ */
+@Composable
+private fun RefreshAction(
+    busy: Boolean,
+    enabled: Boolean,
+    failedSignal: Int,
+    onClick: () -> Unit,
+) {
+    val label = stringResource(R.string.home_refresh)
+    val tint = InkMuted
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+
+    val rotation = remember { Animatable(0f) }
+    val ring = remember { Animatable(0f) }
+    val wobble = remember { Animatable(0f) }
+    var ringVisible by remember { mutableStateOf(false) }
+    var seenFailure by remember { mutableIntStateOf(failedSignal) }
+
+    LaunchedEffect(busy) {
+        if (busy) {
+            ringVisible = false
+            rotation.snapTo(0f)
+            /* 一整圈：dampingRatio 1.0 是临界阻尼，停得干净、没有回弹。 */
+            rotation.animateTo(360f, spring(dampingRatio = 1f, stiffness = 300f))
+            /* 还没结束：换环形进度。 */
+            ringVisible = true
+            ring.snapTo(0f)
+            while (true) {
+                ring.animateTo(ring.value + 360f, tween(7200, easing = MotionEasing.Linear))
+            }
+        } else {
+            ringVisible = false
+            ring.snapTo(0f)
+            /* 首圈没走完就被叫停：顺向补完这一圈，不做反向急停。 */
+            if (rotation.value < 360f) {
+                rotation.animateTo(360f, tween(200, easing = MotionEasing.FastOutSlowIn))
+            }
+            rotation.snapTo(0f)
+        }
+    }
+
+    LaunchedEffect(failedSignal) {
+        if (failedSignal != seenFailure) {
+            seenFailure = failedSignal
+            wobble.snapTo(0f)
+            wobble.animateTo(4f, tween(80, easing = MotionEasing.Standard))
+            wobble.animateTo(-4f, tween(80, easing = MotionEasing.Standard))
+            wobble.animateTo(0f, tween(80, easing = MotionEasing.Standard))
+        }
+    }
+
+    val glyphAlpha by animateFloatAsState(
+        targetValue = if (ringVisible) 0f else 1f,
+        animationSpec = tween(140),
+        label = "refresh-glyph-alpha",
+    )
+    val ringAlpha by animateFloatAsState(
+        targetValue = if (ringVisible) 1f else 0f,
+        animationSpec = tween(140),
+        label = "refresh-ring-alpha",
+    )
+    val pressScale = if (pressed) 0.96f else 1f
+    val pressAlpha = if (pressed) 0.72f else 1f
+
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick,
+            )
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(
+            modifier = Modifier
+                .size(20.dp)
+                .graphicsLayer {
+                    scaleX = pressScale
+                    scaleY = pressScale
+                    alpha = pressAlpha
+                },
+        ) {
+            val stroke = 1.5.dp.toPx()
+            val radius = size.minDimension / 2f - stroke / 2f
+            val middle = center
+            if (glyphAlpha > 0.01f) {
+                rotateScope(rotation.value + wobble.value, middle) {
+                    drawRefreshArrow(tint, middle, radius, stroke, glyphAlpha)
+                }
+            }
+            if (ringAlpha > 0.01f) {
+                val ringRadius = radius - 0.5.dp.toPx()
+                drawCircle(
+                    color = tint.copy(alpha = tint.alpha * 0.25f * ringAlpha),
+                    radius = ringRadius,
+                    center = middle,
+                    style = Stroke(width = stroke),
+                )
+                drawArc(
+                    color = tint.copy(alpha = tint.alpha * ringAlpha),
+                    startAngle = ring.value,
+                    sweepAngle = 90f,
+                    useCenter = false,
+                    topLeft = Offset(middle.x - ringRadius, middle.y - ringRadius),
+                    size = Size(ringRadius * 2f, ringRadius * 2f),
+                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+                )
+            }
+        }
+    }
+}
+
+/** 单支圆弧 + 箭头。坐标全部从画布推出来，20dp 与 24dp 是同一个形状。 */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawRefreshArrow(
+    tint: Color,
+    middle: Offset,
+    radius: Float,
+    stroke: Float,
+    alpha: Float,
+) {
+    val color = tint.copy(alpha = tint.alpha * alpha)
+    drawArc(
+        color = color,
+        startAngle = -60f,
+        sweepAngle = 300f,
+        useCenter = false,
+        topLeft = Offset(middle.x - radius, middle.y - radius),
+        size = Size(radius * 2f, radius * 2f),
+        style = Stroke(width = stroke, cap = StrokeCap.Round),
+    )
+    /* 箭头在弧的终点（-60°+300°=240°，屏幕坐标里落在左上）；两臂沿切线与法线张开。 */
+    val end = Math.toRadians(240.0)
+    val tip = Offset(
+        middle.x + radius * cos(end).toFloat(),
+        middle.y + radius * sin(end).toFloat(),
+    )
+    val tangent = Offset(-sin(end).toFloat(), cos(end).toFloat())
+    val normal = Offset(cos(end).toFloat(), sin(end).toFloat())
+    val diameter = radius * 2f
+    val arm = 0.145f * diameter
+    val spread = 0.085f * diameter
+    val a1 = Offset(
+        tip.x - tangent.x * arm + normal.x * spread,
+        tip.y - tangent.y * arm + normal.y * spread,
+    )
+    val a2 = Offset(
+        tip.x - tangent.x * arm - normal.x * spread,
+        tip.y - tangent.y * arm - normal.y * spread,
+    )
+    drawLine(color, a1, tip, strokeWidth = stroke, cap = StrokeCap.Round)
+    drawLine(color, a2, tip, strokeWidth = stroke, cap = StrokeCap.Round)
 }

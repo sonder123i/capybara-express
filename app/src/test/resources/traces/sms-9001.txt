@@ -1,0 +1,10 @@
+id: sms-9001
+platform: SMS
+tracking: -
+point: 种子驿站
+fetched_at: 2026-11-06T20:04:00+08:00
+expected_stage: AT_STATION
+production_stage: AT_STATION
+note: -
+---
+【种子】您的顺丰快递已到种子驿站，取件码1-2-345。

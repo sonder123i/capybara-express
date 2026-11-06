@@ -12,9 +12,14 @@ import androidx.annotation.StringRes
  * 屏幕上写着「长按可复制」，用户长按之后必须得到本 App 的回应，否则他会怀疑没生效。
  */
 fun copyCode(context: Context, code: String, @StringRes confirmationRes: Int) {
-    val clipboard = context.getSystemService(ClipboardManager::class.java)
-    clipboard.setPrimaryClip(ClipData.newPlainText("code", code))
+    copyText(context, code)
     Toast.makeText(context, confirmationRes, Toast.LENGTH_SHORT).show()
+}
+
+/** 只写剪贴板、不出声。空码件「去淘宝查询」要先留好单号，但那时用户马上要离开本 App。 */
+fun copyText(context: Context, text: String) {
+    val clipboard = context.getSystemService(ClipboardManager::class.java)
+    clipboard.setPrimaryClip(ClipData.newPlainText("code", text))
 }
 
 /**

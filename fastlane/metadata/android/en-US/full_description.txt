@@ -5,7 +5,7 @@ The pain of picking up a parcel is not "my tracking info is scattered". It is th
 in front of the locker: digging through three apps for a code, not knowing which slot,
 not knowing how long until the locker starts charging.
 
-ShowCode is not a parcel archive. It is the panel you use while standing at the locker.
+Capybara Parcel Helper is not a parcel archive. It is the panel you use while standing at the locker.
 
 Automatic capture
 · Parses pickup codes, slot / shelf numbers and which station they belong to from SMS and app notifications.

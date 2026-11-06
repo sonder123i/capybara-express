@@ -54,7 +54,17 @@ private const val HEX = "0123456789abcdef"
  * **任意 picked 状态都要带回来。** 只看未取行（旧版 `findUnpicked` 的 `AND picked = 0`）
  * 正是「已取的被刷新复活」的根因：已取行对去重不可见，于是重放的旧短信插出一条新卡。
  */
-data class ExistingParcel(val id: Long, val picked: Boolean, val pickedAt: Long?, val receivedAt: Long)
+data class ExistingParcel(
+    val id: Long,
+    val picked: Boolean,
+    val pickedAt: Long?,
+    val receivedAt: Long,
+    /** 库里这一行的取件码 / 点 / 运单号，跨通道匹配时用。 */
+    val code: String = "",
+    val pointKey: String = "",
+    val trackingNo: String? = null,
+    val codeKind: CodeKind = CodeKind.PICKUP,
+)
 
 /** 用户在这条未识别消息上的表态。 */
 enum class UnrecognizedState { NEW, DISMISSED, RESOLVED }
@@ -125,6 +135,13 @@ data class IngestPlan(
 private const val SAME_MESSAGE_CLOCK_SKEW_MS = 5 * 60 * 1000L
 
 /**
+ * 只有「后五位」可用时，两条报道要落在同一个时间窗里才算同一件。
+ * 运单号是硬身份，不需要时间窗；后五位只是展示用的弱身份，必须有这道闸，
+ * 否则同一点上相隔半年的两件末五位相同会被并成一件。
+ */
+private const val SAME_SUFFIX_WINDOW_MS = 30L * 24 * 60 * 60 * 1000
+
+/**
  * 一条消息进来，系统该做什么。全部判断在这，输入是已经取好的事实。
  *
  * 两道防线，缺一不可，因为它们各挡一类重复：
@@ -144,6 +161,8 @@ fun planIngest(
     senderMuted: Boolean = false,
     appMuted: Boolean = false,
     existingParcels: Map<Pair<String, String>, ExistingParcel> = emptyMap(),
+    /** 同码同点之外的候选（同运单号、同点后五位）。用来接上短信行与账号行。 */
+    candidates: List<ExistingParcel> = emptyList(),
     unrecognizedState: UnrecognizedState? = null,
     domain: MessageDomain = MessageDomains.classify(message.body),
 ): IngestPlan {
@@ -157,7 +176,7 @@ fun planIngest(
         ParseOutcome.Ignored -> IngestPlan(MessageSkip.NONE, emptyList(), null, fingerprint)
         is ParseOutcome.Parsed -> IngestPlan(
             skip = MessageSkip.NONE,
-            parcels = outcome.parcels.map { parcelAction(it, message, existingParcels) },
+            parcels = outcome.parcels.map { parcelAction(it, message, existingParcels, candidates) },
             unrecognized = null,
             fingerprint = fingerprint,
         )
@@ -181,22 +200,77 @@ fun planIngest(
     }
 }
 
+/** 命中的是哪一类身份：完整运单号是硬身份，码/后五位是弱身份。 */
+private data class FoundParcel(val row: ExistingParcel, val byTracking: Boolean)
+
 private fun parcelAction(
     parsed: ParsedParcel,
     message: IncomingMessage,
     existingParcels: Map<Pair<String, String>, ExistingParcel>,
+    candidates: List<ExistingParcel>,
 ): ParcelAction {
     val key = pointKey(parsed.pointName)
-    val found = existingParcels[parsed.code to key]
+    val exact = existingParcels[parsed.code to key]
+    val match = exact?.let { FoundParcel(it, byTracking = false) }
+        ?: findCrossChannel(parsed, key, candidates, message.receivedAt)
+        ?: return ParcelAction.Insert(parsed, key)
+    val found = match.row
     return when {
-        found == null -> ParcelAction.Insert(parsed, key)
         // 未取件：同一件的另一路报道。更新它，让补上的柜号/归属生效。
         !found.picked -> ParcelAction.Update(found.id, parsed, key)
-        // 已取件 + 这条消息比建行的那条更新 → 取件码被复用了，是一件新货。
-        message.receivedAt > found.receivedAt + SAME_MESSAGE_CLOCK_SKEW_MS -> ParcelAction.Insert(parsed, key)
+        // 运单号相同的迟到提醒还是同一件；哪怕它晚到，也不能因为码复用就再插一张。
+        match.byTracking -> ParcelAction.AlreadyPicked(found.id, parsed, key)
+        // picked_at 才是「什么时候被取走」。用消息时间判新旧，正是已取后又冒出新卡的根因。
+        found.pickedAt == null -> ParcelAction.AlreadyPicked(found.id, parsed, key)
+        message.receivedAt > found.pickedAt + SAME_MESSAGE_CLOCK_SKEW_MS ->
+            ParcelAction.Insert(parsed, key)
         else -> ParcelAction.AlreadyPicked(found.id, parsed, key)
     }
 }
+
+/**
+ * 跨通道认同一件：短信行有真实取件码，账号行只有「后五位」或空码，
+ * 旧的 `(code, point_key)` 键接不上。
+ *
+ * 优先级：
+ * 1. 完整运单号相等 → 同一件（硬身份，不看时间窗）；
+ * 2. 只有后五位可用时，必须同点 + 30 天窗口；
+ * 3. 两个运单号都非空但不同 → 绝不合并。这里锁住「两件不同运单、同点同后五位仍是两行」。
+ */
+private fun findCrossChannel(
+    parsed: ParsedParcel,
+    key: String,
+    candidates: List<ExistingParcel>,
+    receivedAt: Long,
+): FoundParcel? {
+    val incoming = parsed.trackingNo.trim()
+    if (incoming.isNotEmpty()) {
+        candidates.firstOrNull { row ->
+            row.trackingNo?.trim().orEmpty().let { it.isNotEmpty() && it == incoming }
+        }?.let { return FoundParcel(it, byTracking = true) }
+    }
+
+    val suffix = when {
+        incoming.isNotEmpty() -> incoming.takeLast(5)
+        // 账号行才会给「后五位」；ParsedParcel 不带 codeKind，这里按形状识别（五位纯数字）。
+        looksLikeSuffix(parsed.code) -> parsed.code
+        else -> ""
+    }
+    if (suffix.length != 5) return null
+    return candidates.firstOrNull { row ->
+        if (row.pointKey != key) return@firstOrNull false
+        val existingTracking = row.trackingNo?.trim().orEmpty()
+        // 双方都有运单号却不同，是两件不同的货：后五位相同也不能并。
+        if (existingTracking.isNotEmpty() && incoming.isNotEmpty() && existingTracking != incoming) {
+            return@firstOrNull false
+        }
+        val rowSuffix = existingTracking.takeLast(5)
+        val codeHit = row.code == suffix || (rowSuffix.isNotEmpty() && rowSuffix == suffix)
+        codeHit && kotlin.math.abs(receivedAt - row.receivedAt) <= SAME_SUFFIX_WINDOW_MS
+    }?.let { FoundParcel(it, byTracking = false) }
+}
+
+private fun looksLikeSuffix(code: String): Boolean = code.length == 5 && code.all { it.isDigit() }
 
 /** 发件人屏蔽键。号码归一化到数字，App 名（通知通道）折成小写。 */
 fun muteKey(sender: String): String {

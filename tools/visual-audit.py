@@ -1,4 +1,4 @@
-"""亮码视觉系统的棘轮。和 core/parse/corpus 那条识别棘轮同一个做法：
+"""卡皮巴拉快递助手视觉系统的棘轮。和 core/parse/corpus 那条识别棘轮同一个做法：
 每档指标有一个**不许下调**的地板，改坏了当场就红，不靠人记住该数什么。
 
     python3 tools/visual-audit.py            # 打印四张表

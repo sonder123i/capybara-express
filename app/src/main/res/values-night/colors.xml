@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 暗色下窗口底色必须与 Compose canvas (#0F1218) 一致，否则系统 splash 退出的
+         那一帧、或 Compose 尚未铺满系统栏区域时会露出白色。启动页的薄荷底来自
+         ic_launcher_background，本文件不覆盖它。 -->
+    <color name="window_background">#FF0F1218</color>
+</resources>

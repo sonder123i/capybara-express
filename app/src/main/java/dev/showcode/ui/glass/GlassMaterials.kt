@@ -1,5 +1,7 @@
 package dev.showcode.ui.glass
 
+import androidx.compose.ui.graphics.Color
+
 /**
  * 玻璃材质表。唯一权威源是教务 `ui/system/GlassMaterial.kt` 的 `GlassMaterials` 与 `GlassRecipe`
  * （.design-qa/DESIGN.md 里那张按**角色**而不是按组件分档的表）。
@@ -48,16 +50,59 @@ object GlassMaterials {
             Navigation
         }
 
-    /**
-     * 有折射外观档的轨道容器色（教务 `CapsuleNavigationBar` 写死 `White @ 0.28`，
-     * 注释「提浊：降低穿透内容对比度，深色文字经过栏后不再形成清晰污块」）。
-     * role 表里的 0.16 是「玻璃有多透」的基础值，轨道这一档是它的**实际用法**。
-     */
-    const val NavTrackSurfaceAlpha = 0.28f
+    /* ── 底栏：逐值照抄教务 `CapsuleNavigationBar.kt:590-1065` + `GlassRecipe` ─────
+       本机 API35，走 `hasLensLook` 的 AGSL 路径，所以取的是「有折射外观」那一套真值：
+       轨道 blur 10dp + Navigation lens 8/12dp + 白 0.28（暗色 = surface #171B22），
+       高光 0.16 / 投影 0.08；选中胶囊白 0.34（暗 0.20，按下 0.14）、高光 0.12+0.35p、
+       投影 0.10+0.15p、内阴影 4dp·p / 0.5p；指示器 lens 12/18dp，静止为 0。 */
+    const val NavTrackSurfaceAlphaLight = 0.28f
 
-    /** 轨道高光/投影（教务 hasLensLook 分支 Highlight 0.16 / Shadow 0.08；无折射档两者都是 null）。 */
+    /**
+     * 系统「高对比度文字」下的轨道表面：亮档把白遮罩从 0.28 提到 0.62（仍然透、仍看得见
+     * blur，玻璃质感不用拆），暗档把底再压深一档——暗色下轨道本来就不透明，能提的只有
+     * 「底更暗 → 浅色字更亮」这一条。只改表面，不动 blur/lens/高光/投影。
+     */
+    const val NavTrackSurfaceAlphaLightHighContrast = 0.62f
+    fun navTrackSurfaceColor(dark: Boolean, highTextContrast: Boolean = false): Color = when {
+        !highTextContrast -> if (dark) Color(0xFF171B22) else Color.White.copy(alpha = NavTrackSurfaceAlphaLight)
+        dark -> Color(0xFF0B0E13)
+        else -> Color.White.copy(alpha = NavTrackSurfaceAlphaLightHighContrast)
+    }
+
+    const val NavTrackBlurDp = 10f
     const val NavTrackHighlightAlpha = 0.16f
     const val NavTrackShadowAlpha = 0.08f
+    const val NavTrackLensHeightDp = 8f
+    const val NavTrackLensAmountDp = 12f
+
+    const val NavCapsuleFillAlphaLight = 0.34f
+    const val NavCapsuleFillAlphaDark = 0.20f
+    const val NavCapsuleFillPressAlpha = 0.14f
+    const val NavCapsuleHighlightAlpha = 0.12f
+    const val NavCapsuleHighlightPressAlpha = 0.35f
+    const val NavCapsuleShadowAlpha = 0.10f
+    const val NavCapsuleShadowPressAlpha = 0.15f
+    const val NavCapsuleLensHeightDp = 12f
+    const val NavCapsuleLensAmountDp = 18f
+    const val NavCapsuleInnerShadowRadiusDp = 4f
+    const val NavCapsuleInnerShadowAlpha = 0.5f
+
+    /* 边缘光常量仍给**收起胶囊**用（它没有 backdrop 可采样，靠 glassRim 立边）。
+       教务 `GlassMaterial.kt:378-387`。 */
+    const val GlassRimAlphaLight = 0.30f
+    const val GlassRimAlphaDark = 0.34f
+    const val GlassContourAlphaLight = 0.20f
+    const val GlassContourAlphaDark = 0.18f
+    const val GlassRimPressBoost = 0.45f
+    fun navCapsuleSheenAlpha(dark: Boolean): Float = if (dark) 0.14f else 0.32f
+
+    /** 收起形态的近不透明胶囊（没有 backdrop 时的落点）。 */
+    fun navCapsuleColor(dark: Boolean): Color =
+        if (dark) Color(0xD92A303A) else Color(0xD1FFFFFF)
+
+    /** 不支持真模糊时的实底回退（不是死灰：亮 #FAFAFE / 暗 #191E26）。 */
+    fun navFallbackTrackColor(dark: Boolean): Color =
+        if (dark) Color(0xFF191E26) else Color(0xFFFAFAFE)
 
     /** 无折射外观档的轨道（教务 `GlassRecipe.NavLegacy*`，cba2a09）：blur 8dp + FAFAFA @ 0.15，无高光无投影。 */
     const val NavLegacyTrackBlurDp = 8f
@@ -94,4 +139,24 @@ object GlassMaterials {
      */
     const val NavIndicatorLensHeightDp = 12f
     const val NavIndicatorLensAmountDp = 18f
+
+    /* ── 暗色档（教务 `GlassRecipe.*Dark`） ─────────────────────────
+       参考工程在暗色下把选中胶囊白遮罩从 0.34 降到 0.20，无折射档的轨道从
+       FAFAFA@0.15 换成 White@0.18；指示器的「黑遮罩」在暗色下必须换成白色，
+       否则黑底叠黑等于没有选中态。 */
+    fun navSelectedSolidAlpha(dark: Boolean): Float = if (dark) 0.20f else NavSelectedSolidAlpha
+
+    fun navSelectedGlassAlpha(dark: Boolean): Float = if (dark) 0.12f else NavSelectedGlassAlpha
+
+    fun navLegacyTrackColor(dark: Boolean): Color =
+        if (dark) Color.White else Color(NavLegacyTrackSurface)
+
+    fun navLegacyTrackAlpha(dark: Boolean): Float = if (dark) 0.18f else NavLegacyTrackSurfaceAlpha
+
+    fun navLegacyIndicatorColor(dark: Boolean): Color = if (dark) Color.White else Color.Black
+
+    fun navLegacyIndicatorAlpha(dark: Boolean): Float = if (dark) 0.20f else NavLegacyIndicatorAlpha
+
+    fun navLegacyIndicatorPressAlpha(dark: Boolean): Float =
+        if (dark) 0.08f else NavLegacyIndicatorPressAlpha
 }

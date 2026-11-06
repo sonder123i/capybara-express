@@ -49,6 +49,14 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_WIDGET_HINT_DISMISSED, false)
         set(value) = sp.edit().putBoolean(KEY_WIDGET_HINT_DISMISSED, value).apply()
 
+    /**
+     * 首页「后台可能被限制」中性说明关闭时对应的 lastSyncAt。0 = 没关过。
+     * 下一次真的同步完时间戳会变，说明自然重新出现——不需要额外的复位逻辑。
+     */
+    var backgroundNoteDismissedForSyncAt: Long
+        get() = sp.getLong(KEY_BACKGROUND_NOTE_DISMISSED_FOR, 0L)
+        set(value) = sp.edit().putLong(KEY_BACKGROUND_NOTE_DISMISSED_FOR, value).apply()
+
     /** 组件绑定的取件点 key；null = 通用组件（形态 B）。 */
     fun widgetBinding(widgetId: Int): String? = sp.getString(keyBinding(widgetId), null)
 
@@ -103,6 +111,14 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_GLASS_SESSION_USED, false)
         set(value) = sp.edit().putBoolean(KEY_GLASS_SESSION_USED, value).apply()
 
+    /**
+     * 最近一次「瞬时失败」的时刻（断网/超时/5xx/结构异常）。0 = 没有待退避的失败。
+     * 自动同步据此退避：失败不推进 last_sync_at，但不能因此每次回前台都重撞一次。
+     */
+    var lastTransientFailureAt: Long
+        get() = sp.getLong(KEY_LAST_TRANSIENT_FAILURE, 0L)
+        set(value) = sp.edit().putLong(KEY_LAST_TRANSIENT_FAILURE, value).apply()
+
     private fun keyBinding(widgetId: Int) = "widget_bind_$widgetId"
     private fun keyBindingName(widgetId: Int) = "widget_bind_name_$widgetId"
 
@@ -119,12 +135,14 @@ class Prefs(context: Context) {
         private const val KEY_STATION_MINUTES = "station_due_soon_minutes"
         private const val KEY_ONBOARDING_DONE = "onboarding_done"
         private const val KEY_WIDGET_HINT_DISMISSED = "widget_hint_dismissed"
+        private const val KEY_BACKGROUND_NOTE_DISMISSED_FOR = "background_note_dismissed_for"
         private const val KEY_FAMILY_LABEL = "family_label"
         private const val KEY_REMINDER_ON = "pickup_reminder_on"
         private const val KEY_REMINDED_DAY = "pickup_reminded_day"
         private const val KEY_REMINDER_ASKED = "pickup_reminder_asked"
         private const val KEY_GLASS_BAR_ON = "glass_bar_on"
         private const val KEY_GLASS_SESSION_USED = "glass_session_used"
+        private const val KEY_LAST_TRANSIENT_FAILURE = "last_transient_failure_at"
 
         const val DEFAULT_LOCKER_HOURS = 6
         const val DEFAULT_STATION_MINUTES = 90

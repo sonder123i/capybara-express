@@ -1,0 +1,10 @@
+id: pdd-9014
+platform: PDD
+tracking: -
+point: -
+fetched_at: 2026-11-06T20:04:00+08:00
+expected_stage: UNKNOWN
+production_stage: DONE
+note: 库里只有摘要「待收货」，平台完整轨迹已丢失
+---
+待收货

@@ -26,12 +26,16 @@ class GroupingTest {
         freeUntilAt: Long? = null,
         receivedAt: Long = now,
         picked: Boolean = false,
+        codeKind: CodeKind = CodeKind.PICKUP,
+        trackingNo: String? = null,
+        stage: Stage = Stage.AT_STATION,
     ) = Parcel(
         id = id, code = code, lockerNo = null, carrier = "中通快递",
         pointKey = pointKey, pointName = pointName, pointKind = kind,
         owner = Owner.SELF, source = Source.SMS, receivedAt = receivedAt,
         freeUntilAt = freeUntilAt, closesAtMinuteOfDay = closesAtMinuteOfDay,
         picked = picked, pickedAt = null, raw = "",
+        trackingNo = trackingNo, codeKind = codeKind, stage = stage,
     )
 
     private fun atRiskLocker(id: Long) = parcel(
@@ -111,6 +115,113 @@ class GroupingTest {
 
         val allPicked = groupByPoint(listOf(safeStation(1, picked = true)), now)
         assertTrue(allPicked.isEmpty())
+    }
+
+    @Test
+    fun `同点两件取走一件 - 卡片件数立刻从 2 变 1`() {
+        val waiting = groupByPoint(listOf(safeStation(1), safeStation(2)), now)
+        assertEquals(2, waiting.single().items.size)
+
+        val afterOne = groupByPoint(listOf(safeStation(1), safeStation(2, picked = true)), now)
+        assertEquals(1, afterOne.single().items.size)
+    }
+
+    @Test
+    fun `卡片数只等于有在站件的点数`() {
+        val groups = groupByPoint(
+            listOf(safeStation(1), safeStation(2, picked = true), atRiskLocker(3)),
+            now,
+        )
+        assertEquals(2, groups.size)
+        assertEquals(setOf("cndm", "fc3"), groups.map { it.key }.toSet())
+    }
+
+    @Test
+    fun `一个点全部取完 - 它不再贡献任何卡片`() {
+        val groups = groupByPoint(
+            listOf(
+                safeStation(1, picked = true),
+                safeStation(2, picked = true),
+                atRiskLocker(3),
+            ),
+            now,
+        )
+        assertEquals(listOf("fc3"), groups.map { it.key })
+    }
+
+    @Test
+    fun `已取的无码件也不进首页 - 不会因为有运单号又冒出来`() {
+        val groups = groupByPoint(
+            listOf(
+                parcel(
+                    id = 3, code = "", pointKey = "cndm", pointName = "菜鸟驿站·东门",
+                    codeKind = CodeKind.NONE, trackingNo = "79040000038478",
+                    picked = true, receivedAt = now,
+                ),
+            ),
+            now,
+        )
+        assertTrue(groups.isEmpty())
+    }
+
+    @Test
+    fun `无码但有运单号 - 照样进首页分组`() {
+        val groups = groupByPoint(
+            listOf(
+                parcel(
+                    id = 1, code = "", pointKey = "cndm", pointName = "菜鸟驿站·东门",
+                    codeKind = CodeKind.NONE, trackingNo = "79040000038478",
+                ),
+            ),
+            now,
+        )
+        assertEquals(1, groups.single().items.size)
+        assertEquals("79040000038478", groups.single().items.single().trackingNo)
+    }
+
+    @Test
+    fun `既无码也无运单号 - 不进首页`() {
+        val groups = groupByPoint(
+            listOf(
+                parcel(
+                    id = 2, code = "", pointKey = "cndm", pointName = "菜鸟驿站·东门",
+                    codeKind = CodeKind.NONE, trackingNo = null,
+                ),
+            ),
+            now,
+        )
+        assertTrue(groups.isEmpty())
+    }
+
+    @Test
+    fun `在途件不进待取分组 - 即使残留点名也不占待取计数`() {
+        val groups = groupByPoint(
+            listOf(
+                parcel(id = 1, code = "A1", pointKey = "cndm", pointName = "菜鸟驿站·东门"),
+                parcel(
+                    id = 2, code = "", pointKey = "cndm", pointName = "菜鸟驿站·东门",
+                    codeKind = CodeKind.NONE, trackingNo = "777400000060701",
+                    stage = Stage.IN_TRANSIT,
+                ),
+            ),
+            now,
+        )
+        assertEquals(1, groups.single().items.size)
+        assertEquals(1L, groups.single().items.single().id)
+    }
+
+    @Test
+    fun `空点名的到站件也不进待取分组 - 它只出现在在途待补区`() {
+        val groups = groupByPoint(
+            listOf(
+                parcel(
+                    id = 5, code = "", pointKey = "", pointName = "",
+                    codeKind = CodeKind.NONE, trackingNo = "YT0724000054819",
+                ),
+            ),
+            now,
+        )
+        assertTrue(groups.isEmpty())
     }
 
     // ── 保守归一化（frame 锁定：不自动合并任何名称不同的取件点） ──

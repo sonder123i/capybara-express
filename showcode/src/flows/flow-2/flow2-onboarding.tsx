@@ -130,7 +130,7 @@ export function Onboard1_Welcome() {
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--adm-color-background)' }}>
       <div style={{ flex: 1, padding: '48px 24px 24px', display: 'flex', flexDirection: 'column' }}>
         <div style={{ fontSize: 40, marginBottom: 8 }}>📦</div>
-        <div style={{ fontSize: 28, fontWeight: 800, lineHeight: 1.25 }}>亮码</div>
+        <div style={{ fontSize: 28, fontWeight: 800, lineHeight: 1.25 }}>卡皮巴拉快递助手</div>
         <div style={{ fontSize: 17, opacity: 0.7, marginTop: 10, lineHeight: 1.6 }}>
           取快递时，不用再翻三个 App<br />找那些取件码。
         </div>
@@ -445,7 +445,7 @@ export function Onboard5_Widget() {
         {[
           ['1', '长按桌面空白处'],
           ['2', '点「小组件」/「小工具」'],
-          ['3', '找到「亮码」，长按拖到桌面'],
+          ['3', '找到「卡皮巴拉快递助手」，长按拖到桌面'],
         ].map(([n, t]) => (
           <div key={n} style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
             <span style={{

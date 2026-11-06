@@ -650,7 +650,11 @@ private fun OwnerChoice(label: String, selected: Boolean, onSelect: () -> Unit) 
  * 主屏跟子屏对齐重要，同一层的两屏标题错开一截，用户会读成「这两屏不是平级的」。
  */
 @Composable
-internal fun ScreenTopBar(title: String, onBack: (() -> Unit)? = null) {
+internal fun ScreenTopBar(
+    title: String,
+    onBack: (() -> Unit)? = null,
+    action: (@Composable () -> Unit)? = null,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -672,5 +676,6 @@ internal fun ScreenTopBar(title: String, onBack: (() -> Unit)? = null) {
             style = ShowCodeText.Headline,
             color = Ink,
         )
+        action?.invoke()
     }
 }

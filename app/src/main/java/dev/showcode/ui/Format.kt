@@ -17,6 +17,7 @@ import dev.showcode.core.MINUTE_MS
 import dev.showcode.core.Parcel
 import dev.showcode.core.Owner
 import dev.showcode.core.PointKind
+import dev.showcode.core.Stage
 import dev.showcode.core.Urgency
 import dev.showcode.core.countdownOf
 import dev.showcode.core.deadlineOf
@@ -47,6 +48,19 @@ fun pointKindLabel(kind: PointKind): String = stringResource(
         PointKind.STATION -> R.string.kind_station
         PointKind.LOCKER -> R.string.kind_locker
         PointKind.SELFPICK -> R.string.kind_selfpick
+    }
+)
+
+/** 账号件的阶段。短信件默认 AT_STATION，所以这一层对老路只显示「待取件」。 */
+@Composable
+fun stageLabel(stage: Stage): String = stringResource(
+    when (stage) {
+        Stage.AT_STATION -> R.string.stage_at_station
+        Stage.DELIVERING -> R.string.stage_delivering
+        Stage.IN_TRANSIT -> R.string.stage_in_transit
+        Stage.DONE -> R.string.stage_done
+        Stage.ABNORMAL -> R.string.stage_abnormal
+        Stage.UNKNOWN -> R.string.stage_unknown
     }
 )
 

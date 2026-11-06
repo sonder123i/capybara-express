@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  长按图标的静态快捷方式：不经过 onboarding、不读库、不要任何权限。
+  存在的理由和竞品一样：站在柜机前时，最慢的一步是「先打开那个 App 再找入口」；
+  这一层把「按住图标 → 点一下」压成两步，而且它是唯一在「还没授权、库里还空」时
+  仍然可用的入口。
+
+  每个目的地一个 action（XML 里写不了 extra），解析集中在 ShortcutDestinations。
+  图标沿用应用图标的条码字形，只换底色——同一套视觉，不做六个互不相识的图标。
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_taobao"
+        android:shortcutId="taobao_identity"
+        android:shortcutLongLabel="@string/shortcut_taobao_identity"
+        android:shortcutShortLabel="@string/shortcut_taobao_identity">
+        <intent
+            android:action="dev.showcode.action.OPEN_TAOBAO_IDENTITY"
+            android:targetClass="dev.showcode.MainActivity"
+            android:targetPackage="dev.showcode" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_pinduoduo"
+        android:shortcutId="pinduoduo_identity"
+        android:shortcutLongLabel="@string/shortcut_pinduoduo_identity"
+        android:shortcutShortLabel="@string/shortcut_pinduoduo_identity">
+        <intent
+            android:action="dev.showcode.action.OPEN_PINDUODUO_IDENTITY"
+            android:targetClass="dev.showcode.MainActivity"
+            android:targetPackage="dev.showcode" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_cainiao"
+        android:shortcutId="cainiao_identity"
+        android:shortcutLongLabel="@string/shortcut_cainiao_identity"
+        android:shortcutShortLabel="@string/shortcut_cainiao_identity">
+        <intent
+            android:action="dev.showcode.action.OPEN_CAINIAO_IDENTITY"
+            android:targetClass="dev.showcode.MainActivity"
+            android:targetPackage="dev.showcode" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_taobao"
+        android:shortcutId="taobao_pending"
+        android:shortcutLongLabel="@string/shortcut_taobao_pending"
+        android:shortcutShortLabel="@string/shortcut_taobao_pending">
+        <intent
+            android:action="dev.showcode.action.OPEN_TAOBAO_PENDING"
+            android:targetClass="dev.showcode.MainActivity"
+            android:targetPackage="dev.showcode" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_jd"
+        android:shortcutId="jd_pending"
+        android:shortcutLongLabel="@string/shortcut_jd_pending"
+        android:shortcutShortLabel="@string/shortcut_jd_pending">
+        <intent
+            android:action="dev.showcode.action.OPEN_JD_PENDING"
+            android:targetClass="dev.showcode.MainActivity"
+            android:targetPackage="dev.showcode" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_xhs"
+        android:shortcutId="xhs_pending"
+        android:shortcutLongLabel="@string/shortcut_xhs_pending"
+        android:shortcutShortLabel="@string/shortcut_xhs_pending">
+        <intent
+            android:action="dev.showcode.action.OPEN_XHS_PENDING"
+            android:targetClass="dev.showcode.MainActivity"
+            android:targetPackage="dev.showcode" />
+    </shortcut>
+
+</shortcuts>

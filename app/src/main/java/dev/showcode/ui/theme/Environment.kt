@@ -31,6 +31,15 @@ private val EnvBase = Color(0xFFF6F6FB)
 private val EnvGlow = Color(0xFFFFFFFF)
 private val EnvShade = Color(0xFF5A6B85)
 
+/**
+ * 暗色环境层。三个颜色逐值来自教务 `AppAppearance.kt` 第 35–41 行的夜间预设改写：
+ * base = `BackgroundDark` #0F1218、glow = #263349、shade = #05080E，accent alpha ×0.55。
+ * 几何（高光半径 0.72w、四个 accent 的位置/半径、暗角 0.78/0.88）与亮色完全同一套。
+ */
+private val EnvBaseDark = Color(0xFF0F1218)
+private val EnvGlowDark = Color(0xFF263349)
+private val EnvShadeDark = Color(0xFF05080E)
+
 private const val GlowAlpha = 0.72f
 private const val ShadeAlpha = 0.09f
 
@@ -81,14 +90,15 @@ private fun compositeOver(bottom: Color, top: Color, alpha: Float): Color = Colo
 
 /** 画一遍环境层。与教务同一顺序：底 → 高光 → 光斑 → 暗角。 */
 fun DrawScope.drawEnvironment() {
+    val dark = ShowCodePaletteState.isDark
     val w = size.width
     val h = size.height
-    drawRect(EnvBase)
+    drawRect(if (dark) EnvBaseDark else EnvBase)
 
     val glowCenter = Offset(w * 0.18f, h * 0.12f)
     drawCircle(
         brush = Brush.radialGradient(
-            colors = listOf(EnvGlow.copy(alpha = GlowAlpha), Color.Transparent),
+            colors = listOf((if (dark) EnvGlowDark else EnvGlow).copy(alpha = GlowAlpha), Color.Transparent),
             center = glowCenter,
             radius = w * 0.72f,
         ),
@@ -96,12 +106,13 @@ fun DrawScope.drawEnvironment() {
         center = glowCenter,
     )
 
+    val accentScale = if (dark) 0.55f else 1f
     EnvAccents.forEach { accent ->
         val center = Offset(w * accent.cx, h * accent.cy)
         val radius = w * accent.radius
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(accent.color.copy(alpha = accent.alpha), Color.Transparent),
+                colors = listOf(accent.color.copy(alpha = accent.alpha * accentScale), Color.Transparent),
                 center = center,
                 radius = radius,
             ),
@@ -113,7 +124,7 @@ fun DrawScope.drawEnvironment() {
     val shadeCenter = Offset(w * 0.78f, h * 0.88f)
     drawCircle(
         brush = Brush.radialGradient(
-            colors = listOf(EnvShade.copy(alpha = ShadeAlpha), Color.Transparent),
+            colors = listOf((if (dark) EnvShadeDark else EnvShade).copy(alpha = ShadeAlpha), Color.Transparent),
             center = shadeCenter,
             radius = w * 0.64f,
         ),

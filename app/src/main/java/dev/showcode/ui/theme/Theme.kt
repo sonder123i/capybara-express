@@ -1,78 +1,113 @@
 package dev.showcode.ui.theme
 
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
+import dev.showcode.ui.GlassPressIndication
 
-/**
- * 管理模式的色阶。
- *
- * ⚠️ 这一张表存在的首要理由是**防紫**。M3 的基线 tone 面板整体带淡紫偏色，而本 App
- * 只有黑白 + 三态色；这些 role 不显式写就会漏进组件默认色——设置页滑杆的未填充段
- * 实测是 #E8DEF8，正是 secondaryContainer 的默认值（2026-10-13 从截图采样 3146 个像素确认）。
- *
- * 那次修复顺手把五个 surfaceContainer* 全压成了同一个 #F1F1F1，代价是首页的层次也被一起
- * 压平：卡片和白页的亮度差是 0，分离只剩一根半透明描边。现在把这一族**重新分档**，
- * 但每个值仍然显式写出——「不为没人消费的 role 新开色阶」这条原则不变，
- * 变的是那些 role 现在真的有人消费了。
- *
- * 每个中性值都必须满足 R ≤ G ≤ B（纯灰或冷调，绝不允许 R > G 的紫/品红偏色）。
- * 这条由 NeutralRampTest 断言守住，它同时放过 #E4E8F0 这类合法冷灰、
- * 拒掉 #E8DEF8 / #F3EDF7 / #E7E0EC 这三个 M3 默认值。
+/*
+ * 两套 Material 色板都直接读 `Palette.kt` 的字面值，而不是读那些 getter：
+ * getter 依赖当前主题快照，在静态 val 初始化时会被定格在亮色。
  */
-private val ShowCodeColors = lightColorScheme(
-    /* 现场模式的两端不进这张表：primary 仍指纯黑，那一屏要的是 21:1。 */
-    primary = OnsiteInk,
-    onPrimary = OnsiteSurface,
-    secondary = Accent,
-    onSecondary = OnsiteSurface,
-    background = Canvas,
-    onBackground = Ink,
-    surface = Canvas,
-    onSurface = Ink,
 
-    surfaceVariant = SurfaceSunken,
-    onSurfaceVariant = InkSecondary,
-    outline = Hairline,
-    outlineVariant = Hairline,
-
-    /* 三档容器：Low/Container 是卡面，High 是卡里的内嵌块，Highest 是最深的凹槽。 */
-    surfaceContainerLowest = Canvas,
-    surfaceContainerLow = SurfaceCard,
-    surfaceContainer = SurfaceCard,
-    surfaceContainerHigh = SurfaceSunken,
-    surfaceContainerHighest = SurfaceDeep,
-    surfaceBright = Canvas,
-    surfaceDim = SurfaceCard,
-
-    /* 曾经的紫偏源头。给同族冷调的浅蓝而不是灰——它是 Accent 的容器色，不是中性面。 */
-    secondaryContainer = AccentTint,
-    onSecondaryContainer = Ink,
-    tertiary = Accent,
-    onTertiary = OnsiteSurface,
-    tertiaryContainer = AccentTint,
-    onTertiaryContainer = Ink,
-
-    inverseSurface = OnsiteInk,
-    inverseOnSurface = OnsiteSurface,
-    error = UrgencyAtRisk,
-    /* errorContainer 不列——它是红系，和三态色同族，不是漏进来的紫。 */
+private val ShowCodeLightColors = lightColorScheme(
+    primary = ShowCodeLightPalette.onsiteInk,
+    onPrimary = ShowCodeLightPalette.onsiteSurface,
+    secondary = ShowCodeLightPalette.accent,
+    onSecondary = ShowCodeLightPalette.onsiteSurface,
+    background = ShowCodeLightPalette.canvas,
+    onBackground = ShowCodeLightPalette.ink,
+    surface = ShowCodeLightPalette.canvas,
+    onSurface = ShowCodeLightPalette.ink,
+    surfaceVariant = ShowCodeLightPalette.surfaceSunken,
+    onSurfaceVariant = ShowCodeLightPalette.inkSecondary,
+    outline = ShowCodeLightPalette.hairline,
+    outlineVariant = ShowCodeLightPalette.hairline,
+    surfaceContainerLowest = ShowCodeLightPalette.canvas,
+    surfaceContainerLow = ShowCodeLightPalette.surfaceCard,
+    surfaceContainer = ShowCodeLightPalette.surfaceCard,
+    surfaceContainerHigh = ShowCodeLightPalette.surfaceSunken,
+    surfaceContainerHighest = ShowCodeLightPalette.surfaceDeep,
+    surfaceBright = ShowCodeLightPalette.canvas,
+    surfaceDim = ShowCodeLightPalette.surfaceCard,
+    secondaryContainer = ShowCodeLightPalette.accentTint,
+    onSecondaryContainer = ShowCodeLightPalette.ink,
+    tertiary = ShowCodeLightPalette.accent,
+    onTertiary = ShowCodeLightPalette.onsiteSurface,
+    tertiaryContainer = ShowCodeLightPalette.accentTint,
+    onTertiaryContainer = ShowCodeLightPalette.ink,
+    inverseSurface = ShowCodeLightPalette.onsiteInk,
+    inverseOnSurface = ShowCodeLightPalette.onsiteSurface,
+    error = ShowCodeLightPalette.urgencyAtRisk,
 )
 
 /**
- * 强制浅色，不跟随系统深色模式。
- * 理由不是审美：现场模式要在直射阳光下做到 21:1，深色模式会把它翻成白字黑底，
- * 而强光下深色底的反光会让取件码读不出来——那是这个产品唯一不能妥协的一屏。
+ * 暗色档逐值取自教务 `Theme.kt` 的 `DarkColorScheme`（第 40–71 行），
+ * 只把我们独有的三态色/现场黑白换成本地 palette。
+ */
+private val ShowCodeDarkColors = darkColorScheme(
+    primary = Color(0xFF88BFFF),
+    onPrimary = Color(0xFF002F55),
+    primaryContainer = Color(0xFF183F68),
+    onPrimaryContainer = Color(0xFFD6E9FF),
+    secondary = Color(0xFFB3BDCC),
+    onSecondary = Color(0xFF101828),
+    secondaryContainer = Color(0xFF293343),
+    onSecondaryContainer = Color(0xFFF8F9FC),
+    tertiary = Color(0xFFB8C4FF),
+    onTertiary = Color(0xFF202A5E),
+    tertiaryContainer = Color(0xFF303B71),
+    onTertiaryContainer = Color(0xFFE0E5FF),
+    background = ShowCodeDarkPalette.canvas,
+    onBackground = ShowCodeDarkPalette.ink,
+    surface = ShowCodeDarkPalette.canvas,
+    onSurface = ShowCodeDarkPalette.ink,
+    surfaceVariant = ShowCodeDarkPalette.surfaceSunken,
+    onSurfaceVariant = ShowCodeDarkPalette.inkMuted,
+    surfaceContainerLowest = Color(0xFF0B0E13),
+    surfaceContainerLow = Color(0xFF171B22),
+    surfaceContainer = ShowCodeDarkPalette.surfaceCard,
+    surfaceContainerHigh = ShowCodeDarkPalette.surfaceSunken,
+    surfaceContainerHighest = ShowCodeDarkPalette.surfaceDeep,
+    surfaceBright = ShowCodeDarkPalette.surfaceDeep,
+    surfaceDim = Color(0xFF0B0E13),
+    outline = Color(0xFF667085),
+    outlineVariant = Color(0xFF344054),
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF742A27),
+    onErrorContainer = Color(0xFFFFDAD6),
+    inverseSurface = ShowCodeDarkPalette.onsiteInk,
+    inverseOnSurface = ShowCodeDarkPalette.onsiteSurface,
+    surfaceTint = Color(0xFF88BFFF),
+)
+
+/**
+ * 主题装配。
  *
- * ⚠️ 2026-10-16 起：**页面底不再是 [Canvas]**。管理模式的页面底是 [environmentBackground] 那层
- * 渐变，各屏自己铺；[background]/[surface] 保留纯白是当 M3 组件的兜底（新建的 Scaffold、
- * Dialog 之类），而纯白是所有墨阶都过 AA 的那一端——兜底用最安全的那一端，不是最像的那一端。
+ * 明/暗跟随系统；`ShowCodePaletteState` 在 **内容组合之前** 写入，避免暗色首帧先按亮色画一遍。
+ * 页面会因系统夜间模式变更而重建 Activity，因此 `remember(darkTheme)` 每次都是干净的一次写入。
  */
 @Composable
-fun ShowCodeTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = ShowCodeColors,
-        typography = showCodeTypography(),
-        content = content,
-    )
+fun ShowCodeTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit,
+) {
+    val dark = remember(darkTheme) {
+        ShowCodePaletteState.applyDark(darkTheme)
+        darkTheme
+    }
+    CompositionLocalProvider(LocalIndication provides GlassPressIndication) {
+        MaterialTheme(
+            colorScheme = if (dark) ShowCodeDarkColors else ShowCodeLightColors,
+            typography = showCodeTypography(),
+            content = content,
+        )
+    }
 }

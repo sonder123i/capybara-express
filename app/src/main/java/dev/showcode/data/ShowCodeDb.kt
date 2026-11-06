@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import dev.showcode.core.CodeKind
 import dev.showcode.core.ExistingParcel
 import dev.showcode.core.IdentityCode
 import dev.showcode.core.IdentityKind
@@ -14,7 +15,11 @@ import dev.showcode.core.Parcel
 import dev.showcode.core.PointAlias
 import dev.showcode.core.PointKind
 import dev.showcode.core.Source
+import dev.showcode.core.Stage
 import dev.showcode.core.UnrecognizedState
+import dev.showcode.core.account.AccountState
+import dev.showcode.core.account.BoundAccount
+import dev.showcode.core.account.Platform
 import dev.showcode.core.bodyFingerprint
 import dev.showcode.core.enumOrDefault
 import dev.showcode.core.parse.IncomingMessage
@@ -65,7 +70,19 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
               closes_at_minute INTEGER,
               picked INTEGER NOT NULL DEFAULT 0,
               picked_at INTEGER,
-              raw TEXT NOT NULL
+              raw TEXT NOT NULL,
+              tracking_no TEXT,
+              order_sn TEXT,
+              account_id TEXT,
+              stage TEXT NOT NULL DEFAULT 'AT_STATION',
+              code_kind TEXT NOT NULL DEFAULT 'PICKUP',
+              last_synced_at INTEGER,
+              goods_title TEXT,
+              goods_image TEXT,
+              goods_price TEXT,
+              shop_name TEXT,
+              ordered_at INTEGER,
+              retired INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent()
         )
@@ -75,9 +92,22 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
         // 注意这条索引**不是**防重放的那道闸——防重放在 message_seen 表。
         // 曾经它就是：`ParcelRepository` 只查 `picked = 0` 的行，于是已取件对去重不可见，
         // 每次刷新都给同一个码插一条新卡。现在它只兜「同码同点同时未取」这一种。
-        db.execSQL("CREATE UNIQUE INDEX parcel_dedupe ON parcel(code, point_key) WHERE picked = 0")
+        // 账号件的 code 可能为空（只有运单号、没有取件码），所以去重索引必须排除空码，
+        // 否则两件无码件落在同一个点会撞唯一约束。
+        // SUFFIX（单号后五位）只用于展示，**不**参与身份判定：两件末五位恰好相同的
+        // 不同运单必须各自成行。它们由 `parcel_tracking_dedupe` 按完整运单号去重。
+        db.execSQL(
+            "CREATE UNIQUE INDEX parcel_dedupe ON parcel(code, point_key)" +
+                " WHERE picked = 0 AND retired = 0 AND code <> '' AND code_kind <> 'SUFFIX'"
+        )
         db.execSQL("CREATE INDEX parcel_point ON parcel(point_key, picked)")
         db.execSQL("CREATE INDEX parcel_lookup ON parcel(code, point_key, received_at DESC)")
+        // 账号渠道按运单号去重；短信件没有运单号，不会进这个索引。
+        db.execSQL(
+            "CREATE UNIQUE INDEX parcel_tracking_dedupe ON parcel(tracking_no)" +
+                " WHERE picked = 0 AND retired = 0 AND tracking_no IS NOT NULL"
+        )
+        db.execSQL("CREATE INDEX parcel_account ON parcel(account_id, stage, picked)")
         db.execSQL(
             """
             CREATE TABLE unrecognized (
@@ -171,6 +201,23 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
             )
             """.trimIndent()
         )
+        // 平台账号绑定。secret 是 Keystore AES-GCM 的密文（base64(iv):base64(ct)），
+        // 这一列永远不存明文 Cookie。v1 一平台一条，id 直接用平台 id。
+        db.execSQL(
+            """
+            CREATE TABLE bound_account (
+              id TEXT PRIMARY KEY,
+              platform TEXT NOT NULL,
+              label TEXT NOT NULL,
+              secret TEXT NOT NULL,
+              enabled INTEGER NOT NULL DEFAULT 1,
+              state TEXT NOT NULL DEFAULT 'ACTIVE',
+              created_at INTEGER NOT NULL,
+              last_sync_at INTEGER,
+              last_sync_result TEXT
+            )
+            """.trimIndent()
+        )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -248,6 +295,114 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
             // 「这一行没有码」由 kind 说，不由约束说。
             addColumnIfMissing(db, "identity_code", "kind", "TEXT NOT NULL DEFAULT 'CODE'")
         }
+        if (oldVersion < 8) upgradeToV8(db)
+        if (oldVersion < 9) upgradeToV9(db)
+        if (oldVersion < 10) upgradeToV10(db)
+        if (oldVersion < 11) upgradeToV11(db)
+    }
+
+    /**
+     * v10 → v11：退休与「用户已取」分家。
+     *
+     * 旧实现把退休写成 `picked=1` + `picked_at=NULL`，之后同步只会 Skip(ALREADY_PICKED)，
+     * 误判永远自愈不了。新列 `retired` 只表示「这一行不该再出现在首页」，与 picked 无关。
+     *
+     * 老库收口规则只动 `source='ACCOUNT'`、`picked=1`、`picked_at IS NULL` 的行：
+     * 用户真点过「已取」的行一定带 picked_at（`markPicked` 与账号同步都写），
+     * 所以这条 WHERE 不会碰到它们。把这些行恢复成 retired 行，平台再给出 AT_STATION 时
+     * 会经 `accountUpdateValues` 自动回到待取。
+     */
+    private fun upgradeToV11(db: SQLiteDatabase) {
+        addColumnIfMissing(db, "parcel", "retired", "INTEGER NOT NULL DEFAULT 0")
+        /* 先拆索引再改 picked：退休行原本因 picked=1 被排除在唯一索引外，
+           同码的新件可能已经插进来；先改 picked=0 会撞上那条索引，迁移直接失败。
+           新索引都会排除 retired=0 之外的行，所以拆完再建是安全的。 */
+        db.execSQL("DROP INDEX IF EXISTS parcel_dedupe")
+        db.execSQL("DROP INDEX IF EXISTS parcel_tracking_dedupe")
+        db.execSQL(
+            "UPDATE parcel SET retired = 1, picked = 0" +
+                " WHERE source = 'ACCOUNT' AND picked = 1 AND picked_at IS NULL"
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS parcel_dedupe ON parcel(code, point_key)" +
+                " WHERE picked = 0 AND retired = 0 AND code <> '' AND code_kind <> 'SUFFIX'"
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS parcel_tracking_dedupe ON parcel(tracking_no)" +
+                " WHERE picked = 0 AND retired = 0 AND tracking_no IS NOT NULL"
+        )
+    }
+
+    /**
+     * v9 → v10：后五位只用于展示，不再参与身份判定。
+     *
+     * 只**重建索引**、不删任何行：新判据比旧的更宽（SUFFIX 行不再进这条唯一索引），
+     * 所以老库不可能因为这条迁移撞约束。靠后五位并错的那一件不会凭空补回来，
+     * 但下一次账号同步会按运单号把它插成独立的一行；已经并错的行也保留原样，不硬删。
+     */
+    private fun upgradeToV10(db: SQLiteDatabase) {
+        db.execSQL("DROP INDEX IF EXISTS parcel_dedupe")
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS parcel_dedupe ON parcel(code, point_key)" +
+                " WHERE picked = 0 AND code <> '' AND code_kind <> 'SUFFIX'"
+        )
+    }
+
+    /**
+     * v8 → v9：订单商品信息。五列全是可空的纯新增列，老行一个字段都不动；
+     * 没有商品信息的件（短信/手动/未绑定）保持 null，详情页据此不显示商品卡。
+     */
+    private fun upgradeToV9(db: SQLiteDatabase) {
+        addColumnIfMissing(db, "parcel", "goods_title", "TEXT")
+        addColumnIfMissing(db, "parcel", "goods_image", "TEXT")
+        addColumnIfMissing(db, "parcel", "goods_price", "TEXT")
+        addColumnIfMissing(db, "parcel", "shop_name", "TEXT")
+        addColumnIfMissing(db, "parcel", "ordered_at", "INTEGER")
+    }
+
+    /**
+     * v7 → v8：账号绑定与「件可能没有取件码」。
+     *
+     * 老行一个字段都不动：新列全带默认值，短信件的 stage 是 AT_STATION、code_kind 是 PICKUP，
+     * 所以首页/现场看到的还是同一张卡。
+     *
+     * 唯一需要重建的是 `parcel_dedupe`：它原来不排除空码，而账号件允许 code=""；
+     * 两件无码件落在同一个点会撞唯一约束。重建只换判据，不删任何行。
+     */
+    private fun upgradeToV8(db: SQLiteDatabase) {
+        addColumnIfMissing(db, "parcel", "tracking_no", "TEXT")
+        addColumnIfMissing(db, "parcel", "order_sn", "TEXT")
+        addColumnIfMissing(db, "parcel", "account_id", "TEXT")
+        addColumnIfMissing(db, "parcel", "stage", "TEXT NOT NULL DEFAULT 'AT_STATION'")
+        addColumnIfMissing(db, "parcel", "code_kind", "TEXT NOT NULL DEFAULT 'PICKUP'")
+        addColumnIfMissing(db, "parcel", "last_synced_at", "INTEGER")
+
+        db.execSQL("DROP INDEX IF EXISTS parcel_dedupe")
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS parcel_dedupe ON parcel(code, point_key)" +
+                " WHERE picked = 0 AND code <> ''"
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS parcel_tracking_dedupe ON parcel(tracking_no)" +
+                " WHERE picked = 0 AND tracking_no IS NOT NULL"
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS parcel_account ON parcel(account_id, stage, picked)")
+
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS bound_account (
+              id TEXT PRIMARY KEY,
+              platform TEXT NOT NULL,
+              label TEXT NOT NULL,
+              secret TEXT NOT NULL,
+              enabled INTEGER NOT NULL DEFAULT 1,
+              state TEXT NOT NULL DEFAULT 'ACTIVE',
+              created_at INTEGER NOT NULL,
+              last_sync_at INTEGER,
+              last_sync_result TEXT
+            )
+            """.trimIndent()
+        )
     }
 
     /**
@@ -371,7 +526,134 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
 
     // ---------- 包裹 ----------
 
-    fun allParcels(): List<Parcel> = readableDatabase.queryAll().use { c -> buildList { while (c.moveToNext()) add(c.toParcel()) } }
+    /**
+     * 首页只取没退休的行。账号同步匹配要 `includeRetired = true`：
+     * 退休行必须能被平台重新给出的 `AT_STATION` 找回来，否则它就永久消失了。
+     */
+    fun allParcels(includeRetired: Boolean = false): List<Parcel> =
+        readableDatabase.queryAll(includeRetired).use { c ->
+            buildList { while (c.moveToNext()) add(c.toParcel()) }
+        }
+
+    /**
+     * 一条消息入库前要看的候选行：同码同点、同运单号、或同点的后五位。
+     * 完整运单号是跨通道的硬身份；后五位只在双方都没有运单号时才参与合并。
+     */
+    fun findParcelCandidates(code: String, pointKey: String, trackingNo: String?): List<ExistingParcel> {
+        val clauses = mutableListOf("(code = ? AND point_key = ?)")
+        val args = mutableListOf(code, pointKey)
+        val tracking = trackingNo?.trim().orEmpty()
+        if (tracking.isNotEmpty()) {
+            clauses += "tracking_no = ?"
+            args += tracking
+            val suffix = tracking.takeLast(5)
+            if (suffix.length == 5 && suffix != code) {
+                clauses += "(code = ? AND point_key = ?)"
+                args += suffix
+                args += pointKey
+            }
+        }
+        return readableDatabase.rawQuery(
+            "SELECT id, picked, picked_at, received_at, code, point_key, tracking_no, code_kind" +
+                " FROM parcel WHERE ${clauses.joinToString(" OR ")}" +
+                " ORDER BY picked ASC, received_at DESC LIMIT 8",
+            args.toTypedArray(),
+        ).use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    add(
+                        ExistingParcel(
+                            id = c.getLong(0),
+                            picked = c.getInt(1) != 0,
+                            pickedAt = if (c.isNull(2)) null else c.getLong(2),
+                            receivedAt = c.getLong(3),
+                            code = c.getString(4),
+                            pointKey = c.getString(5),
+                            trackingNo = if (c.isNull(6)) null else c.getString(6),
+                            codeKind = enumOrDefault(c.getString(7), CodeKind.PICKUP),
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    // ---------- 平台账号 ----------
+
+    fun accounts(): List<BoundAccount> = readableDatabase.rawQuery(
+        "SELECT id, platform, label, secret, enabled, state, created_at, last_sync_at, last_sync_result" +
+            " FROM bound_account ORDER BY created_at DESC",
+        null,
+    ).use { c ->
+        buildList {
+            while (c.moveToNext()) {
+                val platform = Platform.of(c.getString(1)) ?: continue
+                add(
+                    BoundAccount(
+                        id = c.getString(0),
+                        platform = platform,
+                        label = c.getString(2),
+                        secret = c.getString(3),
+                        enabled = c.getInt(4) != 0,
+                        state = enumOrDefault(c.getString(5), AccountState.ACTIVE),
+                        createdAt = c.getLong(6),
+                        lastSyncAt = if (c.isNull(7)) null else c.getLong(7),
+                        lastSyncResult = if (c.isNull(8)) null else c.getString(8),
+                    )
+                )
+            }
+        }
+    }
+
+    /** 一平台一条：同 id 覆盖写，调用方负责保住 createdAt/enabled。 */
+    fun upsertAccount(account: BoundAccount) {
+        writableDatabase.insertWithOnConflict(
+            "bound_account",
+            null,
+            ContentValues().apply {
+                put("id", account.id)
+                put("platform", account.platform.id)
+                put("label", account.label)
+                put("secret", account.secret)
+                put("enabled", if (account.enabled) 1 else 0)
+                put("state", account.state.name)
+                put("created_at", account.createdAt)
+                if (account.lastSyncAt != null) put("last_sync_at", account.lastSyncAt) else putNull("last_sync_at")
+                if (account.lastSyncResult != null) {
+                    put("last_sync_result", account.lastSyncResult)
+                } else {
+                    putNull("last_sync_result")
+                }
+            },
+            SQLiteDatabase.CONFLICT_REPLACE,
+        )
+    }
+
+    fun updateAccountEnabled(id: String, enabled: Boolean) {
+        writableDatabase.update(
+            "bound_account",
+            ContentValues().apply { put("enabled", if (enabled) 1 else 0) },
+            "id = ?",
+            arrayOf(id),
+        )
+    }
+
+    fun updateAccountState(id: String, state: AccountState, lastSyncAt: Long?, result: String?) {
+        writableDatabase.update(
+            "bound_account",
+            ContentValues().apply {
+                put("state", state.name)
+                if (lastSyncAt != null) put("last_sync_at", lastSyncAt) else putNull("last_sync_at")
+                if (result != null) put("last_sync_result", result) else putNull("last_sync_result")
+            },
+            "id = ?",
+            arrayOf(id),
+        )
+    }
+
+    fun deleteAccount(id: String) {
+        writableDatabase.delete("bound_account", "id = ?", arrayOf(id))
+    }
 
     /**
      * 这条消息说的那件，库里现在是什么状态。
@@ -789,10 +1071,13 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
         .rawQuery("SELECT MAX(picked_at) FROM parcel WHERE picked = 1", null)
         .use { if (it.moveToFirst() && !it.isNull(0)) it.getLong(0) else null }
 
-    private fun SQLiteDatabase.queryAll(): Cursor = rawQuery(
+    private fun SQLiteDatabase.queryAll(includeRetired: Boolean): Cursor = rawQuery(
         "SELECT id, code, locker_no, carrier, point_key, point_name, point_kind, owner, source," +
-            " received_at, free_until_at, closes_at_minute, picked, picked_at, raw" +
-            " FROM parcel ORDER BY picked ASC, received_at DESC",
+            " received_at, free_until_at, closes_at_minute, picked, picked_at, raw," +
+            " tracking_no, order_sn, account_id, stage, code_kind, last_synced_at," +
+            " goods_title, goods_image, goods_price, shop_name, ordered_at, retired" +
+            " FROM parcel" + (if (includeRetired) "" else " WHERE retired = 0") +
+            " ORDER BY picked ASC, received_at DESC",
         null,
     )
 
@@ -814,10 +1099,22 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
         picked = getInt(12) != 0,
         pickedAt = if (isNull(13)) null else getLong(13),
         raw = getString(14),
+        trackingNo = if (isNull(15)) null else getString(15),
+        orderSn = if (isNull(16)) null else getString(16),
+        accountId = if (isNull(17)) null else getString(17),
+        stage = enumOrDefault(getString(18), Stage.AT_STATION),
+        codeKind = enumOrDefault(getString(19), CodeKind.PICKUP),
+        lastSyncedAt = if (isNull(20)) null else getLong(20),
+        goodsTitle = if (isNull(21)) null else getString(21),
+        goodsImage = if (isNull(22)) null else getString(22),
+        goodsPrice = if (isNull(23)) null else getString(23),
+        shopName = if (isNull(24)) null else getString(24),
+        orderedAt = if (isNull(25)) null else getLong(25),
+        retired = getInt(26) != 0,
     )
 
     private companion object {
         const val NAME = "showcode.db"
-        const val VERSION = 7
+        const val VERSION = 11
     }
 }

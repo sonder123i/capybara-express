@@ -44,6 +44,7 @@ import dev.showcode.ui.rememberTickingNow
 import dev.showcode.ui.theme.Hairline
 import dev.showcode.ui.theme.OnsiteInk
 import dev.showcode.ui.theme.OnsiteSurface
+import dev.showcode.ui.theme.environmentBackground
 import dev.showcode.ui.theme.SurfaceInset
 import dev.showcode.ui.theme.TabularNumbers
 import dev.showcode.ui.urgencyColor
@@ -69,7 +70,7 @@ fun TilesScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(OnsiteSurface)
+            .environmentBackground()
     ) {
         // 白底从 Column 提到 Box，水印才有地方放：放在内容底下才不压「申通快递」这类灰字，
         // 而 Column 若自带不透明白底，水印挪到第一个子节点就会被完全盖住。

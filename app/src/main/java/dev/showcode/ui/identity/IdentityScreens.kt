@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,12 +14,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.annotation.StringRes
 import androidx.compose.ui.text.input.KeyboardType
@@ -44,6 +48,8 @@ import dev.showcode.core.ClipboardVerdict
 import dev.showcode.core.IdentityCode
 import dev.showcode.core.IdentityKind
 import dev.showcode.core.DeepLinkLadder
+import dev.showcode.core.EntryPurpose
+import dev.showcode.core.PlatformEntry
 import dev.showcode.core.IdentityCodes
 import dev.showcode.core.IdentityReject
 import dev.showcode.core.LaunchOutcome
@@ -65,6 +71,7 @@ import dev.showcode.ui.theme.OnsiteSurface
 import dev.showcode.ui.theme.environmentBackground
 import dev.showcode.ui.theme.ShowCodeShapes
 import dev.showcode.ui.theme.ShowCodeText
+import dev.showcode.ui.theme.moduleEntrance
 import dev.showcode.ui.theme.SurfaceCard
 import dev.showcode.ui.theme.UrgencyDueSoon
 import dev.showcode.ui.theme.UrgencySafe
@@ -84,10 +91,11 @@ private const val IDENTITY_SAVED_HOLD_MS = 900L
 @Composable
 fun IdentityListScreen(
     codes: List<IdentityCode>,
-    entries: List<String>,
+    entries: List<PlatformEntry>,
     launch: LaunchOutcome?,
     onAdd: () -> Unit,
-    onOpenEntry: (String) -> Unit,
+    onOpenEntry: (PlatformEntry) -> Unit,
+    onPinEntry: (PlatformEntry, String) -> Unit,
     onShow: (IdentityCode) -> Unit,
     onToggleDynamic: (Long, Boolean) -> Unit,
     onDelete: (Long) -> Unit,
@@ -109,97 +117,137 @@ fun IdentityListScreen(
                而竞品那一格本来就只有跳转。该列哪几家是判据（只列真装着的），在 core 那边筛。 */
             if (entries.isNotEmpty()) {
                 item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(SurfaceCard, ShowCodeShapes.Md)
-                            .border(1.dp, Hairline, ShowCodeShapes.Md)
-                            .padding(bottom = 6.dp),
-                    ) {
-                        Text(
-                            text = stringResource(R.string.identity_entries_hint),
-                            modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp),
-                            style = ShowCodeText.Caption,
-                            color = InkMuted,
-                        )
-                        entries.forEach { pkg ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onOpenEntry(pkg) }
-                                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = stringResource(presetLabel(pkg)),
-                                    modifier = Modifier.weight(1f),
-                                    style = ShowCodeText.Item,
-                                    color = Ink,
+                    Box(modifier = Modifier.moduleEntrance(0)) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(SurfaceCard, ShowCodeShapes.Md)
+                                .border(1.dp, Hairline, ShowCodeShapes.Md)
+                                .padding(bottom = 6.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.identity_entries_hint),
+                                modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp),
+                                style = ShowCodeText.Caption,
+                                color = InkMuted,
+                            )
+                            entries.forEach { entry ->
+                                val label = stringResource(presetLabel(entry.packageName))
+                                /* 钉到桌面的标签要带用途：只写「淘宝」会和淘宝 App 本身混在一起，
+                                   主屏上两颗「淘宝」谁也分不清哪颗是身份码。 */
+                                val pinLabel = stringResource(
+                                    if (entry.purpose == EntryPurpose.PENDING) {
+                                        R.string.shortcut_label_pending
+                                    } else {
+                                        R.string.shortcut_label_identity
+                                    },
+                                    label,
                                 )
-                                Text(
-                                    text = stringResource(R.string.identity_entry_open),
-                                    style = ShowCodeText.Action,
-                                    color = AccentInk,
-                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onOpenEntry(entry) }
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = label,
+                                        modifier = Modifier.weight(1f),
+                                        style = ShowCodeText.Item,
+                                        color = Ink,
+                                    )
+                                    /* 动作词自己说清那一行打开的是哪一页：淘宝/拼多多是身份码，
+                                       京东/小红书没有身份码，进的是待取栏。 */
+                                    Text(
+                                        text = stringResource(
+                                            if (entry.purpose == EntryPurpose.PENDING) {
+                                                R.string.identity_entry_open_pending
+                                            } else {
+                                                R.string.identity_entry_open
+                                            }
+                                        ),
+                                        style = ShowCodeText.Action,
+                                        color = AccentInk,
+                                    )
+                                    /* 钉到桌面：这一颗不打开对方 App，只把同一条 intent 交给系统。
+                                       它和长按图标的那六个静态入口走同一套目的地表。 */
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_pin),
+                                        contentDescription = stringResource(R.string.shortcut_pin),
+                                        tint = InkMuted,
+                                        modifier = Modifier
+                                            .clickable { onPinEntry(entry, pinLabel) }
+                                            .padding(start = 10.dp, top = 10.dp, bottom = 10.dp)
+                                            .size(18.dp),
+                                    )
+                                }
                             }
+                            // 按下去的结局就住在同一张卡里：话要说在刚按的那一下旁边。
+                            LaunchOutcomeLine(launch, modifier = Modifier.padding(horizontal = 16.dp))
                         }
-                        // 按下去的结局就住在同一张卡里：话要说在刚按的那一下旁边。
-                        LaunchOutcomeLine(launch, modifier = Modifier.padding(horizontal = 16.dp))
                     }
                 }
             }
             item {
-                Text(
-                    text = stringResource(R.string.identity_hint),
-                    style = ShowCodeText.Caption,
-                    color = InkMuted,
-                )
+                Box(modifier = Modifier.moduleEntrance(1)) {
+                    Text(
+                        text = stringResource(R.string.identity_hint),
+                        style = ShowCodeText.Caption,
+                        color = InkMuted,
+                    )
+                }
             }
             if (codes.isEmpty()) {
                 item {
-                    Column(modifier = Modifier
-                        .fillMaxWidth()
-                        .background(SurfaceCard, ShowCodeShapes.Md)
-                        .border(1.dp, Hairline, ShowCodeShapes.Md)
-                        .padding(16.dp),
-                    ) {
-                        Text(
-                            text = stringResource(R.string.identity_empty),
-                            style = ShowCodeText.Meta,
-                            color = InkSecondary,
-                        )
-                        // 这句只在一家预置都没出现时才是路标；预置卡就在上面时它是废话。
-                        if (entries.isEmpty()) {
-                            Spacer(Modifier.height(6.dp))
+                    Box(modifier = Modifier.moduleEntrance(1)) {
+                        Column(modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SurfaceCard, ShowCodeShapes.Md)
+                            .border(1.dp, Hairline, ShowCodeShapes.Md)
+                            .padding(16.dp),
+                        ) {
                             Text(
-                                text = stringResource(R.string.identity_empty_no_presets),
-                                style = ShowCodeText.Caption,
-                                color = InkMuted,
+                                text = stringResource(R.string.identity_empty),
+                                style = ShowCodeText.Meta,
+                                color = InkSecondary,
                             )
+                            // 这句只在一家预置都没出现时才是路标；预置卡就在上面时它是废话。
+                            if (entries.isEmpty()) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    text = stringResource(R.string.identity_empty_no_presets),
+                                    style = ShowCodeText.Caption,
+                                    color = InkMuted,
+                                )
+                            }
                         }
                     }
                 }
             }
             items(codes, key = { it.id }) { code ->
-                IdentityRow(
-                    code = code,
-                    onShow = { onShow(code) },
-                    onToggleDynamic = { onToggleDynamic(code.id, !code.dynamic) },
-                    onDelete = onDelete,
-                )
+                Box(modifier = Modifier.moduleEntrance(2)) {
+                    IdentityRow(
+                        code = code,
+                        onShow = { onShow(code) },
+                        onToggleDynamic = { onToggleDynamic(code.id, !code.dynamic) },
+                        onDelete = onDelete,
+                    )
+                }
             }
             item {
-                Text(
-                    text = stringResource(R.string.identity_add),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(SurfaceCard, ShowCodeShapes.Md)
-                        .border(1.dp, AccentInk, ShowCodeShapes.Md)
-                        .clickable(onClick = onAdd)
-                        .padding(16.dp),
-                    style = ShowCodeText.Item,
-                    color = AccentInk,
-                )
+                Box(modifier = Modifier.moduleEntrance(3)) {
+                    Text(
+                        text = stringResource(R.string.identity_add),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SurfaceCard, ShowCodeShapes.Md)
+                            .border(1.dp, AccentInk, ShowCodeShapes.Md)
+                            .clickable(onClick = onAdd)
+                            .padding(16.dp),
+                        style = ShowCodeText.Item,
+                        color = AccentInk,
+                    )
+                }
             }
         }
     }
@@ -503,13 +551,17 @@ fun IdentityEditScreen(
                         style = ShowCodeText.Meta,
                         color = Ink,
                     )
-                    // 已知那几家排在这儿：绝大多数人就是这两家，让他们在几百行里搜「菜鸟」
+                    // 已知那几家排在这儿：绝大多数人就是这几家，让他们在几百行里搜「菜鸟」
                     // 是把三秒的事做成三十秒。**只列真装着的**——一颗点了只会失败的按钮比没有更坏。
+                    // 也只列「身份码」这一类的：京东/小红书只有待取栏，摆在这一格是给存码指错门。
                     val quick = remember(apps) {
                         // 筛法只有一份（core 的 entriesFor）：同一个判据在两个屏上各写一遍，
                         // 迟早会变成「那一屏列了两家、这一屏列了一家」。
                         DeepLinkLadder.entriesFor(apps.mapTo(mutableSetOf()) { it.packageName })
-                            .mapNotNull { pkg -> apps.firstOrNull { it.packageName == pkg } }
+                            .filter { it.purpose == EntryPurpose.IDENTITY }
+                            .mapNotNull { entry ->
+                                apps.firstOrNull { it.packageName == entry.packageName }
+                            }
                     }
                     if (quick.isNotEmpty()) {
                         Spacer(Modifier.height(8.dp))
@@ -732,6 +784,8 @@ private fun presetLabel(packageName: String): Int = when (packageName) {
     DeepLinkLadder.PINDUODUO -> R.string.preset_pinduoduo
     DeepLinkLadder.CAINIAO -> R.string.preset_cainiao
     DeepLinkLadder.FENGCHAO -> R.string.preset_fengchao
+    DeepLinkLadder.JD -> R.string.preset_jd
+    DeepLinkLadder.XHS -> R.string.preset_xhs
     else -> R.string.preset_generic
 }
 

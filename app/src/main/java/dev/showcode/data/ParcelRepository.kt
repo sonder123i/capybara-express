@@ -3,10 +3,8 @@ package dev.showcode.data
 import android.Manifest
 import android.content.ContentValues
 import android.content.Context
-import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.provider.Telephony
 import androidx.core.app.NotificationManagerCompat
@@ -15,13 +13,18 @@ import dev.showcode.R
 import dev.showcode.core.DAY_MS
 import dev.showcode.core.DEFAULT_CLOSING_MINUTE
 import dev.showcode.core.Attempt
+import dev.showcode.core.account.AccountSyncAction
+import dev.showcode.core.account.SkipReason
+import dev.showcode.core.account.isStaleTransitRow
 import dev.showcode.core.DeepLinkLadder
+import dev.showcode.core.EntryPurpose
 import dev.showcode.core.ExistingParcel
 import dev.showcode.core.IdentityCode
 import dev.showcode.core.IdentityKind
 import dev.showcode.core.IdentityCodes
 import dev.showcode.core.HealthReport
 import dev.showcode.core.LaunchOutcome
+import dev.showcode.core.Slog
 import dev.showcode.core.launchOutcome
 import dev.showcode.core.MessageSkip
 import dev.showcode.core.NotifyApp
@@ -33,6 +36,7 @@ import dev.showcode.core.PointAlias
 import dev.showcode.core.resolvePointKey
 import dev.showcode.core.PointKind
 import dev.showcode.core.Source
+import dev.showcode.core.Stage
 import dev.showcode.core.UnrecognizedAction
 import dev.showcode.core.UnrecognizedState
 import dev.showcode.core.UrgencyThresholds
@@ -65,6 +69,19 @@ import kotlinx.coroutines.withContext
 
 /** 一次刷新的结果。报「刚刚同步」而不报同步到了什么，等于让用户靠猜。 */
 data class SyncResult(val added: Int, val updated: Int, val at: Long)
+
+/** 账号同步的结果。跳过计数用来解释「平台说有 3 件，为什么首页只多了 1 张卡」。 */
+data class AccountSyncResult(
+    val added: Int,
+    val updated: Int,
+    val skippedHistory: Int,
+    val skippedNoTracking: Int,
+    val skippedNoPoint: Int,
+    val skippedNoCode: Int,
+    val at: Long,
+    /** 单件详情没抓到的数量；0 = 全部解析成功。 */
+    val detailsFailed: Int = 0,
+)
 
 data class AppData(
     /** false = 还没读过库。首页的三种空态语义完全不同，不能把「加载中」当成「还没有快递」。 */
@@ -104,7 +121,10 @@ data class InstalledApp(val packageName: String, val label: String)
 
 /**
  * 全部数据都在本机（brief 约束：用户数据永不出本机）。
- * 写操作走单线程 IO dispatcher，所以不需要事务锁；读永远是内存里的一份快照。
+ *
+ * 所有写库 + 内存快照刷新都收口在 [io] 这一条串行 dispatcher 上：
+ * 账号同步（原本另开 `Dispatchers.IO`）和用户点击不能再并发改行、并发 reload。
+ * 读永远是内存里的一份快照。
  *
  * 这里**不做任何判断**。一条消息进来该不该动库、动哪一行，全部在
  * [dev.showcode.core.planIngest] 里，因为那层以前不可测，才让「已取复活」和
@@ -112,12 +132,25 @@ data class InstalledApp(val packageName: String, val label: String)
  */
 class ParcelRepository(private val context: Context, private val db: ShowCodeDb) {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+    /** 单线程：写库与 [reload] 都在这里排队，任何两次刷新都不会交错。 */
+    private val io = Dispatchers.IO.limitedParallelism(1)
+    private val scope = CoroutineScope(SupervisorJob() + io)
+
+    /**
+     * 「用户已点了已取/撤销」但这次点击的 DB 写还没落盘时，先记在这里。
+     * [reload] 读到的是 DB 的旧值，若直接覆盖内存，卡片会在下一帧闪回。
+     * 只有写盘完成、并从本表移除之后，下一次 reload 才会以 DB 为准。
+     */
+    private data class PendingPick(val picked: Boolean, val at: Long?)
+    private val pendingPickLock = Any()
+    private val pendingPicks = HashMap<Long, PendingPick>()
 
     private val _data = MutableStateFlow(AppData())
     val data: StateFlow<AppData> = _data.asStateFlow()
 
     val prefs = Prefs(context)
+    /** 平台账号的加密存储入口。P2 起登录页只碰这一层，不直接写 DB。 */
+    val accounts = AccountStore(db)
 
     /**
      * 临期阈值。frame 锁定「给默认值 + 允许用户调」，设置页那两个滑块改的就是它。
@@ -208,12 +241,30 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
     fun markPicked(id: Long, at: Long = System.currentTimeMillis()) {
         // 先同步改内存态再落库：现场模式下任何等待都是失败（edge loading-submit 红线），
         // 「已取」的视觉反馈必须和点击同一帧发生。
+        // monthlyPicked 也一并先加：最后一件取完时首页会立刻变成空态，
+        // 若这个计数等 reload 才更新，空态会先掉进「还没有快递」那一句。
+        val target = _data.value.parcels.firstOrNull { it.id == id } ?: return
+        if (target.picked) return
+        /* 先登记 pending，再改内存：publish 读 pending 与这里用同一把锁，
+           即便账号同步的 reload 正在写回旧快照，也不会把这张卡闪回。 */
+        markPendingPick(id, PendingPick(picked = true, at = at))
         _data.update { snapshot ->
-            snapshot.copy(parcels = snapshot.parcels.map { if (it.id == id) it.copy(picked = true, pickedAt = at) else it })
+            val target = snapshot.parcels.firstOrNull { it.id == id } ?: return@update snapshot
+            if (target.picked) return@update snapshot
+            snapshot.copy(
+                parcels = snapshot.parcels.map {
+                    if (it.id == id) it.copy(picked = true, pickedAt = at) else it
+                },
+                monthlyPicked = snapshot.monthlyPicked + 1,
+            )
         }
         scope.launch {
-            db.updateParcel(id, ContentValues().apply { put("picked", 1); put("picked_at", at) })
-            reload()
+            try {
+                db.updateParcel(id, ContentValues().apply { put("picked", 1); put("picked_at", at) })
+            } finally {
+                clearPendingPick(id)
+                reload()
+            }
         }
     }
 
@@ -226,13 +277,39 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
     }
 
     fun undoPicked(id: Long) {
+        val monthStart = startOfCurrentMonth(System.currentTimeMillis())
+        val current = _data.value.parcels.firstOrNull { it.id == id } ?: return
+        if (!current.picked) return
+        /* 标记在前，才不会被并发的 reload 盖回「已取」。 */
+        markPendingPick(id, PendingPick(picked = false, at = null))
         _data.update { snapshot ->
-            snapshot.copy(parcels = snapshot.parcels.map { if (it.id == id) it.copy(picked = false, pickedAt = null) else it })
+            val target = snapshot.parcels.firstOrNull { it.id == id } ?: return@update snapshot
+            if (!target.picked) return@update snapshot
+            val countedThisMonth = (target.pickedAt ?: 0L) >= monthStart
+            snapshot.copy(
+                parcels = snapshot.parcels.map {
+                    if (it.id == id) it.copy(picked = false, pickedAt = null) else it
+                },
+                monthlyPicked = (snapshot.monthlyPicked - if (countedThisMonth) 1 else 0)
+                    .coerceAtLeast(0),
+            )
         }
         scope.launch {
-            db.updateParcel(id, ContentValues().apply { put("picked", 0); putNull("picked_at") })
-            reload()
+            try {
+                db.updateParcel(id, ContentValues().apply { put("picked", 0); putNull("picked_at") })
+            } finally {
+                clearPendingPick(id)
+                reload()
+            }
         }
+    }
+
+    private fun markPendingPick(id: Long, value: PendingPick) {
+        synchronized(pendingPickLock) { pendingPicks[id] = value }
+    }
+
+    private fun clearPendingPick(id: Long) {
+        synchronized(pendingPickLock) { pendingPicks.remove(id) }
     }
 
     /**
@@ -323,7 +400,7 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
         raw: String,
         owner: Owner = Owner.SELF,
         resolvesUnrecognizedOf: String? = null,
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): Boolean = withContext(io) {
         val key = pointKey(pointName)
         val values = ContentValues().apply {
             put("code", code)
@@ -410,6 +487,7 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
             senderMuted = db.isSenderMuted(muteKey(message.sender)),
             appMuted = !NotifyApps.admits(message, db.disabledNotifyPackages()),
             existingParcels = existingFor(outcome),
+            candidates = candidatesFor(outcome),
             unrecognizedState = if (outcome is ParseOutcome.Rejected) {
                 db.unrecognizedState(bodyFingerprint(message.body))
             } else {
@@ -472,6 +550,173 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
         }
     }
 
+    /**
+     * 候选行：同运单号、或同点的后五位。短信行（真取件码）与账号行（后五位/空码）
+     * 靠这一组事实接上，不再只认 `(code, point_key)` 那一把钥匙。
+     */
+    private fun candidatesFor(outcome: ParseOutcome): List<ExistingParcel> {
+        if (outcome !is ParseOutcome.Parsed) return emptyList()
+        return outcome.parcels.flatMap { parsed ->
+            db.findParcelCandidates(parsed.code, pointKey(parsed.pointName), parsed.trackingNo)
+        }.distinctBy { it.id }
+    }
+
+    /** 账号同步匹配必须看见退休行，否则平台重新给出这件时找不回原行。 */
+    suspend fun parcelsForAccountSync(): List<Parcel> =
+        withContext(io) { db.allParcels(includeRetired = true) }
+
+    /**
+     * 执行账号同步的合并结果。
+     *
+     * 判断全部在 [dev.showcode.core.account.planAccountSync] 里；这里只把 Insert/Update 写成
+     * ContentValues 并 reload。插入撞唯一约束返回 -1 不抛——同一个件两路报道是常态。
+     */
+    suspend fun applyAccountSync(
+        actions: List<AccountSyncAction>,
+        at: Long,
+        accountId: String = "",
+        historyOrderSns: List<String> = emptyList(),
+        seenOrderSns: Set<String> = emptySet(),
+    ): AccountSyncResult = withContext(io) {
+        var added = 0
+        var updated = 0
+        var history = 0
+        var noTracking = 0
+        var noPoint = 0
+        var noCode = 0
+
+        // 退休目标只看没退休的活行；用库里最新的一份，避免内存快照落后于上一次写入。
+        val live = db.allParcels(includeRetired = true).filter { !it.retired && !it.picked }
+        val historyTargets = if (historyOrderSns.isEmpty()) {
+            emptyList()
+        } else {
+            live.filter {
+                it.source == Source.ACCOUNT && it.accountId == accountId && it.orderSn in historyOrderSns
+            }
+        }
+        // 空集说明这次抓取不完整（连待收货都没读到），不做任何退休，宁可留着。
+        val strayTargets = if (seenOrderSns.isEmpty()) {
+            emptyList()
+        } else {
+            live.filter { isStaleTransitRow(it, accountId, seenOrderSns) }
+        }
+
+        /* 退休与本次合并必须同一个事务：否则一次失败会留下「退了但没写回」的中间态，
+           而退休行只能靠下一次同步自愈。刷新快照也在事务内读，写完到展示之间没有空窗。 */
+        var snapshot: AppData? = null
+        db.inTransaction {
+            historyTargets.forEach { db.updateParcel(it.id, retireValues()) }
+            strayTargets.forEach {
+                Slog.i(TAG) {
+                    "retire stray sn=${Slog.mask(it.orderSn)} tracking=${Slog.mask(it.trackingNo)} " +
+                        "stage=${it.stage} reason=gone-from-live-order-set"
+                }
+                db.updateParcel(it.id, retireValues())
+            }
+            history += historyTargets.size + strayTargets.size
+            actions.forEach { action ->
+                when (action) {
+                    is AccountSyncAction.Insert -> {
+                        val id = db.insertParcel(accountInsertValues(action, at))
+                        if (id > 0) added++
+                    }
+                    is AccountSyncAction.Update -> {
+                        db.updateParcel(action.id, accountUpdateValues(action, at))
+                        updated++
+                    }
+                    is AccountSyncAction.Skip -> when (action.reason) {
+                        SkipReason.NO_POINT -> noPoint++
+                        SkipReason.NO_CODE ->
+                            if (action.item.trackingNo.isBlank()) noTracking++ else noCode++
+                        SkipReason.ALREADY_PICKED -> history++
+                        else -> Unit
+                    }
+                }
+            }
+            /* 账号同步也是一个「数据刚刚是新的」通道。单独一个键，才能和短信收录区分开；
+               桌面组件与首页读两者里最近的一次（见 [buildData]）。 */
+            db.metaPut(KEY_LAST_ACCOUNT_SYNC, at.toString())
+            snapshot = buildData()
+        }
+        snapshot?.let { publish(it) }
+        AccountSyncResult(added, updated, history, noTracking, noPoint, noCode, at)
+    }
+
+    /**
+     * 退休**不是**「用户已取」。写 `picked=1` 会让之后每次同步都 `Skip(ALREADY_PICKED)`，
+     * 误判永远自愈不了；这里只立 retired 位，picked 与 picked_at 一概不动。
+     */
+    private fun retireValues(): ContentValues = ContentValues().apply {
+        put("retired", 1)
+        put("stage", Stage.DONE.name)
+    }
+
+
+
+
+
+
+
+    private fun accountInsertValues(action: AccountSyncAction.Insert, at: Long) =
+        ContentValues().apply {
+            put("code", action.item.code)
+            put("locker_no", action.item.lockerNo)
+            put("carrier", action.item.carrier)
+            put("point_key", action.pointKey)
+            put("point_name", action.item.pointName.orEmpty())
+            put("point_kind", action.pointKind.name)
+            put("owner", Owner.SELF.name)
+            put("source", Source.ACCOUNT.name)
+            put("received_at", action.item.at)
+            putNull("free_until_at")
+            putNull("closes_at_minute")
+            put("picked", 0)
+            putNull("picked_at")
+            put("raw", action.item.raw)
+            put("tracking_no", action.item.trackingNo)
+            put("order_sn", action.item.orderSn)
+            put("account_id", action.item.accountId)
+            put("stage", action.item.stage.name)
+            put("code_kind", action.item.codeKind.name)
+            put("last_synced_at", at)
+            action.item.goodsTitle?.let { put("goods_title", it) }
+            action.item.goodsImage?.let { put("goods_image", it) }
+            action.item.goodsPrice?.let { put("goods_price", it) }
+            action.item.shopName?.let { put("shop_name", it) }
+            action.item.orderedAt?.let { put("ordered_at", it) }
+        }
+
+    private fun accountUpdateValues(action: AccountSyncAction.Update, at: Long) =
+        ContentValues().apply {
+            put("code", action.code)
+            put("code_kind", action.codeKind.name)
+            put("stage", action.stage.name)
+            put("point_key", action.pointKey)
+            put("point_name", action.pointName)
+            put("point_kind", action.pointKind.name)
+            put("tracking_no", action.item.trackingNo)
+            put("order_sn", action.item.orderSn)
+            put("account_id", action.item.accountId)
+            put("last_synced_at", at)
+            /* 平台重新给出这件（哪怕只是 AT_STATION），退休行就该回到待取。
+               retired 与 picked 分家后，这一步不会再被 Skip(ALREADY_PICKED) 挡住。 */
+            put("retired", 0)
+            /* 账号件每次同步都用最新原文覆盖：预计送达、阶段文案都从这里读，
+               不更新的话第一次入库时的「预计明天」会一直挂着。 */
+            put("raw", action.item.raw)
+            action.item.carrier.takeIf { it.isNotBlank() }?.let { put("carrier", it) }
+            /* 商品字段只在新值非空时写：某次抓取缺图/缺价，不能把之前拿到的那一份擦掉。 */
+            action.item.goodsTitle?.let { put("goods_title", it) }
+            action.item.goodsImage?.let { put("goods_image", it) }
+            action.item.goodsPrice?.let { put("goods_price", it) }
+            action.item.shopName?.let { put("shop_name", it) }
+            action.item.orderedAt?.let { put("ordered_at", it) }
+            if (action.markPicked) {
+                put("picked", 1)
+                put("picked_at", at)
+            }
+        }
+
     private fun parcelValues(parsed: ParsedParcel, message: IncomingMessage, pointKey: String, unpicked: Boolean) =
         ContentValues().apply {
             put("code", parsed.code)
@@ -490,7 +735,19 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
                 putNull("closes_at_minute")
             }
             put("raw", message.body)
-            if (unpicked) put("picked", 0)
+            /* 有明确锚点的运单号才写；更新时留空则保留账号行已有的运单号，
+               不能因为这条短信没写单号就把跨通道身份擦掉。 */
+            if (parsed.trackingNo.isNotBlank()) {
+                put("tracking_no", parsed.trackingNo)
+            } else if (unpicked) {
+                putNull("tracking_no")
+            }
+            if (unpicked) {
+                put("picked", 0)
+            } else {
+                // 一条真实取件消息命中退休账号行时，把它送回待取。
+                put("retired", 0)
+            }
         }
 
     private fun summarize(outcome: ParseOutcome): String = when (outcome) {
@@ -537,7 +794,7 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
      * 缓存要么晚一步生效（用户当场看不出差别，下次才发现——那是最难复查的 bug），
      * 要么就得在每一处写入后面手动失效。这张表最多 [ParseRules.MAX_RULES] 行，读它比省它便宜。
      */
-    private fun enabledRules(): List<ParseRule> = db.allRules().filter { it.enabled }
+    fun enabledRules(): List<ParseRule> = db.allRules().filter { it.enabled }
 
     /**
      * 保存前那一眼预览：这条规则**真的会生效吗**。
@@ -722,40 +979,30 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
      * （小米：应用设置→其他权限→链式启动管理）。**「装了但被拦住」和「没装」是两件事**，
      * 合成一句「打不开」就等于把唯一有用的那条线索弄丢了。
      *
-     * 走的是 [DeepLinkLadder] 那三级。判据（哪算没装、哪算被拦）不在这里做，
-     * 这里只负责按顺序试、并把每一级的结果如实记下来。
+     * 按顺序试的那几条现在住在 [OfficialAppLauncher]：桌面快捷方式也要走同一条链，
+     * 而那条路不该为了一个 URI 去初始化数据库。这里只留转发，判据仍然只有一份。
+     *
+     * [purpose] 决定第一级落到哪一页：淘宝/拼多多的身份码页和待取页不是同一条链。
+     * 存下来的码默认按身份码走——那张卡本来就是「我是谁」。
      */
-    fun openOfficialApp(packageName: String?): LaunchOutcome {
-        val pkg = NotifyApps.normalizePackage(packageName)
-        if (pkg == null) return launchOutcome(hasPackage = false, attempts = emptyList())
-        val attempts = mutableListOf<Attempt>()
-        for (uri in DeepLinkLadder.deepLinksFor(pkg)) attempts += startView(uri)
-        attempts += runCatching {
-            val intent = context.packageManager.getLaunchIntentForPackage(pkg)
-                ?: return@runCatching Attempt.NO_HANDLER
-            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            Attempt.OPENED
-        }.getOrElse { classifyStartFailure(it) }
-        DeepLinkLadder.webFallbackFor(pkg)?.let { url ->
-            if (attempts.none { it == Attempt.OPENED }) attempts += startView(url)
-        }
-        return launchOutcome(hasPackage = true, attempts = attempts)
-    }
-
-    /** 一个 VIEW intent，带或不带 scheme 都能用这一条试。 */
-    private fun startView(uri: String): Attempt = runCatching {
-        context.startActivity(
-            Intent(Intent.ACTION_VIEW, Uri.parse(uri)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
-        Attempt.OPENED
-    }.getOrElse { classifyStartFailure(it) }
+    fun openOfficialApp(
+        packageName: String?,
+        purpose: EntryPurpose = EntryPurpose.IDENTITY,
+    ): LaunchOutcome = OfficialAppLauncher.open(context, packageName, purpose)
 
     /**
-     * 只有 `ActivityNotFoundException` 能说明「这台机器上没有能接它的东西」。
-     * 其余异常（安全策略、后台启动限制、ROM 拦截）都说明**有**，只是不让——那是另一句话。
+     * 「去淘宝查询」：优先落到淘宝里的身份码 / 我的快递页，最后才退到淘宝首页。
+     *
+     * 不走浏览器兜底——没装淘宝时用户要的是「单号已复制，去淘宝粘贴搜索」，
+     * 不是被扔进一个还要自己找登录的网页。
      */
-    private fun classifyStartFailure(error: Throwable): Attempt =
-        if (error is ActivityNotFoundException) Attempt.NO_HANDLER else Attempt.REFUSED
+    fun openTaobaoLookup(): LaunchOutcome =
+        OfficialAppLauncher.open(
+            context = context,
+            packageName = DeepLinkLadder.TAOBAO,
+            purpose = EntryPurpose.IDENTITY,
+            allowWebFallback = false,
+        )
 
     // ---------- 按 App 的通知开关 ----------
 
@@ -780,13 +1027,58 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
         db.metaPut(KEY_LAST_SYNC, System.currentTimeMillis().toString())
     }
 
-    private fun reload() {
+    private fun reload() = publish(buildData())
+
+    private fun publish(snapshot: AppData) {
+        /* 先记 pending 再改内存的点击，和这里用同一把锁：
+           否则「读快照 → 用户点击 → 写回旧快照」这一小段仍可能把卡片闪回一帧。 */
+        synchronized(pendingPickLock) {
+            val (patched, delta) = applyPending(snapshot.parcels, System.currentTimeMillis())
+            _data.value = if (delta == 0) snapshot else snapshot.copy(
+                parcels = patched,
+                monthlyPicked = (snapshot.monthlyPicked + delta).coerceAtLeast(0),
+            )
+        }
+        runCatching { onDataChange?.invoke() }
+    }
+
+    /**
+     * 点击已取/撤销后、DB 写盘前，用内存覆盖盖住旧行。
+     * 返回覆盖后的列表与「本月已取」的增量（正数=多一件，负数=少一件）。
+     */
+    private fun applyPending(parcels: List<Parcel>, now: Long): Pair<List<Parcel>, Int> {
+        val pending = synchronized(pendingPickLock) { pendingPicks.toMap() }
+        if (pending.isEmpty()) return parcels to 0
+        val monthStart = startOfCurrentMonth(now)
+        var delta = 0
+        val merged = parcels.map { parcel ->
+            val pend = pending[parcel.id] ?: return@map parcel
+            if (pend.picked == parcel.picked) return@map parcel
+            delta += when {
+                pend.picked -> 1
+                (parcel.pickedAt ?: 0L) >= monthStart -> -1
+                else -> 0
+            }
+            parcel.copy(picked = pend.picked, pickedAt = pend.at)
+        }
+        return merged to delta
+    }
+
+    /**
+     * 读库拼出内存快照。**必须**在 [io] 上调用（[reload] 与账号同步事务内各一次），
+     * 否则读到的行可能被另一条写线程改了一半。
+     */
+    private fun buildData(): AppData {
         val now = System.currentTimeMillis()
+        val monthStart = startOfCurrentMonth(now)
         val muted = db.allMutedSenders().toSet()
         val previous = _data.value
-        _data.value = AppData(
+        /* 点击的写盘还在排队时，DB 里仍是旧值；用 [pendingPicks] 盖住它，
+           别让一次并发 reload 把「已取」闪回成未取。 */
+        val (parcels, pickedDelta) = applyPending(db.allParcels(), now)
+        return AppData(
             loaded = true,
-            parcels = db.allParcels(),
+            parcels = parcels,
             // 被屏蔽发件人的那些仍然在库里，只是不显示——所以「恢复」能原样拿回来。
             unrecognized = db.allUnrecognized().filterNot { muteKey(it.sender) in muted },
             aliases = db.allAliases().associateBy { it.aliasKey },
@@ -795,14 +1087,18 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
             rules = db.allRules(),
             identityCodes = db.allIdentityCodes(),
             notifyApps = NotifyApps.sortedForSwitches(db.allNotifyApps()),
-            lastSyncAt = db.metaGet(KEY_LAST_SYNC)?.toLongOrNull(),
+            /* 「任一通道最近成功」：短信收录与账号同步各盖一个键，
+               这里取较新的那次。账号同步成功但短信一直没来，也不会永远显示「可能过期」。 */
+            lastSyncAt = maxOf(
+                db.metaGet(KEY_LAST_SYNC)?.toLongOrNull() ?: 0L,
+                db.metaGet(KEY_LAST_ACCOUNT_SYNC)?.toLongOrNull() ?: 0L,
+            ).takeIf { it > 0L },
             syncing = false,
             lastSyncResult = previous.lastSyncResult,
             lastSyncFailed = previous.lastSyncFailed,
-            monthlyPicked = db.countPickedSince(startOfCurrentMonth(now)),
+            monthlyPicked = (db.countPickedSince(monthStart) + pickedDelta).coerceAtLeast(0),
             lastPickupAt = db.lastPickupAt(),
         )
-        runCatching { onDataChange?.invoke() }
     }
 
     private fun startOfCurrentMonth(now: Long): Long = Calendar.getInstance().apply {
@@ -815,7 +1111,11 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
     }.timeInMillis
 
     private companion object {
+        const val TAG = "ParcelRepository"
         const val KEY_LAST_SYNC = "last_sync_at"
+
+        /** 账号同步成功的独立章。和短信收录分开记，组件/首页取两者较新的那个。 */
+        const val KEY_LAST_ACCOUNT_SYNC = "last_account_sync_at"
         const val KEY_LAST_INGESTED = "last_ingested_at"
 
         /** 增量回填往回多读这么多，好接住迟到/乱序的短信。重叠部分由账本挡。 */

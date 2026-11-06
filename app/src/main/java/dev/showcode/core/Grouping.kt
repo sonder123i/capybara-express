@@ -13,6 +13,14 @@ fun groupByPoint(
     aliases: Map<String, PointAlias> = emptyMap(),
 ): List<PickupPointGroup> = parcels
     .filterNot { it.picked }
+    /* 账号渠道的件「到站 + 有点 + 有运单号/码」就进首页。
+       空码件不再丢；运输中的件仍留在账号页统计，不冒充待取。 */
+    .filter {
+        it.stage == Stage.AT_STATION &&
+            it.pointKey.isNotBlank() &&
+            /* 有运单号就入首页，空码不再挡在外面；短信件仍然靠 code。 */
+            (it.code.isNotBlank() || it.codeKind == CodeKind.SUFFIX || !it.trackingNo.isNullOrBlank())
+    }
     // 分组键是解析过别名的 canonical key：合并因此只是读取侧的一次改名，
     // parcel 行一个字都不动，拆开时也就没有东西可丢。
     .groupBy { resolvePointKey(it.pointKey, aliases) }

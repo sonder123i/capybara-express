@@ -23,3 +23,9 @@ keystore-debug.properties
 # 真机核对截图（验证产物）
 .verify/
 .design-qa/
+# 本地会话产物（真机原文 dump、截图、UI 层级，禁止入库）
+.trae/
+.video_agent/
+.workbuddy/
+docs/screenshots/_*
+*.dump

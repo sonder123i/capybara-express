@@ -2,6 +2,18 @@
 <resources>
     <!-- 纯黑 on 纯白 ≈ 21:1，是本产品最不能妥协的视觉决策（户外强光）。
          因此强制浅色主题并禁用 force-dark：系统反色会把 21:1 直接毁掉。 -->
+    <!-- 冷启动首帧：与图标外缘同色的薄荷底 + 同一张 ic_splash。
+         Android 12+ 由平台显示静态图；31 以下由 core-splashscreen 兼容层接住。
+         动画本身不在这里，见 MainActivity 的 StartupLogoAnimation。 -->
+    <style name="Theme.ShowCode.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
+        <item name="postSplashScreenTheme">@style/Theme.ShowCode</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
     <style name="Theme.ShowCode" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/window_background</item>
         <item name="android:isLightTheme">true</item>

@@ -4,28 +4,34 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,9 +40,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.showcode.R
@@ -58,9 +68,12 @@ import dev.showcode.ui.theme.InkMuted
 import dev.showcode.ui.theme.environmentBackground
 import dev.showcode.ui.theme.ShowCodeShapes
 import dev.showcode.ui.theme.ShowCodeText
+import dev.showcode.ui.theme.moduleEntrance
 import dev.showcode.ui.theme.SurfaceCard
+import dev.showcode.ui.theme.SurfaceSunken
 import dev.showcode.ui.theme.UrgencyAtRisk
 import dev.showcode.ui.theme.UrgencyDueSoon
+import dev.showcode.ui.theme.UrgencyDueSoonTint
 import dev.showcode.ui.theme.UrgencySafe
 import kotlin.math.roundToInt
 
@@ -89,6 +102,11 @@ fun SettingsScreen(
     reminderOn: Boolean,
     onReminderOn: (Boolean) -> Unit,
     notificationGranted: Boolean,
+    /** 已绑定的平台账号数。0 也要显示入口：那一格本身就是「还能这么用」的说明。 */
+    accountCount: Int,
+    /** 有账号登录失效或凭据解不开。 */
+    accountIssue: Boolean,
+    onOpenAccounts: () -> Unit,
     /** 代取件分组的名字（story-7 AC2 要求用户能改）。 */
     familyLabel: String,
     onFamilyLabel: (String) -> Unit,
@@ -104,6 +122,11 @@ fun SettingsScreen(
     /** 这台设备的平台能不能出模糊（API 31+）。不能就当场说清楚，别让那颗开关看起来是坏的。 */
     glassBarAvailable: Boolean,
     onGlassBarOn: (Boolean) -> Unit,
+    /** 宣传片录制态：权限体检、提醒与文本输入都不出现，避免任何系统面板。 */
+    isDemo: Boolean = false,
+    onExitDemo: () -> Unit = {},
+    /** 真实态的一键入口：固定示例数据、本地图、不碰任何权限与真实账号。 */
+    onStartDemo: () -> Unit = {},
 ) {
     var familyLabelDraft by remember { mutableStateOf(familyLabel) }
     val dueSoon = parcels.filter { !it.picked && urgencyOf(it, now, thresholds) == Urgency.DUE_SOON }
@@ -116,83 +139,203 @@ fun SettingsScreen(
     ) {
         ScreenTopBar(title = stringResource(R.string.settings_title))
 
+        if (isDemo) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 20.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.demo_home_marker),
+                    modifier = Modifier.weight(1f),
+                    style = ShowCodeText.Meta,
+                    color = InkMuted,
+                )
+                Text(
+                    text = stringResource(R.string.demo_exit),
+                    modifier = Modifier
+                        .clickable(onClick = onExitDemo)
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    style = ShowCodeText.Action,
+                    color = AccentInk,
+                )
+            }
+        }
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = navBarClearance()),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            item { SectionTitle(stringResource(R.string.settings_threshold_section)) }
+            /* 平台账号是这一页唯一会「带进新件」的入口，放第一组；
+               后面的阈值、分组名、规则都只影响已收录的件。 */
             item {
-                ThresholdCard(
-                    lockerHours = (thresholds.lockerDueSoonMs / HOUR_MS).toInt(),
-                    stationMinutes = thresholds.stationDueSoonMinutes,
-                    previewText = if (dueSoon.isEmpty()) {
-                        stringResource(R.string.settings_preview_none)
-                    } else {
-                        stringResource(
-                            R.string.settings_preview_some,
-                            dueSoon.size,
-                            dueSoon.joinToString("、") { it.code },
+                Box(modifier = Modifier.moduleEntrance(0)) {
+                    SectionTitle(stringResource(R.string.settings_accounts_section))
+                }
+            }
+            item {
+                Box(modifier = Modifier.moduleEntrance(0)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .settingsCard()
+                            .border(1.dp, Hairline, ShowCodeShapes.Md)
+                            .clickable(onClick = onOpenAccounts)
+                            .padding(16.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = stringResource(R.string.settings_accounts),
+                                modifier = Modifier.weight(1f),
+                                style = ShowCodeText.Body,
+                                color = Ink,
+                            )
+                            Text(
+                                text = when {
+                                    accountIssue -> stringResource(R.string.settings_accounts_issue)
+                                    accountCount > 0 -> stringResource(R.string.settings_accounts_count, accountCount)
+                                    else -> stringResource(R.string.settings_accounts_none)
+                                },
+                                /* 有异常时用浅橙底 + Ink 字：颜色做底、字不靠低对比度的橙来扛。 */
+                                modifier = if (accountIssue) {
+                                    Modifier
+                                        .background(UrgencyDueSoonTint, ShowCodeShapes.Sm)
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                } else {
+                                    Modifier
+                                },
+                                style = ShowCodeText.Item,
+                                color = if (accountIssue || accountCount > 0) Ink else InkMuted,
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = stringResource(R.string.settings_accounts_hint),
+                            style = ShowCodeText.Caption,
+                            color = InkMuted,
                         )
-                    },
-                    previewIsWarning = dueSoon.isNotEmpty(),
-                    onLockerHours = onLockerHours,
-                    onStationMinutes = onStationMinutes,
-                    onRestoreDefaults = onRestoreDefaults,
-                )
+                    }
+                }
             }
 
+            item {
+                Box(modifier = Modifier.moduleEntrance(0)) {
+                    ThresholdCard(
+                        lockerHours = (thresholds.lockerDueSoonMs / HOUR_MS).toInt(),
+                        stationMinutes = thresholds.stationDueSoonMinutes,
+                        previewText = if (dueSoon.isEmpty()) {
+                            stringResource(R.string.settings_preview_none)
+                        } else {
+                            stringResource(
+                                R.string.settings_preview_some,
+                                dueSoon.size,
+                                dueSoon.joinToString("、") { it.code },
+                            )
+                        },
+                        previewIsWarning = dueSoon.isNotEmpty(),
+                        onLockerHours = onLockerHours,
+                        onStationMinutes = onStationMinutes,
+                        onRestoreDefaults = onRestoreDefaults,
+                    )
+                }
+            }
+
+            /* 演示态只保留能安全展示的项：账号、阈值、外观、权限体检。
+               提醒、通知来源、规则、收容页都会引出真实数据或系统设置，
+               家人分组名还会弹软键盘——录制时一律不出现。 */
+            if (!isDemo) {
             /* 分组名可改：写死「帮妈妈取」等于替用户决定他的家庭结构。
                输入框用本地草稿状态，否则清空时会回落到默认值、把正在编辑的那一格弹走。 */
             item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(SurfaceCard, ShowCodeShapes.Md)
-                        .border(1.dp, Hairline, ShowCodeShapes.Md)
-                        .padding(16.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.settings_family_label),
-                        style = ShowCodeText.Item,
-                        color = Ink,
-                    )
-                    Text(
-                        text = stringResource(R.string.settings_family_label_hint, familyLabel),
-                        style = ShowCodeText.Meta,
-                        color = InkMuted,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    OutlinedTextField(
-                        value = familyLabelDraft,
-                        onValueChange = { familyLabelDraft = it; onFamilyLabel(it) },
-                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                        singleLine = true,
-                    )
+                Box(modifier = Modifier.moduleEntrance(1)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .settingsCard()
+                            .border(1.dp, Hairline, ShowCodeShapes.Md)
+                            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 10.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_family_label),
+                                style = ShowCodeText.Action,
+                                color = InkMuted,
+                                maxLines = 1,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            /* 行内输入：32dp 高的下沉面 + 1dp 基线，行高仍是 48dp 触控。
+                               不再用 56dp 的 OutlinedTextField，省下的就是它上下两圈内衬。 */
+                            BasicTextField(
+                                value = familyLabelDraft,
+                                onValueChange = { familyLabelDraft = it; onFamilyLabel(it) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .background(SurfaceSunken, ShowCodeShapes.Sm)
+                                    .padding(horizontal = 10.dp),
+                                singleLine = true,
+                                textStyle = ShowCodeText.Item.copy(fontWeight = FontWeight.SemiBold),
+                                cursorBrush = SolidColor(AccentInk),
+                                decorationBox = { inner ->
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                                        inner()
+                                    }
+                                },
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Icon(
+                                Icons.Filled.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = InkMuted,
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.settings_family_label_hint, familyLabel),
+                            style = ShowCodeText.Caption,
+                            color = InkMuted,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
                 }
             }
 
             // 收容页的空态是信任建立瞬间，所以 N=0 时也要有路可达（首页入口只在 N>0 时出现）
             item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, Hairline, ShowCodeShapes.Md)
-                        .clickable(onClick = onOpenUnrecognized)
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = stringResource(R.string.unrecognized_title),
-                        modifier = Modifier.weight(1f),
-                        style = ShowCodeText.Body,
-                        color = Ink,
-                    )
-                    Text(
-                        text = unrecognizedCount.toString(),
-                        style = ShowCodeText.Item,
-                        color = if (unrecognizedCount > 0) UrgencyDueSoon else InkMuted,
-                    )
+                Box(modifier = Modifier.moduleEntrance(1)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .settingsCard()
+                            .border(1.dp, Hairline, ShowCodeShapes.Md)
+                            .clickable(onClick = onOpenUnrecognized)
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.unrecognized_title),
+                            modifier = Modifier.weight(1f),
+                            style = ShowCodeText.Body,
+                            color = Ink,
+                        )
+                        Text(
+                            text = unrecognizedCount.toString(),
+                            modifier = if (unrecognizedCount > 0) {
+                                Modifier
+                                    .background(UrgencyDueSoonTint, ShowCodeShapes.Sm)
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            } else {
+                                Modifier
+                            },
+                            style = ShowCodeText.Item,
+                            color = if (unrecognizedCount > 0) Ink else InkMuted,
+                        )
+                    }
                 }
             }
 
@@ -200,148 +343,205 @@ fun SettingsScreen(
                把入口藏在计数后面等于他不漏的时候永远看不见。名字旁边带一句它对谁生效——
                完全离线这件事必须在文案里说出来，不然用户会以为规则要上传。 */
             item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, Hairline, ShowCodeShapes.Md)
-                        .clickable(onClick = onOpenRules)
-                        .padding(16.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.moduleEntrance(2)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .settingsCard()
+                            .border(1.dp, Hairline, ShowCodeShapes.Md)
+                            .clickable(onClick = onOpenRules)
+                            .padding(16.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = stringResource(R.string.settings_rules),
+                                modifier = Modifier.weight(1f),
+                                style = ShowCodeText.Body,
+                                color = Ink,
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_rules_count, ruleCount),
+                                style = ShowCodeText.Item,
+                                color = if (ruleCount > 0) Ink else InkMuted,
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
                         Text(
-                            text = stringResource(R.string.settings_rules),
-                            modifier = Modifier.weight(1f),
-                            style = ShowCodeText.Body,
-                            color = Ink,
-                        )
-                        Text(
-                            text = stringResource(R.string.settings_rules_count, ruleCount),
-                            style = ShowCodeText.Item,
-                            color = if (ruleCount > 0) Ink else InkMuted,
+                            text = stringResource(R.string.settings_rules_hint),
+                            style = ShowCodeText.Caption,
+                            color = InkMuted,
                         )
                     }
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = stringResource(R.string.settings_rules_hint),
-                        style = ShowCodeText.Caption,
-                        color = InkMuted,
-                    )
                 }
             }
 
             /* 通知来源同样 0 个也要出现：那一屏的空态本身就是诊断——它说的是
                「监听还没见过任何通知」，而这正是权限没给或被 ROM 杀掉时唯一的可见线索。 */
             item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, Hairline, ShowCodeShapes.Md)
-                        .clickable(onClick = onOpenNotify)
-                        .padding(16.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.moduleEntrance(2)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .settingsCard()
+                            .border(1.dp, Hairline, ShowCodeShapes.Md)
+                            .clickable(onClick = onOpenNotify)
+                            .padding(16.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = stringResource(R.string.settings_notify),
+                                modifier = Modifier.weight(1f),
+                                style = ShowCodeText.Body,
+                                color = Ink,
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_notify_count, notifyCount),
+                                style = ShowCodeText.Item,
+                                color = if (notifyCount > 0) Ink else InkMuted,
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
                         Text(
-                            text = stringResource(R.string.settings_notify),
-                            modifier = Modifier.weight(1f),
-                            style = ShowCodeText.Body,
-                            color = Ink,
-                        )
-                        Text(
-                            text = stringResource(R.string.settings_notify_count, notifyCount),
-                            style = ShowCodeText.Item,
-                            color = if (notifyCount > 0) Ink else InkMuted,
+                            text = stringResource(R.string.settings_notify_hint),
+                            style = ShowCodeText.Caption,
+                            color = InkMuted,
                         )
                     }
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = stringResource(R.string.settings_notify_hint),
-                        style = ShowCodeText.Caption,
-                        color = InkMuted,
-                    )
                 }
             }
 
             /* 巡检提醒的开关一直显示，不因为「还没证实盲区」就藏起来：
                想提前关掉的人必须找得到它，而找不到一个开关比看见一个暂时不响的开关更让人不安。 */
             item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, Hairline, ShowCodeShapes.Md)
-                        .padding(16.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = stringResource(R.string.settings_reminder),
-                            modifier = Modifier.weight(1f),
-                            style = ShowCodeText.Body,
-                            color = Ink,
-                        )
-                        Switch(checked = reminderOn, onCheckedChange = onReminderOn)
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = stringResource(R.string.settings_reminder_hint),
-                        style = ShowCodeText.Caption,
-                        color = InkMuted,
-                    )
-                    // 开着开关却永远等不到提醒，是最坏的一种坏——所以没权限要当场说。
-                    if (reminderOn && !notificationGranted) {
+                Box(modifier = Modifier.moduleEntrance(2)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .settingsCard()
+                            .border(1.dp, Hairline, ShowCodeShapes.Md)
+                            .padding(16.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = stringResource(R.string.settings_reminder),
+                                modifier = Modifier.weight(1f),
+                                style = ShowCodeText.Body,
+                                color = Ink,
+                            )
+                            Switch(checked = reminderOn, onCheckedChange = onReminderOn)
+                        }
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = stringResource(R.string.settings_reminder_needs_permission),
+                            text = stringResource(R.string.settings_reminder_hint),
                             style = ShowCodeText.Caption,
-                            color = UrgencyDueSoon,
+                            color = InkMuted,
                         )
+                        // 开着开关却永远等不到提醒，是最坏的一种坏——所以没权限要当场说。
+                        if (reminderOn && !notificationGranted) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = stringResource(R.string.settings_reminder_needs_permission),
+                                modifier = Modifier
+                                    .background(UrgencyDueSoonTint, ShowCodeShapes.Sm)
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = ShowCodeText.Caption,
+                                color = Ink,
+                            )
+                        }
                     }
                 }
             }
 
-            item { SectionTitle(stringResource(R.string.settings_health_section)) }
-            item {
-                HealthTable(
-                    report = report,
-                    smsGranted = smsGranted,
-                    notificationEnabled = notificationEnabled,
-                    onRequestSms = onRequestSms,
-                    onOpenNotificationSettings = onOpenNotificationSettings,
-                    onOpenAppDetails = onOpenAppDetails,
-                )
             }
 
-            item { SectionTitle(stringResource(R.string.settings_appearance_section)) }
+            /* 权限体检在演示里也照常出现：它是这台 App 的一种真实能力，
+               只是把状态换成演示值（已开启 / 全部正常），不读也不改系统设置。 */
+            item {
+                Box(modifier = Modifier.moduleEntrance(3)) {
+                    SectionTitle(stringResource(R.string.settings_health_section))
+                }
+            }
+            item {
+                Box(modifier = Modifier.moduleEntrance(3)) {
+                    HealthTable(
+                        report = if (isDemo) HealthReport(emptyList(), emptyList()) else report,
+                        smsGranted = smsGranted,
+                        notificationEnabled = notificationEnabled,
+                        onRequestSms = onRequestSms,
+                        onOpenNotificationSettings = onOpenNotificationSettings,
+                        onOpenAppDetails = onOpenAppDetails,
+                    )
+                }
+            }
+
+            item {
+                Box(modifier = Modifier.moduleEntrance(3)) {
+                    SectionTitle(stringResource(R.string.settings_appearance_section))
+                }
+            }
             /* 开关一直显示，和上面那条提醒同一个理由：想关掉它的人必须找得到。
                但「开着却没有玻璃」要当场说明白——那不是开关坏了，是这台设备、
                或者上一次崩溃留下的结论（GlassRuntimeGuard）。 */
             item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, Hairline, ShowCodeShapes.Md)
-                        .padding(16.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = stringResource(R.string.settings_glass),
-                            modifier = Modifier.weight(1f),
-                            style = ShowCodeText.Body,
-                            color = Ink,
-                        )
-                        Switch(checked = glassBarOn, onCheckedChange = onGlassBarOn)
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = stringResource(R.string.settings_glass_hint),
-                        style = ShowCodeText.Caption,
-                        color = InkMuted,
-                    )
-                    if (!glassBarAvailable) {
+                Box(modifier = Modifier.moduleEntrance(3)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .settingsCard()
+                            .border(1.dp, Hairline, ShowCodeShapes.Md)
+                            .padding(16.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = stringResource(R.string.settings_glass),
+                                modifier = Modifier.weight(1f),
+                                style = ShowCodeText.Body,
+                                color = Ink,
+                            )
+                            Switch(checked = glassBarOn, onCheckedChange = onGlassBarOn)
+                        }
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = stringResource(R.string.settings_glass_needs_os),
+                            text = stringResource(R.string.settings_glass_hint),
                             style = ShowCodeText.Caption,
                             color = InkMuted,
                         )
+                        if (!glassBarAvailable) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = stringResource(R.string.settings_glass_needs_os),
+                                style = ShowCodeText.Caption,
+                                color = InkMuted,
+                            )
+                        }
+                    }
+                }
+            }
+
+            /* 宣传片录制的一键入口。放在最后，不抢真实设置的主路径。 */
+            if (!isDemo) {
+                item {
+                    Box(modifier = Modifier.moduleEntrance(3)) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .settingsCard()
+                                .border(1.dp, Hairline, ShowCodeShapes.Md)
+                                .clickable(onClick = onStartDemo)
+                                .padding(16.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.demo_entry),
+                                style = ShowCodeText.Body,
+                                color = Ink,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = stringResource(R.string.demo_entry_hint),
+                                style = ShowCodeText.Caption,
+                                color = InkMuted,
+                            )
+                        }
                     }
                 }
             }
@@ -359,6 +559,23 @@ private fun SectionTitle(text: String) {
     )
 }
 
+/**
+ * 设置页卡片的「白打底」：亮色 SurfaceCard 近白（#F9FAFD），暗色对应深面（#1D222B）。
+ * 1dp 轻投影只负责把卡片从页面渐变上托起来，暗色下几乎不可见；不改任何布局高度。
+ */
+private fun Modifier.settingsCard(): Modifier = this
+    .shadow(elevation = 1.dp, shape = ShowCodeShapes.Md, clip = false)
+    .background(SurfaceCard, ShowCodeShapes.Md)
+
+/**
+ * 阈值卡：从「两条 Material Slider + 独立预览块 + 独立恢复链接」压成一张「台账」。
+ *
+ * 省空间的三处，都不动字号：
+ * 1. 标题「临期阈值」和「恢复默认」合并进卡头一行（原先是卡外标题 + 卡内底部链接）；
+ * 2. 滑块换成 48dp 高的档位步进器（`− 值 ＋`）：标签 13sp 在左、值 15sp SemiBold 在右，
+ *    每行 48dp（原来 label 22 + Slider 48 + 14 间距 ≈ 84dp）；
+ * 3. 预览从「12dp 内衬的独立色块」改成一条 32dp、上缘 1dp Hairline 的轻分隔带。
+ */
 @Composable
 private fun ThresholdCard(
     lockerHours: Int,
@@ -372,58 +589,144 @@ private fun ThresholdCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .settingsCard()
             .border(1.dp, Hairline, ShowCodeShapes.Md)
-            .padding(16.dp)
+            .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 2.dp),
     ) {
-        DiscreteSlider(
-            label = stringResource(R.string.settings_locker_label, lockerHours),
+        Row(
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.settings_threshold_section),
+                modifier = Modifier.weight(1f),
+                style = ShowCodeText.Action,
+                color = InkMuted,
+            )
+            Box(
+                modifier = Modifier
+                    .widthIn(min = 48.dp)
+                    .heightIn(min = 48.dp)
+                    .clickable(onClick = onRestoreDefaults),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_restore),
+                    style = ShowCodeText.Action,
+                    color = AccentInk,
+                )
+            }
+        }
+
+        StepRow(
+            title = stringResource(R.string.settings_locker_title),
+            value = stringResource(R.string.settings_locker_value, lockerHours),
             options = Prefs.LOCKER_OPTIONS,
             current = lockerHours,
             onSelect = onLockerHours,
         )
-        Spacer(Modifier.height(14.dp))
-        DiscreteSlider(
-            label = stringResource(R.string.settings_station_label, stationMinutes),
+        /* 行与行只隔 1dp Hairline（参考的白卡就是这样切行），不靠加间距。 */
+        HorizontalDivider(thickness = 1.dp, color = Hairline)
+        StepRow(
+            title = stringResource(R.string.settings_station_title),
+            value = stringResource(R.string.settings_station_value, stationMinutes),
             options = Prefs.STATION_OPTIONS,
             current = stationMinutes,
             onSelect = onStationMinutes,
         )
 
-        Spacer(Modifier.height(10.dp))
+        HorizontalDivider(
+            modifier = Modifier.padding(top = 4.dp),
+            thickness = 1.dp,
+            color = Hairline,
+        )
         // 实时预览：阈值一改，这一行立刻告诉你哪几件跨进了临期
-        Text(
-            text = previewText,
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(SurfaceCard, ShowCodeShapes.Md)
-                .padding(12.dp),
-            style = ShowCodeText.Meta,
-            color = if (previewIsWarning) UrgencyDueSoon else InkMuted,
-        )
-
-        Spacer(Modifier.height(10.dp))
-        Text(
-            text = stringResource(R.string.settings_restore),
-            modifier = Modifier
-                .clickable(onClick = onRestoreDefaults)
-                .padding(vertical = 4.dp),
-            style = ShowCodeText.Action,
-            color = AccentInk,
-        )
+                .height(32.dp)
+                /* 白卡里嵌一条浅橙带：颜色留在底上，字用 Ink，12sp 也能过 4.5:1。 */
+                .then(
+                    if (previewIsWarning) {
+                        Modifier.background(UrgencyDueSoonTint, ShowCodeShapes.Sm)
+                    } else {
+                        Modifier
+                    },
+                )
+                .padding(horizontal = if (previewIsWarning) 8.dp else 0.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = previewText,
+                style = ShowCodeText.Caption,
+                color = if (previewIsWarning) Ink else InkMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
-/** 档位是离散集合（frame 锁定 2/4/6/8 与 30/60/90/120），所以滑块只有 4 个停靠点。 */
+/** 一行阈值：13sp 标签 + 15sp SemiBold 值 + 两个 48dp 步进按钮。档位仍是离散集合。 */
 @Composable
-private fun DiscreteSlider(label: String, options: List<Int>, current: Int, onSelect: (Int) -> Unit) {
+private fun StepRow(
+    title: String,
+    value: String,
+    options: List<Int>,
+    current: Int,
+    onSelect: (Int) -> Unit,
+) {
     val index = options.indexOf(current).coerceAtLeast(0)
-    Text(text = label, style = ShowCodeText.Item, color = Ink)
-    Slider(
-        value = index.toFloat(),
-        onValueChange = { onSelect(options[it.roundToInt().coerceIn(0, options.lastIndex)]) },
-        valueRange = 0f..(options.lastIndex).toFloat(),
-        steps = options.lastIndex - 1,
-    )
+    Row(
+        modifier = Modifier.fillMaxWidth().height(48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier.weight(1f),
+            style = ShowCodeText.Action,
+            color = InkMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        StepButton(
+            minus = true,
+            enabled = index > 0,
+            label = stringResource(R.string.settings_threshold_decrease, title),
+        ) { onSelect(options[(index - 1).coerceAtLeast(0)]) }
+        Text(
+            text = value,
+            modifier = Modifier.widthIn(min = 62.dp),
+            style = ShowCodeText.Body.copy(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
+            color = Ink,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+        )
+        StepButton(
+            minus = false,
+            enabled = index < options.lastIndex,
+            label = stringResource(R.string.settings_threshold_increase, title),
+        ) { onSelect(options[(index + 1).coerceAtMost(options.lastIndex)]) }
+    }
+}
+
+@Composable
+private fun StepButton(minus: Boolean, enabled: Boolean, label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier.size(48.dp).clickable(enabled = enabled, onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier.size(28.dp).border(1.dp, Hairline, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = if (minus) "−" else "+",
+                style = ShowCodeText.Action.copy(fontSize = 16.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold),
+                color = if (enabled) Ink else InkMuted.copy(alpha = 0.35f),
+            )
+        }
+    }
 }
 
 @Composable
@@ -438,37 +741,51 @@ private fun HealthTable(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .settingsCard()
             .border(1.dp, Hairline, ShowCodeShapes.Md)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        if (report.allGood) {
+        /* 「全部正常」不能盖住一条「未开启」：通知监听没开时自动收录不完整，
+           即使它只是可选补充手段，也不该和一句「全部正常」同时出现。 */
+        if (report.allGood && notificationEnabled) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp), tint = UrgencySafe)
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = stringResource(R.string.settings_health_all_good),
                     style = ShowCodeText.Item,
-                    color = UrgencySafe,
+                    color = Ink,
                 )
             }
         }
 
+        /* 短信是补充手段：未开启用中性灰，不用警示色，也不催「必须补上」。
+           平台那句（抖音等）常驻：它说明这条路覆盖到哪些平台，和开没开无关。 */
         HealthRow(
             title = stringResource(R.string.health_sms),
             ok = smsGranted,
             statusText = stringResource(if (smsGranted) R.string.health_on else R.string.health_off),
+            hint = buildString {
+                if (!smsGranted) append(stringResource(R.string.health_sms_hint)).append(' ')
+                append(stringResource(R.string.health_sms_platform))
+            },
             fixLabel = stringResource(R.string.health_fix_sms),
             onFix = onRequestSms,
             showFix = !smsGranted,
+            statusColor = if (smsGranted) null else InkMuted,
         )
+        /* 通知监听同样是补充手段：未开启用中性灰 + 「未开启 / 部分平台走短信」，
+           不设红点、不催。 */
         HealthRow(
             title = stringResource(R.string.health_notification),
             ok = notificationEnabled,
             statusText = stringResource(if (notificationEnabled) R.string.health_on else R.string.health_off),
+            hint = if (notificationEnabled) null else stringResource(R.string.health_notification_hint),
             fixLabel = stringResource(R.string.health_fix_notification),
             onFix = onOpenNotificationSettings,
             showFix = !notificationEnabled,
+            statusColor = if (notificationEnabled) null else InkMuted,
         )
         if (HealthIssue.BACKGROUND_SUSPECTED in report.issues) {
             HealthRow(
@@ -520,10 +837,11 @@ private fun HealthRow(
             Text(
                 text = statusText,
                 modifier = Modifier
-                    .background(color = tint.copy(alpha = 0.12f), shape = ShowCodeShapes.Sm)
+                    .background(color = tint.copy(alpha = 0.16f), shape = ShowCodeShapes.Sm)
                     .padding(horizontal = 8.dp, vertical = 3.dp),
                 style = ShowCodeText.Micro,
-                color = tint,
+                /* 11sp 小字不靠彩色本身扛对比：颜色退到浅底，字回到 Ink。 */
+                color = Ink,
             )
             if (showFix) {
                 Spacer(Modifier.width(8.dp))

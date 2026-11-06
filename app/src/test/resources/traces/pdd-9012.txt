@@ -1,0 +1,10 @@
+id: pdd-9012
+platform: PDD
+tracking: -
+point: 示例大学示例校区菜鸟驿站
+fetched_at: 2026-11-06T20:04:00+08:00
+expected_stage: AT_STATION
+production_stage: DONE
+note: 库里只有摘要「待取件」，平台完整轨迹已丢失
+---
+待取件

@@ -35,6 +35,12 @@ data class ParsedParcel(
     val pointKind: PointKind,
     val closesAtMinuteOfDay: Int?,
     val freeUntilAt: Long?,
+    /**
+     * 正文里明确写出的运单号/快递单号。跨通道认同一件靠它：
+     * 短信行通常有真实取件码，账号行只有后五位，光靠 `(code, point)` 接不上。
+     * 没有就留空，绝不从裸数字里猜。
+     */
+    val trackingNo: String = "",
 )
 
 /**
@@ -161,6 +167,7 @@ object PickupCodeParser {
                     pointKind = kind,
                     closesAtMinuteOfDay = closingMinute,
                     freeUntilAt = freeUntil,
+                    trackingNo = trackingOf(body),
                 )
             },
         )
@@ -196,6 +203,17 @@ object PickupCodeParser {
     )
 
     private val PHONE_NUMBER = Regex("1\\d{10}")
+
+    /**
+     * 运单号只在有明确锚点时才取。裸长数字可能是手机号、取件码或金额，
+     * 猜错会制造假的跨通道合并，所以宁可不识别。
+     */
+    private val TRACKING_NO = Regex(
+        "(?:运单号|快递单号|物流单号|快递单|运单)\\s*[:：是为]?\\s*([0-9A-Za-z\\-]{8,24})",
+    )
+
+    private fun trackingOf(body: String): String =
+        TRACKING_NO.find(body)?.groupValues?.getOrNull(1)?.trim().orEmpty()
 
     /** 一条消息最多切成几个件。粘贴进来的一整页文本不该一次生成几十件；超出就是有意截断。 */
     private const val MAX_PARCELS_PER_MESSAGE = 12

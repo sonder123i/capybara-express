@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>代码审查报告 · e:\express 未提交改动</title>
+<style>
+:root{
+  --bg:#f5f6f8; --surface:#ffffff; --surface-2:#fafbfd; --ink:#1b1f26; --ink-2:#4a5260;
+  --ink-3:#7a8494; --line:#e3e7ee; --line-strong:#cfd6e2; --brand:#2f6bff;
+  --high:#c2410c; --high-bg:#fff2e9; --mid:#a16207; --mid-bg:#fdf6e3;
+  --low:#475569; --low-bg:#eef1f6; --ok:#0f766e; --ok-bg:#e9f6f4;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0f1216; --surface:#161a20; --surface-2:#1b2028; --ink:#e8ecf2; --ink-2:#b6bfcc;
+    --ink-3:#8a93a1; --line:#262c36; --line-strong:#36404e; --brand:#7aa2ff;
+    --high:#ffb08a; --high-bg:#2a1a12; --mid:#f2cf7a; --mid-bg:#26210f;
+    --low:#b6c2d3; --low-bg:#1d242e; --ok:#7fd8c8; --ok-bg:#102521;
+  }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:var(--sans); font-size:15px; line-height:1.75;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+.wrap{max-width:1080px; margin:0 auto; padding:56px 28px 96px}
+.eyebrow{
+  font-size:12px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--ink-3); font-weight:600;
+}
+h1{font-size:34px; line-height:1.25; letter-spacing:-.02em; margin:10px 0 14px; font-weight:700}
+h2{font-size:21px; letter-spacing:-.01em; margin:0 0 6px; font-weight:650}
+h3{font-size:16px; margin:0; font-weight:650; line-height:1.5}
+p{margin:0 0 12px; color:var(--ink-2)}
+a{color:var(--brand); text-decoration:none}
+a:hover{text-decoration:underline}
+.lead{font-size:16.5px; color:var(--ink-2); max-width:78ch}
+.meta-row{display:flex; flex-wrap:wrap; gap:8px 10px; margin-top:18px}
+.pill{
+  display:inline-flex; align-items:center; gap:6px; padding:4px 10px;
+  border:1px solid var(--line); border-radius:999px; background:var(--surface);
+  font-size:12.5px; color:var(--ink-2); white-space:nowrap;
+}
+.pill b{color:var(--ink); font-weight:600}
+section{margin-top:52px}
+.sec-head{display:flex; align-items:baseline; gap:12px; padding-bottom:12px; border-bottom:1px solid var(--line); margin-bottom:22px}
+.sec-num{font-family:var(--mono); font-size:12.5px; color:var(--ink-3); letter-spacing:.04em}
+.sec-note{margin-left:auto; font-size:12.5px; color:var(--ink-3)}
+.summary{
+  display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:8px;
+}
+.metric{
+  background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:14px 16px 12px;
+}
+.metric .k{font-size:12px; color:var(--ink-3); letter-spacing:.04em}
+.metric .v{font-size:26px; font-weight:700; line-height:1.3; margin-top:2px; font-variant-numeric:tabular-nums}
+.metric.high .v{color:var(--high)} .metric.mid .v{color:var(--mid)} .metric.low .v{color:var(--low)}
+.conclusion{
+  margin-top:16px; background:var(--surface); border:1px solid var(--line);
+  border-left:3px solid var(--brand); border-radius:12px; padding:16px 18px;
+}
+.conclusion p{margin:0; color:var(--ink)}
+.conclusion p+p{margin-top:8px}
+
+/* 改动导读 */
+.change{
+  background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:18px 20px;
+  margin-bottom:12px;
+}
+.change .top{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap}
+.change .idx{font-family:var(--mono); font-size:12px; color:var(--ink-3)}
+.tag{
+  font-size:11.5px; padding:2px 8px; border-radius:999px; border:1px solid var(--line-strong);
+  color:var(--ink-3); white-space:nowrap;
+}
+.paths{margin-top:10px; display:flex; flex-wrap:wrap; gap:6px}
+.path{
+  font-family:var(--mono); font-size:11.5px; color:var(--ink-2);
+  background:var(--surface-2); border:1px solid var(--line); border-radius:6px;
+  padding:2px 7px; overflow-wrap:anywhere;
+}
+
+/* findings */
+.finding{
+  background:var(--surface); border:1px solid var(--line); border-radius:16px;
+  padding:20px 22px 18px; margin-bottom:18px;
+}
+.finding .head{display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap}
+.finding .head h3{flex:1 1 340px}
+.sev{
+  font-size:11.5px; font-weight:700; letter-spacing:.06em; padding:3px 9px;
+  border-radius:999px; white-space:nowrap;
+}
+.sev.high{color:var(--high); background:var(--high-bg)}
+.sev.mid{color:var(--mid); background:var(--mid-bg)}
+.sev.low{color:var(--low); background:var(--low-bg)}
+.loc{font-family:var(--mono); font-size:12px; color:var(--ink-3); margin:6px 0 0}
+.loc span{color:var(--ink-2)}
+.grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 24px; margin-top:14px}
+.field dt{font-size:11.5px; letter-spacing:.08em; color:var(--ink-3); font-weight:600; margin:0 0 2px}
+.field dd{margin:0; color:var(--ink-2)}
+.field.full{grid-column:1 / -1}
+.ev{margin-top:14px; border-top:1px dashed var(--line); padding-top:12px}
+.ev-title{font-size:12.5px; color:var(--ink-3); font-weight:600; letter-spacing:.04em; margin-bottom:8px}
+pre{
+  margin:10px 0 0; background:var(--surface-2); border:1px solid var(--line);
+  border-radius:10px; padding:14px 16px; overflow:auto; font-size:12.5px; line-height:1.7;
+}
+code{font-family:var(--mono); font-size:.94em}
+pre code{color:var(--ink-2); font-size:12.5px}
+.diff .add{color:var(--ok)} .diff .del{color:var(--high)} .diff .ctx{color:var(--ink-3)}
+.note{
+  margin-top:10px; font-size:12.5px; color:var(--ink-3);
+  background:var(--surface-2); border:1px solid var(--line); border-radius:10px; padding:10px 12px;
+}
+ul.plain{margin:6px 0 0 18px; padding:0; color:var(--ink-2)}
+ul.plain li{margin:4px 0}
+footer{margin-top:48px; padding-top:18px; border-top:1px solid var(--line); font-size:12.5px; color:var(--ink-3)}
+@media (max-width:720px){
+  .wrap{padding:36px 18px 72px}
+  h1{font-size:27px}
+  .summary{grid-template-columns:repeat(2,1fr)}
+  .grid{grid-template-columns:1fr}
+}
+@media print{
+  body{background:#fff}
+  .finding,.change,.metric,.conclusion{break-inside:avoid}
+  section{break-inside:auto}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Code Review · 未提交改动</div>
+  <h1>平台账号自动同步、v9 数据库与底栏玻璃重构</h1>
+  <p class="lead">
+    审查对象：<code>e:\express</code> 工作树相对 <code>HEAD</code> 的全部改动（含未跟踪文件），
+    未包含历史提交。报告只陈述静态可证的结论；未执行构建或测试的部分已在「审查边界」中标明。
+  </p>
+  <div class="meta-row">
+    <span class="pill">基线提交 <b>82ae07b</b></span>
+    <span class="pill">变更规模 <b>+3877 / −2569</b>（45 个已跟踪文件，另有多组新文件）</span>
+    <span class="pill">复核方式 <b>两名独立复核者逐条核对（8/8 均 2/2 一致）</b></span>
+    <span class="pill">日期 <b>2026-11-04</b></span>
+  </div>
+</header>
+
+<section id="summary">
+  <div class="sec-head">
+    <span class="sec-num">01</span>
+    <h2>结论</h2>
+    <span class="sec-note">没有阻断级问题；数据库迁移未发现阻断缺陷</span>
+  </div>
+  <div class="summary">
+    <div class="metric"><div class="k">阻断</div><div class="v">0</div></div>
+    <div class="metric high"><div class="k">高</div><div class="v">2</div></div>
+    <div class="metric mid"><div class="k">中</div><div class="v">4</div></div>
+    <div class="metric low"><div class="k">低</div><div class="v">2</div></div>
+  </div>
+  <div class="conclusion">
+    <p><strong>一句话结论：</strong>账号同步主链路、v8/v9 迁移、Keystore 密文存储与演示数据隔离的整体结构站得住，但「抓取失败被当成同步成功」和「演示态仍能读写真实身份码」这两处会直接误导用户或污染真实数据，应优先修。</p>
+    <p><strong>重点核对过的部分：</strong>v7→v9 迁移只加列、重建索引，<code>addColumnIfMissing</code> 先查 <code>PRAGMA</code> 再 <code>ALTER</code>，可重复执行；旧行不被改写。密文只落 <code>base64(iv):base64(ct)</code>，解密失败返回 null 并由同步层置 <code>BROKEN</code>。已取件在 <code>planAccountSync</code> 中以「命中已取行即 Skip」的方式拦住，不会因重同步复活；四个展示面统一经 <code>groupByPoint</code> 过滤已取件。底栏与收起胶囊共用同一张内容 backdrop，标签画在玻璃之上，没有发现二次采样导致的字形重影。</p>
+  </div>
+</section>
+
+<section id="changes">
+  <div class="sec-head">
+    <span class="sec-num">02</span>
+    <h2>改动导读</h2>
+    <span class="sec-note">按行为分组，不是按文件清单</span>
+  </div>
+
+  <div class="change">
+    <div class="top"><span class="idx">01</span><h3>数据库升到 v9：账号件字段与绑定账号表</h3><span class="tag">核心</span></div>
+    <p><code>parcel</code> 新增运单号、订单号、账号归属、物流阶段（<code>Stage</code>）、码类型（<code>CodeKind</code>）、同步时间与五列商品信息；新增 <code>bound_account</code> 存平台绑定密文。去重索引从「仅未取」改为「未取且码非空」，并新增未取件按运单号唯一索引。</p>
+    <div class="paths">
+      <span class="path">app/src/main/java/dev/showcode/data/ShowCodeDb.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/core/Model.kt</span>
+    </div>
+    <div class="note">阅读入口：<code>ShowCodeDb.kt:292-351</code>（v8/v9 迁移）、<code>408-414</code>（列存在性检查）、<code>969-1007</code>（读库映射）。</div>
+  </div>
+
+  <div class="change">
+    <div class="top"><span class="idx">02</span><h3>账号 Cookie 用 Keystore 加密后入库</h3><span class="tag">核心</span></div>
+    <p>登录页取得 Cookie 后经 AES/GCM 加密写入 <code>bound_account</code>；重新登录保住 <code>createdAt</code> 与用户关掉的启用开关。解密失败返回 null，由同步层把账号置 <code>BROKEN</code>，要求重新登录。</p>
+    <div class="paths">
+      <span class="path">app/src/main/java/dev/showcode/security/SecretBox.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/data/AccountStore.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/core/account/Account.kt</span>
+    </div>
+  </div>
+
+  <div class="change">
+    <div class="top"><span class="idx">03</span><h3>三家平台的抓取链路</h3><span class="tag">核心</span><span class="tag">重点阅读</span></div>
+    <p>拼多多用隐藏 WebView + document-start 钩子把订单/物流响应写进 <code>window.name</code>，再轮询取走并模拟滑动翻页；京东改写 JSONP callback 捕获订单列表、再读物流页 DOM；淘宝直接走 mtop 签名接口与 SSR HTML。三家都把单条失败降级为空结果。</p>
+    <div class="paths">
+      <span class="path">app/src/main/java/dev/showcode/data/fetch/PddFetcher.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/data/fetch/JdFetcher.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/data/fetch/TbFetcher.kt</span>
+    </div>
+    <div class="note">阅读入口：<code>PddFetcher.kt:382-432</code>（钩子）、<code>330-342</code>（window.name 读取）、<code>JdFetcher.kt:275-333</code>、<code>TbFetcher.kt:205-248</code>（mtop 签名）。</div>
+  </div>
+
+  <div class="change">
+    <div class="top"><span class="idx">04</span><h3>抓取结果与本地件的合并、入库</h3><span class="tag">核心</span><span class="tag">重点阅读</span></div>
+    <p>先用运单号匹配，其次用（码 + 点）匹配；命中已取行即 <code>Skip</code>，不许复活；码冲突保留原码、阶段只升不降；只有明确「本人取件 / 凭码取件」才自动标记已取。插入撞唯一约束只返回 −1，不抛异常。</p>
+    <div class="paths">
+      <span class="path">app/src/main/java/dev/showcode/core/account/AccountMerge.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/data/AccountSyncEngine.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/data/ParcelRepository.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/core/account/TraceParser.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/core/account/FetchedParcel.kt</span>
+    </div>
+  </div>
+
+  <div class="change">
+    <div class="top"><span class="idx">05</span><h3>账号入口、空码交接与商品信息呈现</h3><span class="tag">核心</span></div>
+    <p>设置页把平台账号提到第一组；账号列表新增登录、同步、删除。无取件码的件在现场模式与详情页改为「显示运单号 + 去淘宝查询/复制」，不再画空码框。账号件在首页/现场/详情显示商品缩略图、价格与店铺。</p>
+    <div class="paths">
+      <span class="path">app/src/main/java/dev/showcode/ui/account/AccountScreens.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/ui/settings/SettingsScreen.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/ui/onsite/OnsiteCodeBody.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/ui/TrackingLookup.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/ui/GoodsThumbnail.kt</span>
+    </div>
+  </div>
+
+  <div class="change">
+    <div class="top"><span class="idx">06</span><h3>统一 token、底栏玻璃与单层换页</h3><span class="tag">核心</span><span class="tag">重点阅读</span></div>
+    <p>颜色、字阶、动效收敛到 token 层；底栏与收起胶囊改成与参考一致的玻璃配方（blur 10dp、白 0.28 / 0.34、高光/投影/按压内阴影与折射）；主屏切换只绘制目标页并整层裁剪，进出子屏才做层级转场。</p>
+    <div class="paths">
+      <span class="path">app/src/main/java/dev/showcode/ui/ShowCodeNavBar.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/ui/glass/GlassMaterials.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/ui/theme/NavigationMotion.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/ui/ShowCodeRoot.kt</span>
+    </div>
+  </div>
+
+  <div class="change">
+    <div class="top"><span class="idx">07</span><h3>演示模式改为全内存、全本地素材</h3><span class="tag">核心</span><span class="tag">重点阅读</span></div>
+    <p><code>DemoData</code> 按进入时刻的固定锚点生成数据，id 为负、商品图指向打包进 APK 的 drawable；首页、现场、详情、设置按 <code>isDemo</code> 切数据和入口，禁止权限弹窗、网络请求与真实库写入。</p>
+    <div class="paths">
+      <span class="path">app/src/main/java/dev/showcode/data/DemoData.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/ui/ShowCodeRoot.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/ui/home/HomeScreen.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/ui/onsite/OnsiteScreen.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/ui/settings/SettingsScreen.kt</span>
+    </div>
+  </div>
+
+  <div class="change">
+    <div class="top"><span class="idx">08</span><h3>移除查快递页与「最近已取」，补划词入口</h3><span class="tag">清理</span></div>
+    <p>删除 Lookup 三个组件、入口与「最近已取」区块；已取件统一由 <code>groupByPoint</code> 在读取侧过滤。新增 <code>PROCESS_TEXT</code> 意图：别的 App 里长按选词 → 菜单「亮码」→ 预填手动导入，仍需用户按保存才落库。</p>
+    <div class="paths">
+      <span class="path">app/src/main/java/dev/showcode/core/Grouping.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/core/TextIntake.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/widget/WidgetNav.kt</span>
+      <span class="path">app/src/main/java/dev/showcode/MainActivity.kt</span>
+    </div>
+  </div>
+</section>
+
+<section id="findings">
+  <div class="sec-head">
+    <span class="sec-num">03</span>
+    <h2>问题证据</h2>
+    <span class="sec-note">按严重度排序；每条均给出触发条件、机制与影响</span>
+  </div>
+
+  <!-- F1 -->
+  <article class="finding">
+    <div class="head">
+      <h3>抓取失败被当成「同步成功」</h3>
+      <span class="sev high">高</span>
+    </div>
+    <div class="loc"><span>app/src/main/java/dev/showcode/data/AccountSyncEngine.kt</span> · 41–48 · 置信度 2/2</div>
+    <div class="grid">
+      <div class="field"><dt>触发条件</dt><dd>Cookie 过期、平台风控、页面改版，或系统 WebView 不支持 document-start 注入导致提前返回空列表。</dd></div>
+      <div class="field"><dt>影响</dt><dd>账号状态与实际登录状态不一致；用户以为在正常同步，实际长期拿不到新件，排查时容易先怀疑 App 卡顿。</dd></div>
+      <div class="field full"><dt>机制</dt><dd>同步编排拿到的只有 <code>List&lt;FetchedParcel&gt;</code>，无法表达「失败」与「成功但没有新件」。抓取器把异常/超时/首屏不符统一折成 <code>emptyList</code>，编排侧照常合并并写成功文案；<code>AccountState.EXPIRED</code> 只在拿不到 Activity 时写入，整条链路没有识别登录失效的路径。</dd></div>
+      <div class="field full"><dt>修复方向</dt><dd>让抓取结果区分「成功但 0 件」与「失败」；失败时置 <code>EXPIRED</code>（或新增错误态）并给出「需要重新登录」的文案；仅在实际拿到响应时写入 <code>last_sync_at</code>。</dd></div>
+    </div>
+    <div class="ev">
+      <div class="ev-title">证据 1 · 抓取失败降级为空列表（PddFetcher.kt:100-102）</div>
+      <pre><code class="diff"><span class="ctx">            } catch (t: Throwable) {</span>
+<span class="ctx">                android.util.Log.w(TAG, "fetch failed: $t")</span>
+<span class="del">                emptyList()</span>
+<span class="ctx">            } finally {</span></code></pre>
+      <div class="ev-title" style="margin-top:14px">证据 2 · 空结果照常上报成功（AccountSyncEngine.kt:40-48）</div>
+      <pre><code><span class="ctx">val at = System.currentTimeMillis()</span>
+val actions = planAccountSync(fetched, repository.data.value.parcels)
+val result = repository.applyAccountSync(actions, at)
+val message = buildString { append("新增 ${result.added} · 更新 ${result.updated}") ... }
+<span class="del">repository.accounts.mark(account, AccountState.ACTIVE, message, at)</span></code></pre>
+      <div class="note">界面侧（<code>AccountScreens.kt:212-217</code>）在 <code>ACTIVE</code> 时直接显示 <code>lastSyncResult</code>，于是失败与「确实没有新到站件」在屏上完全一致。</div>
+    </div>
+  </article>
+
+  <!-- F2 -->
+  <article class="finding">
+    <div class="head">
+      <h3>演示模式仍可进入并修改真实身份码</h3>
+      <span class="sev high">高</span>
+    </div>
+    <div class="loc"><span>app/src/main/java/dev/showcode/ui/ShowCodeRoot.kt</span> · 745–759 · 置信度 2/2</div>
+    <div class="grid">
+      <div class="field"><dt>触发条件</dt><dd>进入演示模式后点底栏「身份码」，或进而新增 / 出示一张码。</dd></div>
+      <div class="field"><dt>影响</dt><dd>录制素材泄露真实身份码（可能是动态会话码）；误触删除或切换会不可恢复地改动真实数据库，违反「演示不读写真实数据」的约束。</dd></div>
+      <div class="field full"><dt>机制</dt><dd>演示隔离依赖每个屏幕自己判断 <code>isDemo</code>。首页、现场、详情、设置都替换了数据源或拦截了写操作，但身份码主屏既没有替换 <code>codes</code>（仍读 <code>appData.identityCodes</code>），也没有拦截 <code>setIdentityDynamic</code> / <code>deleteIdentityCode</code> / <code>addIdentityCode</code>；而底栏在演示态照常把用户带进这一屏（显示条件只看 <code>route</code>）。</dd></div>
+      <div class="field full"><dt>修复方向</dt><dd>演示态给身份码提供独立内存数据（或直接隐藏该主屏），并对新增 / 切换动态码 / 删除三个回调加 <code>demo</code> 守卫。</dd></div>
+    </div>
+    <div class="ev">
+      <div class="ev-title">证据 1 · 主屏无演示隔离（ShowCodeRoot.kt:745-759）</div>
+      <pre><code>IdentityListScreen(
+    <span class="del">codes = appData.identityCodes,</span>          <span class="ctx">// 真实库</span>
+    ...
+    <span class="del">onToggleDynamic = { id, dynamic -&gt; repository.setIdentityDynamic(id, dynamic) },</span>
+    <span class="del">onDelete = { id -&gt; repository.deleteIdentityCode(id) },</span>
+)</code></pre>
+      <div class="ev-title" style="margin-top:14px">证据 2 · 演示态底栏照常渲染（ShowCodeRoot.kt:1151-1172）</div>
+      <pre><code><span class="ctx">if (route == Route.HOME || route == Route.IDENTITY_LIST || route == Route.SETTINGS) {</span>
+    ShowCodeNavBar(
+        ...
+        onIdentity = { route = Route.IDENTITY_LIST },
+    )
+<span class="ctx">}</span></code></pre>
+    </div>
+  </article>
+
+  <!-- F3 -->
+  <article class="finding">
+    <div class="head">
+      <h3>底栏高对比度参数不再生效</h3>
+      <span class="sev mid">中</span>
+    </div>
+    <div class="loc"><span>app/src/main/java/dev/showcode/ui/ShowCodeNavBar.kt</span> · 186–188 · 置信度 2/2</div>
+    <div class="grid">
+      <div class="field"><dt>触发条件</dt><dd>系统或应用层开启高对比度文字（调用方 <code>highTextContrast</code> 为 true）。</dd></div>
+      <div class="field"><dt>影响</dt><dd>依赖高对比度降低视觉门槛的用户，底栏与收起胶囊的 11–12sp 文案在复杂背景上对比度回退，且没有任何提示说明该设置对底栏无效。</dd></div>
+      <div class="field full"><dt>机制</dt><dd>参数在签名处声明后，函数体内只使用固定常量；HEAD 版本曾用 <code>GlassMaterials.navigation(highTextContrast)</code> 调整模糊、用 <code>interactiveLensSpec(highTextContrast)</code> 调整指示器材质，现在这两条路径都没有消费者，而调用方仍在传参。<code>lensFreshness</code> 同样声明未使用。</dd></div>
+      <div class="field full"><dt>修复方向</dt><dd>恢复底栏/胶囊在高对比度下的材质参数（至少提高表面遮罩与描边 alpha、调整模糊半径），或明确移除该参数避免误导。</dd></div>
+    </div>
+    <div class="ev">
+      <div class="ev-title">证据 · 声明未使用（ShowCodeNavBar.kt:186-188）</div>
+      <pre><code><span class="ctx">// 参数只在签名出现；函数体 190-573 行无任何引用</span>
+<span class="del">highTextContrast: Boolean = false,</span>
+<span class="del">lensFreshness: GlassLensFreshness? = null,</span>
+...
+<span class="ctx">val capsuleRestAlpha = if (dark) GlassMaterials.NavCapsuleFillAlphaDark</span>
+<span class="ctx">                         else GlassMaterials.NavCapsuleFillAlphaLight   // 固定常量</span></code></pre>
+      <div class="note">对照 HEAD 的同一文件：曾是 <code>GlassMaterials.navigation(highTextContrast).blurDp</code> 与 <code>interactiveLensSpec(highTextContrast)</code>；当前 <code>GlassMaterials.navigation()</code> 已无调用方。</div>
+    </div>
+  </article>
+
+  <!-- F4 -->
+  <article class="finding">
+    <div class="head">
+      <h3>账号同步不刷新首页的数据新鲜度时间</h3>
+      <span class="sev mid">中</span>
+    </div>
+    <div class="loc"><span>app/src/main/java/dev/showcode/data/AccountSyncEngine.kt</span> · 40–49 · 置信度 2/2</div>
+    <div class="grid">
+      <div class="field"><dt>触发条件</dt><dd>只绑定平台账号、拒绝短信权限、开了通知监听但没有新的取件通知到达；随后完成一次账号同步。</dd></div>
+      <div class="field"><dt>影响</dt><dd>刚同步成功仍被提示数据可能不是最新，用户会重复点同步或怀疑同步失效，削弱「绑定账号就自动更新」的主路径信任。</dd></div>
+      <div class="field full"><dt>机制</dt><dd><code>applyAccountSync</code> 只写库并 <code>reload()</code>；<code>stampSync()</code> 只在实时通知、短信回填成功、手动保存三处调用。首页 <code>isStale</code> 只看 <code>state.lastSyncAt</code>，而无短信权限时 <code>refreshNow()</code> 会在回填前直接返回，因此账号同步成功不会改变这个时间。</dd></div>
+      <div class="field full"><dt>修复方向</dt><dd>账号同步成功（至少抓取成功，或新增/更新数大于 0）后更新同一个 <code>last_sync_at</code>，让首页的陈旧判断与账号链路一致。</dd></div>
+    </div>
+    <div class="ev">
+      <div class="ev-title">证据 · 时间戳只由三条链路写入（ParcelRepository.kt:917-919、191 / 323 / 390）</div>
+      <pre><code>private fun stampSync() {
+    db.metaPut(KEY_LAST_SYNC, System.currentTimeMillis().toString())
+}
+<span class="ctx">// 调用点：ingest() / backfillSms 成功 / manualAdd —— 没有账号同步</span></code></pre>
+      <div class="note"><code>HomeScreen.kt:204-206</code>：<code>(smsPermissionGranted || notificationAccessGranted) &amp;&amp; (lastSyncAt == null || now - lastSyncAt &gt; 阈值)</code> 即显示「可能不是最新」。</div>
+    </div>
+  </article>
+
+  <!-- F5 -->
+  <article class="finding">
+    <div class="head">
+      <h3>WebView 回调丢失会让账号同步永久卡住</h3>
+      <span class="sev mid">中</span>
+    </div>
+    <div class="loc"><span>app/src/main/java/dev/showcode/data/fetch/PddFetcher.kt</span> · 315–320 · 置信度 2/2</div>
+    <div class="grid">
+      <div class="field"><dt>触发条件</dt><dd>WebView 渲染进程崩溃、页面被销毁，或 <code>evaluateJavascript</code> 的回调未送达。</dd></div>
+      <div class="field"><dt>影响</dt><dd><code>accountSyncing</code> 永不回到 null：该平台同步按钮消失，所有平台的同步也会被并发门拦住，只能重启 App 恢复。</dd></div>
+      <div class="field full"><dt>机制</dt><dd><code>evaluate</code> 与 <code>readsCaps</code> 都是无超时的 <code>suspendCancellableCoroutine</code>，只在回调里 resume；<code>AccountSyncEngine</code> 对整次同步也没有超时。UI 用 <code>accountSyncing == null</code> 同时作为并发门与按钮显示条件，协程不结束就永远不清空。这类事件不会抛异常，外层 <code>try/catch</code> 兜不住。</dd></div>
+      <div class="field full"><dt>修复方向</dt><dd>为单次 evaluate/读取和整次同步增加 <code>withTimeout</code>，并在 <code>finally</code> 中复位同步状态，让失败可重试。</dd></div>
+    </div>
+    <div class="ev">
+      <div class="ev-title">证据 · 无超时的取值（PddFetcher.kt:315-320）</div>
+      <pre><code>private suspend fun evaluate(web: WebView, js: String): String? =
+    suspendCancellableCoroutine { cont -&gt;
+        web.evaluateJavascript(js) { value -&gt;
+            if (cont.isActive) cont.resume(jsString(value))
+        }
+    }   <span class="ctx">// 回调不来就永远挂起</span></code></pre>
+      <div class="note">同构位置：<code>PddFetcher.kt:330-342</code>、<code>JdFetcher.kt:226-231 / 241-255</code>；<code>AccountSyncEngine.kt:35-39</code> 无总时限；<code>ShowCodeRoot.kt:997-1016</code> 是唯一的门控。</div>
+    </div>
+  </article>
+
+  <!-- F6 -->
+  <article class="finding">
+    <div class="head">
+      <h3>后五位码可能把两件不同包裹并成一行</h3>
+      <span class="sev mid">中</span>
+    </div>
+    <div class="loc"><span>app/src/main/java/dev/showcode/core/account/AccountMerge.kt</span> · 75–79 · 置信度 2/2</div>
+    <div class="grid">
+      <div class="field"><dt>触发条件</dt><dd>同一取件点已存在一件未取件，其 PICKUP 码恰好等于另一件账号件的运单号后五位，且两件运单号不同。</dd></div>
+      <div class="field"><dt>影响</dt><dd>两件被并成一张卡，用户被出示错误的取件码；新件不会单独出现，需走到柜机前才发现对不上。</dd></div>
+      <div class="field full"><dt>机制</dt><dd>运单号优先匹配失败后，代码退化为（码 + 点）。对 SUFFIX 件，「码」其实是从运单号截出的后五位，不是站点给的取件码；而 <code>mergeExisting</code> 因旧码非空保留旧 <code>code/codeKind</code>，却把新件的 <code>tracking_no</code> 与 <code>order_sn</code> 写进旧行。</dd></div>
+      <div class="field full"><dt>修复方向</dt><dd>SUFFIX 码不参与（码 + 点）匹配；或仅在码类型兼容、或运单号一致时才允许按码合并。</dd></div>
+    </div>
+    <div class="ev">
+      <div class="ev-title">证据 · 匹配分支不看码类型（AccountMerge.kt:75-79）</div>
+      <pre><code>val matched = existing.firstOrNull { row -&gt; ... row.trackingNo == item.trackingNo }
+    <span class="del">?: existing.firstOrNull { row -&gt;</span>
+<span class="del">        item.code.isNotBlank() &amp;&amp; key != null &amp;&amp; row.code == item.code &amp;&amp; row.pointKey == key</span>
+<span class="del">    }</span></code></pre>
+      <div class="note"><code>TraceParser.kt:81-89</code> 会把「单号后五位」解析成纯数字 SUFFIX；<code>ParcelRepository.kt:570-580</code> 的更新同时写入新件的 <code>tracking_no</code>/<code>order_sn</code>。</div>
+    </div>
+  </article>
+
+  <!-- F7 -->
+  <article class="finding">
+    <div class="head">
+      <h3>京东钩子把所有响应搬进 window.name</h3>
+      <span class="sev low">低</span>
+    </div>
+    <div class="loc"><span>app/src/main/java/dev/showcode/data/fetch/JdFetcher.kt</span> · 275–333 · 置信度 2/2</div>
+    <div class="grid">
+      <div class="field"><dt>触发条件</dt><dd>每次京东同步（6 轮，每轮间隔 2.5 秒）。</dd></div>
+      <div class="field"><dt>影响</dt><dd>同步期间可能产生数 MB 的无用字符串驻留与反复跨桥/JSON 解析，带来额外 GC 与掉帧风险；无关订单页数据（可能含个人信息）也被暂存。</dd></div>
+      <div class="field full"><dt>机制</dt><dd><code>push</code> 没有 URL 或内容白名单，单条截断 10 万字符、上限 40 条；<code>readsCaps</code> 每轮把整个 JSONArray 字符串跨桥取回再解析，然后才筛 <code>orderList</code>。拼多多侧同一件事有 <code>order_list|express|logistic</code> 白名单，两处不一致。</dd></div>
+      <div class="field full"><dt>修复方向</dt><dd>在 JS 侧先按 URL 白名单过滤再写入 <code>window.name</code>，并降低单条上限，与拼多多钩子保持一致。</dd></div>
+    </div>
+    <div class="ev">
+      <div class="ev-title">证据 · 无过滤的收集器（JdFetcher.kt:277-286）</div>
+      <pre><code>function push(s){
+  try {
+    var arr = [];
+    if (window.name &amp;&amp; window.name.charAt(0) === '[') { ... }
+    <span class="del">arr.push(String(s || '').slice(0, 100000));</span>   <span class="ctx">// 任意响应</span>
+    if (arr.length &gt; 40) arr = arr.slice(arr.length - 40);
+    window.name = JSON.stringify(arr);
+  } catch(e) {}
+}</code></pre>
+      <div class="note">对照 <code>PddFetcher.kt:389</code>：<code>if (!/order_list|express|logistic|goods_express|track/i.test(s)) return;</code></div>
+    </div>
+  </article>
+
+  <!-- F8 -->
+  <article class="finding">
+    <div class="head">
+      <h3>凭据加密失败没有降级路径</h3>
+      <span class="sev low">低</span>
+    </div>
+    <div class="loc"><span>app/src/main/java/dev/showcode/data/AccountStore.kt</span> · 24–32 · 置信度 2/2</div>
+    <div class="grid">
+      <div class="field"><dt>触发条件</dt><dd>Keystore 生成密钥或加密失败（少数机型/系统状态下的已知异常路径）。</dd></div>
+      <div class="field"><dt>影响</dt><dd>登录成功但绑定崩溃或永久停在「正在保存」，用户无法完成主路径，也没有可执行的恢复提示。</dd></div>
+      <div class="field full"><dt>机制</dt><dd><code>AccountStore.bind</code> 直接调用 <code>SecretBox.encrypt</code>，后者没有 <code>try/catch</code>；调用点在登录页轮询的 <code>LaunchedEffect</code> 内（<code>onBound → bind</code>），整条链路没有兜底。读取侧则用 <code>runCatching</code> 返回 null 并置 <code>BROKEN</code>，两侧不对称。</dd></div>
+      <div class="field full"><dt>修复方向</dt><dd>捕获加密异常并返回可展示的失败结果（提示重试或留在原屏），不要让异常冒到组合协程；失败时不要进入「已绑定」状态。</dd></div>
+    </div>
+    <div class="ev">
+      <div class="ev-title">证据 · encrypt 无兜底（SecretBox.kt:32-39）</div>
+      <pre><code>fun encrypt(plain: String): String {
+    val cipher = Cipher.getInstance(TRANSFORMATION)
+    cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+    val iv = cipher.iv
+    <span class="del">val ct = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))</span>   <span class="ctx">// 可直接抛出</span>
+    ...
+}</code></pre>
+      <div class="note"><code>AccountStore.kt:31</code> 直接调用；<code>AccountScreens.kt:286-298</code> 在组合协程里回调；<code>ShowCodeRoot.kt:1036-1039</code> 无 <code>runCatching</code>。</div>
+    </div>
+  </article>
+</section>
+
+<section id="diff">
+  <div class="sec-head">
+    <span class="sec-num">04</span>
+    <h2>关键差异对照</h2>
+    <span class="sec-note">摘录，便于与报告中的行号对照</span>
+  </div>
+
+  <div class="change">
+    <h3>数据库：去重索引判据（v7 → v9）</h3>
+    <pre><code class="diff"><span class="del">- CREATE UNIQUE INDEX parcel_dedupe ON parcel(code, point_key) WHERE picked = 0</span>
+<span class="add">+ CREATE UNIQUE INDEX parcel_dedupe ON parcel(code, point_key)</span>
+<span class="add">+     WHERE picked = 0 AND code &lt;&gt; ''</span>
+<span class="add">+ CREATE UNIQUE INDEX parcel_tracking_dedupe ON parcel(tracking_no)</span>
+<span class="add">+     WHERE picked = 0 AND tracking_no IS NOT NULL</span></code></pre>
+    <div class="note">旧库升级时 <code>DROP INDEX IF EXISTS</code> 后按新判据重建，不删行；空码件因此能与同点其它无码件共存，而短信件仍只能有一个未取的同码同点行。</div>
+  </div>
+
+  <div class="change">
+    <h3>底栏材质：高对比度分支被固定常量取代</h3>
+    <pre><code class="diff"><span class="del">- blur(GlassMaterials.navigation(highTextContrast).blurDp)</span>
+<span class="del">- val indicatorMaterial = interactiveLensSpec(highTextContrast)</span>
+<span class="add">+ blur(blurPx)                        // 恒为 NavTrackBlurDp</span>
+<span class="add">+ val capsuleRestAlpha = GlassMaterials.NavCapsuleFillAlphaLight</span></code></pre>
+    <div class="note">参数仍在签名与调用点之间流转，但材质不再响应它（问题 3）。</div>
+  </div>
+
+  <div class="change">
+    <h3>账号同步：失败与成功共用同一条上报</h3>
+    <pre><code class="diff"><span class="ctx">  val fetched = when (account.platform) { ... }   // 失败时为空列表</span>
+<span class="ctx">  val result = repository.applyAccountSync(actions, at)</span>
+<span class="add">+ repository.accounts.mark(account, AccountState.ACTIVE, message, at)</span>
+<span class="ctx">  // 没有「抓取失败」分支，也没有写 last_sync_at</span></code></pre>
+    <div class="note">对应问题 1 与问题 4：同一个位置既误报成功，又漏掉新鲜度时间。</div>
+  </div>
+</section>
+
+<section id="scope">
+  <div class="sec-head">
+    <span class="sec-num">05</span>
+    <h2>审查边界</h2>
+  </div>
+  <ul class="plain">
+    <li>本次为只读审查，<strong>未执行构建或单元测试</strong>，不声称任何测试通过。</li>
+    <li>淘宝/京东抓取链路在代码注释中已标注未在真机账号上验证；本次只能做静态判断，无法确认真实字段与接口行为。</li>
+    <li>底栏玻璃、切页与演示录制的视觉效果未做像素级复核，仅审阅参数、层级与状态机实现。</li>
+    <li>数据库迁移按 v7→v9 路径静态核对（加列、索引重建、旧行保护），未在真实旧库上实际跑过迁移。</li>
+    <li>快照固定为 <code>HEAD 82ae07b</code> + 工作树改动；审查期间未修改源码、未提交、未切分支。</li>
+  </ul>
+</section>
+
+<footer>
+  代码审查报告 · <code>e:\express</code> · 基线 <code>82ae07b</code> · 8 项结论（高 2 / 中 4 / 低 2）· 每项均由两名独立复核者核对一致
+</footer>
+
+</div>
+</body>
+</html>

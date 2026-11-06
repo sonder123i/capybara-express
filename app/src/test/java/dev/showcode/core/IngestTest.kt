@@ -30,7 +30,11 @@ class IngestTest {
         channel: Source = Source.SMS,
     ) = IncomingMessage(sender = sender, body = body, receivedAt = at, channel = channel)
 
-    private fun parcel(code: String = "5-1-2277", pointName: String = "XX小区驿站") = ParsedParcel(
+    private fun parcel(
+        code: String = "5-1-2277",
+        pointName: String = "XX小区驿站",
+        trackingNo: String = "",
+    ) = ParsedParcel(
         code = code,
         lockerNo = null,
         carrier = "中通快递",
@@ -38,6 +42,7 @@ class IngestTest {
         pointKind = PointKind.STATION,
         closesAtMinuteOfDay = 21 * 60,
         freeUntilAt = null,
+        trackingNo = trackingNo,
     )
 
     private fun existing(id: Long, picked: Boolean, receivedAt: Long, pickedAt: Long? = null) =
@@ -133,6 +138,103 @@ class IngestTest {
             listOf(ParcelAction.Update(7, parcel("5-1-2277"), key), ParcelAction.Insert(parcel("5-2-3391"), key)),
             plan.parcels,
         )
+    }
+
+    // ---------- 跨通道：短信真码与账号后五位必须是同一件 ----------
+
+    @Test
+    fun `完整运单号相同 - 短信行与账号行合并为一行`() {
+        val key = pointKey("XX小区驿站")
+        val accountRow = ExistingParcel(
+            id = 7,
+            picked = false,
+            pickedAt = null,
+            receivedAt = t0,
+            code = "20382",
+            pointKey = key,
+            trackingNo = "465700000020382",
+            codeKind = CodeKind.SUFFIX,
+        )
+        val plan = planIngest(
+            message = msg(at = t0 + 1000),
+            outcome = ParseOutcome.Parsed(
+                listOf(parcel(code = "5-1-2277", trackingNo = "465700000020382")),
+            ),
+            fingerprint = "fp",
+            candidates = listOf(accountRow),
+        )
+        assertEquals(
+            ParcelAction.Update(7, parcel(code = "5-1-2277", trackingNo = "465700000020382"), key),
+            plan.parcels.single(),
+        )
+    }
+
+    /** 弱身份只有后五位时，必须同点 + 时间窗；不能把两件不同的货并成一件。 */
+    @Test
+    fun `同点同后五位但运单号不同 - 仍是两行`() {
+        val key = pointKey("XX小区驿站")
+        val accountRow = ExistingParcel(
+            id = 8,
+            picked = false,
+            pickedAt = null,
+            receivedAt = t0,
+            code = "20382",
+            pointKey = key,
+            trackingNo = "790400000087641",
+            codeKind = CodeKind.SUFFIX,
+        )
+        val incoming = parcel(code = "5-1-2277", trackingNo = "465700000020382")
+        val plan = planIngest(
+            message = msg(at = t0 + 1000),
+            outcome = ParseOutcome.Parsed(listOf(incoming)),
+            fingerprint = "fp",
+            candidates = listOf(accountRow),
+        )
+        assertEquals(ParcelAction.Insert(incoming, key), plan.parcels.single())
+    }
+
+    @Test
+    fun `运单号相同的已取件 - 迟到提醒不复活`() {
+        val key = pointKey("XX小区驿站")
+        val accountRow = ExistingParcel(
+            id = 9,
+            picked = true,
+            pickedAt = t0,
+            receivedAt = t0,
+            code = "20382",
+            pointKey = key,
+            trackingNo = "465700000020382",
+            codeKind = CodeKind.SUFFIX,
+        )
+        val incoming = parcel(code = "5-1-2277", trackingNo = "465700000020382")
+        val plan = planIngest(
+            message = msg(at = t0 + 30 * 24 * hour),
+            outcome = ParseOutcome.Parsed(listOf(incoming)),
+            fingerprint = "fp",
+            candidates = listOf(accountRow),
+        )
+        assertEquals(ParcelAction.AlreadyPicked(9, incoming, key), plan.parcels.single())
+    }
+
+    @Test
+    fun `已取判定看 pickedAt - 不是建行时的消息时间`() {
+        val key = pointKey("XX小区驿站")
+        val day = 24 * hour
+        val row = ExistingParcel(
+            id = 10,
+            picked = true,
+            // 卡片是第 0 天建的，消息第 10 天到，用户第 11 天才点已取。
+            // 旧逻辑拿 receivedAt 比，会把第 10 天的消息当成复用码复活；按 pickedAt 就不该复活。
+            pickedAt = t0 + 11 * day,
+            receivedAt = t0,
+        )
+        val plan = planIngest(
+            message = msg(at = t0 + 10 * day),
+            outcome = ParseOutcome.Parsed(listOf(parcel())),
+            fingerprint = "fp",
+            existingParcels = table(("5-1-2277" to key) to row),
+        )
+        assertTrue(plan.parcels.single() is ParcelAction.AlreadyPicked)
     }
 
     // ---------- 未识别：用户的表态必须有持久效力 ----------
