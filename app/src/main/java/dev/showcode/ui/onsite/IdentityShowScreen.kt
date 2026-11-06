@@ -69,7 +69,6 @@ import dev.showcode.ui.theme.UrgencyDueSoon
 @Composable
 fun IdentityShowScreen(
     code: IdentityCode,
-    appInstalled: Boolean,
     launch: LaunchOutcome?,
     onBack: () -> Unit,
     onOpenApp: () -> Unit,
@@ -248,8 +247,8 @@ fun IdentityShowScreen(
             }
 
             /* 降级路：会话码在这一屏救不了自己，只能把人送到能救他的那个 App 去。
-               这颗按钮**不按装没装隐藏**——藏掉它等于把这条唯一的退路一起藏了，
-               用户会对着一个什么都没有的屏幕发呆；没装就照实说没装。 */
+               这颗按钮**不探测装没装**：入口长期在，未装的点了按既有降级链落到网页兜底，
+               实在没有兜底才由下面那句结局提示照实说。 */
             if (code.appPackage != null) {
                 Spacer(Modifier.height(16.dp))
                 Row(
@@ -264,9 +263,7 @@ fun IdentityShowScreen(
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, modifier = Modifier.size(18.dp), tint = OnsiteSurface)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = stringResource(
-                            if (appInstalled) R.string.identity_open_app else R.string.identity_open_app_missing
-                        ),
+                        text = stringResource(R.string.identity_open_app),
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                         color = OnsiteSurface,

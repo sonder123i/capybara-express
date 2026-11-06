@@ -69,39 +69,38 @@ class LaunchOutcomeTest {
     // ---------- 目的地表本身 ----------
 
     @Test
-    fun `预置那几家只列真装着的，而且顺序按已知表`() {
-        // 没装的那家不许出现：这颗按钮点了只会失败，而站在这一格的人正抱着包裹。
-        assertEquals(
-            listOf(PlatformEntry(DeepLinkLadder.TAOBAO, EntryPurpose.IDENTITY)),
-            DeepLinkLadder.entriesFor(setOf(DeepLinkLadder.TAOBAO, "com.other.app")),
-        )
-        // 已知表决定顺序，不是「先装哪个」：两屏排出来的样子必须是同一份。
+    fun `预置那几家固定常驻，顺序按已知表`() {
+        // 装没装不再参与判断：入口长期在，未装的点了走既有降级链（网页兜底或明确提示）。
         assertEquals(
             listOf(
                 PlatformEntry(DeepLinkLadder.TAOBAO, EntryPurpose.IDENTITY),
                 PlatformEntry(DeepLinkLadder.PINDUODUO, EntryPurpose.IDENTITY),
+                PlatformEntry(DeepLinkLadder.CAINIAO, EntryPurpose.IDENTITY),
+                PlatformEntry(DeepLinkLadder.FENGCHAO, EntryPurpose.IDENTITY),
                 PlatformEntry(DeepLinkLadder.JD, EntryPurpose.PENDING),
                 PlatformEntry(DeepLinkLadder.XHS, EntryPurpose.PENDING),
             ),
-            DeepLinkLadder.entriesFor(
-                setOf(
-                    DeepLinkLadder.XHS,
-                    DeepLinkLadder.JD,
-                    DeepLinkLadder.PINDUODUO,
-                    "com.zzz",
-                    DeepLinkLadder.TAOBAO,
-                )
-            ),
+            DeepLinkLadder.knownEntries,
         )
-        // 装了几百家但一家都不认识 → 空表，那一格整格不出现，而不是摆一排死按钮。
-        assertEquals(emptyList<PlatformEntry>(), DeepLinkLadder.entriesFor(setOf("com.someone.else")))
+        // 列表与「存一张」的预置那一排共用同一份顺序，不许各自漂。
+        assertEquals(
+            listOf(
+                DeepLinkLadder.TAOBAO,
+                DeepLinkLadder.PINDUODUO,
+                DeepLinkLadder.CAINIAO,
+                DeepLinkLadder.FENGCHAO,
+            ),
+            DeepLinkLadder.knownEntries
+                .filter { it.purpose == EntryPurpose.IDENTITY }
+                .map { it.packageName },
+        )
     }
 
     @Test
     fun `预置那几家的包名大小写与空格不算两家`() {
         assertEquals(
-            DeepLinkLadder.entriesFor(setOf(DeepLinkLadder.TAOBAO)),
-            DeepLinkLadder.entriesFor(setOf(" COM.Taobao.Taobao ")),
+            DeepLinkLadder.deepLinksFor(DeepLinkLadder.TAOBAO),
+            DeepLinkLadder.deepLinksFor(" COM.Taobao.Taobao "),
         )
     }
 

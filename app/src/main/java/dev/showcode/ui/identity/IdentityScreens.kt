@@ -114,7 +114,8 @@ fun IdentityListScreen(
         ) {
             /* 预置的那几家：点一下直接打开它，不落库、不进出示屏。
                存在的理由是把最常见的两条路压到一下——存一张「入口」再省也要四下，
-               而竞品那一格本来就只有跳转。该列哪几家是判据（只列真装着的），在 core 那边筛。 */
+               而竞品那一格本来就只有跳转。名单是**固定全集**，不按装没装筛；
+               未装的点了走 core 里那条既有降级链。 */
             if (entries.isNotEmpty()) {
                 item {
                     Box(modifier = Modifier.moduleEntrance(0)) {
@@ -551,26 +552,23 @@ fun IdentityEditScreen(
                         style = ShowCodeText.Meta,
                         color = Ink,
                     )
-                    // 已知那几家排在这儿：绝大多数人就是这几家，让他们在几百行里搜「菜鸟」
-                    // 是把三秒的事做成三十秒。**只列真装着的**——一颗点了只会失败的按钮比没有更坏。
+                    // 已知那几家固定常驻：绝大多数人就是这几家，让他们在几百行里搜「菜鸟」
+                    // 是把三秒的事做成三十秒。装没装不再探测——未装的点了走网页兜底，
+                    // 不再藏掉整颗按钮。
                     // 也只列「身份码」这一类的：京东/小红书只有待取栏，摆在这一格是给存码指错门。
-                    val quick = remember(apps) {
-                        // 筛法只有一份（core 的 entriesFor）：同一个判据在两个屏上各写一遍，
-                        // 迟早会变成「那一屏列了两家、这一屏列了一家」。
-                        DeepLinkLadder.entriesFor(apps.mapTo(mutableSetOf()) { it.packageName })
-                            .filter { it.purpose == EntryPurpose.IDENTITY }
-                            .mapNotNull { entry ->
-                                apps.firstOrNull { it.packageName == entry.packageName }
-                            }
-                    }
+                    val quick = DeepLinkLadder.knownEntries
+                        .filter { it.purpose == EntryPurpose.IDENTITY }
                     if (quick.isNotEmpty()) {
                         Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            quick.forEach { option ->
+                            quick.forEach { entry ->
+                                val label = stringResource(presetLabel(entry.packageName))
                                 Choice(
-                                    label = stringResource(presetLabel(option.packageName)),
-                                    selected = app?.packageName == option.packageName,
-                                    onSelect = { app = option },
+                                    label = label,
+                                    selected = app?.packageName == entry.packageName,
+                                    onSelect = {
+                                        app = InstalledApp(packageName = entry.packageName, label = label)
+                                    },
                                 )
                             }
                         }

@@ -138,16 +138,12 @@ object DeepLinkLadder {
     /** 只要包名的旧形状。顺序与 [knownEntries] 一致。 */
     val knownPackages: List<String> get() = knownEntries.map { it.packageName }
 
-    /**
-     * 预置那一排该列哪几家：[knownEntries] ∩ 这台机器真装着的，顺序按已知表。
+    /*
+     * 身份码这一条链路**只认 [knownEntries]**：预置那一排固定常驻，不再按「装没装」筛。
      *
-     * 这条限制是判据不是细节：**一颗点了只会失败的按钮比没有更坏**，而站在这一格的人
-     * 常常正抱着两个包裹。装没装是 data 层查出来的事实，怎么筛是纯的，所以筛法在这儿。
+     * 装没装曾经是筛法，现在不是判据：入口长期在，用户点未装的那一家时按既有降级链
+     * 落到网页兜底（或一句明确的「没装」），而不是把整格藏掉、让人以为 App 坏了。
      */
-    fun entriesFor(installedPackages: Set<String>): List<PlatformEntry> {
-        val have = installedPackages.mapTo(mutableSetOf()) { normalize(it) }
-        return knownEntries.filter { it.packageName in have }
-    }
 
     /**
      * 第一级：直达页的 scheme URI。不认识的包、或这家没有这一页时返回空表，直接跳到第二级。

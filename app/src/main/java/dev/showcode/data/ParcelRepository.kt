@@ -967,10 +967,6 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
             .sortedBy { it.label }
     }
 
-    /** 装没装那个官方 App。没装就不该出现「跳过去」那颗按钮——点了什么也不会发生。 */
-    fun isAppInstalled(packageName: String): Boolean =
-        context.packageManager.getLaunchIntentForPackage(packageName) != null
-
     /**
      * 试着打开那个官方 App，并**如实报告它到底有没有起来**。
      *

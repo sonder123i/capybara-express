@@ -219,8 +219,6 @@ fun ShowCodeRoot() {
     val accountScope = rememberCoroutineScope()
     /** 正在出示哪一张。存 id 不存对象：码被删掉时那一屏必须跟着退回去，而不是展示一张已经不存在的码。 */
     var identityShowId by rememberSaveable { mutableStateOf(0L) }
-    /** 那颗「打开官方 App」的按钮能不能按。随 ON_RESUME 重算，不进渲染。 */
-    var identityAppInstalled by remember { mutableStateOf(false) }
     /** 上一次按下那颗按钮的结局。只在出示那一屏说话，离开就清掉。 */
     var identityLaunch by remember { mutableStateOf<dev.showcode.core.LaunchOutcome?>(null) }
     /* 能启动的 App。只在进「存一张」那一屏时查一次：这个查询要对几百个包各解一次显示名，
@@ -310,9 +308,9 @@ fun ShowCodeRoot() {
     }
 
     // 装了什么 App 这件事不会在本次会话里变，所以查一次就够；离开那一屏也不清，回来不用重查。
-    // 列表也要它：预置那几家「只列真装着的」，判据用的是同一份事实。
+    // 这份清单只服务「这张码属于哪个 App」那一格；身份码列表/预置那一排不再按它筛。
     LaunchedEffect(route) {
-        if ((route == Route.IDENTITY_LIST || route == Route.IDENTITY_ADD) && installedApps.isEmpty()) {
+        if (route == Route.IDENTITY_ADD && installedApps.isEmpty()) {
             installedApps = repository.installedApps()
         }
         if (route == Route.ACCOUNT_LIST && !demo) accounts = repository.accounts.list()
@@ -506,11 +504,7 @@ fun ShowCodeRoot() {
                 widgetAdded = AppWidgetManager.getInstance(context)
                     .getAppWidgetIds(ComponentName(context, PickupWidgetProvider::class.java))
                     .isNotEmpty()
-                // 装没装那个官方 App 也在这里重算：放在渲染里会跟着每次重组打一次
-                // PackageManager，而这一屏的 now 每 30 秒一跳；放在进屏一次又会停在
-                // 快照上——用户中途卸载了它，那颗按钮就该改口，而不是「点了没反应」。
-                val shown = repository.data.value.identityCodes.firstOrNull { it.id == identityShowId }
-                identityAppInstalled = shown?.appPackage?.let { repository.isAppInstalled(it) } == true
+                // 身份码那条链路不再探测装没装：入口固定常驻，点了走既有降级链。
 
                 /* 等首屏画完再起同步。用户正在登录时不跑：抓取会清 CookieManager，
                    会把登录页刚拿到的会话一起清掉。 */
@@ -973,8 +967,8 @@ fun ShowCodeRoot() {
                             IdentityListScreen(
                                 /* 演示态读演示码；三种写操作全部走内存分支，一行业都不进真实库。 */
                                 codes = if (demo) demoIdentityCodes.toList() else appData.identityCodes,
-                                // 该列哪几家是判据，在 core 那边筛（只列真装着的）。
-                                entries = DeepLinkLadder.entriesFor(installedApps.mapTo(mutableSetOf()) { it.packageName }),
+                                // 预置那一排是固定全集，不再按装没装筛；未装的点了走既有降级链。
+                                entries = DeepLinkLadder.knownEntries,
                                 launch = identityLaunch,
                                 onAdd = { route = Route.IDENTITY_ADD },
                                 // 预置那一行不落库、不进出示屏：点一下就是那一下想要的跳转。
@@ -1203,16 +1197,9 @@ fun ShowCodeRoot() {
                         if (code == null) {
                             LaunchedEffect(Unit) { route = Route.IDENTITY_LIST }
                         } else {
-                            /* 进屏先算一次装没装、并把上一轮的跳转结局擦掉。两件事都不能只靠 ON_RESUME：
-                               冷启动之后 设置 → 身份码 → 出示 这条路上不会再有一次 resume，而留着上一轮的
-                               「没装」会让人以为这次也没装。 */
-                            LaunchedEffect(code.id) {
-                                identityLaunch = null
-                                identityAppInstalled = code.appPackage?.let { repository.isAppInstalled(it) } == true
-                            }
+                            LaunchedEffect(code.id) { identityLaunch = null }
                             IdentityShowScreen(
                                 code = code,
-                                appInstalled = identityAppInstalled,
                                 launch = identityLaunch,
                                 onBack = { route = Route.IDENTITY_LIST },
                                 onOpenApp = { openOfficialApp(code) },
