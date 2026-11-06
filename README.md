@@ -4,7 +4,7 @@
 >
 > Android · Kotlin / Compose · 完全离线 · GPL-3.0
 >
-> [![CI](https://github.com/sonder123i/showcode/actions/workflows/ci.yml/badge.svg)](https://github.com/sonder123i/showcode/actions/workflows/ci.yml)
+> [![CI](https://github.com/sonder123i/capybara-express/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sonder123i/capybara-express/actions/workflows/ci.yml)
 
 **它和「快递管理 App」的区别**：那些是把取件码存起来的**档案柜**，卡皮巴拉快递助手是站在柜机前用的**作战面板**。
 你不需要一个漂亮的列表，你需要在 5 秒内看清「这个柜子的第几格、码是多少、还剩多久收费」。
