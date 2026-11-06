@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -19,10 +18,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import dev.showcode.R
 import dev.showcode.ui.parcels.ThumbnailLoader
 import dev.showcode.ui.theme.InkFaint
+import dev.showcode.ui.theme.ShowCodeShapes
 import dev.showcode.ui.theme.ShowCodeText
 import dev.showcode.ui.theme.SurfaceInset
 
@@ -44,7 +43,7 @@ fun GoodsThumbnail(
         Box(
             modifier = modifier
                 .size(size)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(ShowCodeShapes.Thumb)
                 .background(SurfaceInset),
             contentAlignment = Alignment.Center,
         ) {
@@ -64,7 +63,7 @@ fun GoodsThumbnail(
     Box(
         modifier = modifier
             .size(size)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(ShowCodeShapes.Thumb)
             .background(SurfaceInset),
         contentAlignment = Alignment.Center,
     ) {

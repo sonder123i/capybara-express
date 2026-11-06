@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -34,11 +33,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.showcode.R
 import dev.showcode.core.CodeKind
 import dev.showcode.core.LaunchOutcome
@@ -121,8 +118,7 @@ fun ParcelDetailScreen(
                 ) {
                     Text(
                         text = stringResource(R.string.no_pickup_code),
-                        fontSize = 30.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = ShowCodeText.EmptyState,
                         color = Ink,
                     )
                     Spacer(Modifier.height(8.dp))
@@ -314,15 +310,14 @@ private fun TrackingLookupBlock(
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
-                .background(Ink, RoundedCornerShape(14.dp))
+                .background(Ink, ShowCodeShapes.Control)
                 .clickable { if (!isDemo) performTrackingLookup(context, parcel, onOpenTaobao) }
                 .padding(horizontal = 20.dp, vertical = 12.dp),
         ) {
             Text(
                 text = stringResource(R.string.onsite_query_taobao),
                 color = SurfaceCard,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
+                style = ShowCodeText.Button,
             )
         }
         Text(

@@ -36,14 +36,14 @@ private fun tabular() = TextStyle.Default.copy(fontFeatureSettings = "tnum")
  * 也就是说屏上几乎每一行都是粗体。**全都加粗 = 没有任何一行突出**，这和「颜色没层次」
  * 是同一个病的两面。所以这里的收敛目标是两件事：档位变少，正文回到常规字重。
  *
- * 字重只允许 400 / 700 / 800 三档（原来的 SemiBold 并进 700）。800 只留给件数和屏标题，
- * 这样「很重」重新变成一个有信息量的信号。
+ * 字重只允许 400 / 500 / 700 三档（原来的 SemiBold 并进 700，ExtraBold 也并进 700），
+ * 500 只给角标与行内动作这类「需要稍微站出来」的小字。这样「很重」重新变成一个有信息量的信号。
  *
  * 现场模式不从这里取值——那一屏的字号由 CodeFontSize 按码长算出来，契约是 21:1。
  */
 object ShowCodeText {
-    /* 字重对齐教务 `Type.kt`：正文 Normal(400)、标题 SemiBold(600)、强调 Bold(700)。
-       不再用 ExtraBold——「全都很重」等于没有层级。 */
+    /* 字重对齐教务 `Type.kt` 的三级：正文 Normal(400)、小字强调 Medium(500)、标题 Bold(700)。
+       不再用 SemiBold(600) 与 ExtraBold(800)——「全都很重」等于没有层级。 */
 
     /** 状态角标：临期/过期风险这种两三个字的标签。 */
     val Micro = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium, lineHeight = 16.sp)
@@ -61,10 +61,10 @@ object ShowCodeText {
     val Body = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Normal, lineHeight = 20.sp)
 
     /** 条目主文字：卡里的一行、列表项的标题。 */
-    val Item = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, lineHeight = 22.sp)
+    val Item = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, lineHeight = 22.sp)
 
     /** 区块标题。 */
-    val Section = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold, lineHeight = 24.sp)
+    val Section = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 24.sp)
 
     /**
      * 引导页的装饰档。emoji 不是文字，它要的是「占多大一块图形」而不是排版层级；
@@ -73,10 +73,10 @@ object ShowCodeText {
     val Display = TextStyle(fontSize = 40.sp, fontWeight = FontWeight.Normal, lineHeight = 44.sp)
 
     /** 示例数据的水印。同样不是排版层级，是压在卡面上的一层图形。 */
-    val Watermark = TextStyle(fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.15.em)
+    val Watermark = TextStyle(fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.15.em)
 
-    /** 屏标题。教务 `headlineSmall` 是 20/28 SemiBold。 */
-    val Headline = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.SemiBold, lineHeight = 28.sp)
+    /** 屏标题。教务 `headlineSmall` 是 20/28，这里统一到 Bold。 */
+    val Headline = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, lineHeight = 28.sp)
 
     /** 取件点卡上的件数。必须 tabular，数字变化时整行不许左右晃。 */
     val Count = TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Bold, lineHeight = 30.sp) + tabular()
@@ -90,19 +90,37 @@ object ShowCodeText {
      */
     val CodeLarge = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace) + tabular()
     val CodeSmall = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace) + tabular()
+
+    /** 空态标题：没有取件码时那一行大字。 */
+    val EmptyState = TextStyle(fontSize = 30.sp, fontWeight = FontWeight.Bold)
+
+    /** 主行动按钮上的文字（详情页的淘宝交接）。 */
+    val Button = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold)
+
+    /** 设置页的数值读数：和条目同字号，行高收紧到 20。 */
+    val Value = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp)
+
+    /** 加减步进器的符号。 */
+    val Glyph = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 16.sp)
+
+    /** 收起胶囊里的单条导航标签：比三格底栏的 11sp 大一档。 */
+    val NavLabel = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold, lineHeight = 16.sp)
 }
 
 /**
  * 形状阶。原来是 10 个不同的圆角裸值（2/4/5/6/8/10/12/13/14/16），
- * 只有两档：全 App 没有第三类需要更大圆角的表面，留一个没人消费的档
- * 就是「Material 给了 5 个容器 role、代码只消费 0 个」那种死配置。
+ * 收敛成两档通用面（Sm/Md）+ 两个按语义命名的档（缩略图/行内控件）。
  * Pill 不算字阶的一档：色条和徽章要的是胶囊，不是「更大的圆角」。
  */
 object ShowCodeShapes {
     /** 教务 `AppShapes`：extraSmall 8 / small 12 / medium 16 / large 24 / extraLarge 28。
-        本仓库只消费前两档与胶囊；卡片统一到 medium 16，和参考工程的 `RoundedCornerShape(16.dp)` 对齐。 */
+        卡片统一到 medium 16，和参考工程的 `RoundedCornerShape(16.dp)` 对齐。 */
     val Sm = RoundedCornerShape(8.dp)
     val Md = RoundedCornerShape(16.dp)
+    /** 商品缩略图：卡片里的小方块，比 Sm 大一档。 */
+    val Thumb = RoundedCornerShape(10.dp)
+    /** 行内控件（详情页的淘宝交接按钮）：介于 Sm 与 Md 之间。 */
+    val Control = RoundedCornerShape(14.dp)
     val Pill = RoundedCornerShape(50)
 }
 

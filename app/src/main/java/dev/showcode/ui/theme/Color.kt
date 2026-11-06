@@ -51,11 +51,18 @@ val InkFaint: Color get() = ShowCodePaletteState.current.inkFaint
 /** 示例水印：只在「这不是真数据」这一处保留 alpha。 */
 val InkWatermark: Color get() = Ink.copy(alpha = 0.11f)
 
+/** 禁用态文字：次要墨压到 35%，给不可点的步进按钮。 */
+val InkDisabled: Color get() = InkMuted.copy(alpha = 0.35f)
+
 /** 现场专用极淡遮罩：亮色是黑上叠黑，暗色换成白上叠白。 */
 val SurfaceInset: Color get() = ShowCodePaletteState.current.surfaceInset
 val SurfaceInsetStrong: Color get() = ShowCodePaletteState.current.surfaceInsetStrong
 
 val GlassHighlight: Color get() = ShowCodePaletteState.current.glassHighlight
+
+/** 玻璃外描边的墨色：亮色档叠黑、暗色档叠白。纯装饰，没有主题状态。 */
+val GlassContourLight: Color = Color.Black
+val GlassContourDark: Color = Color.White
 val GlassBorderLight: Color get() = ShowCodePaletteState.current.glassBorderLight
 val GlassBorderDark: Color get() = ShowCodePaletteState.current.glassBorderDark
 val GlassOverlay: Color get() = ShowCodePaletteState.current.glassOverlay

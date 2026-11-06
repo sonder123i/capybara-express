@@ -44,11 +44,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.showcode.R
 import dev.showcode.core.HOUR_MS
 import dev.showcode.core.HealthIssue
@@ -64,6 +62,7 @@ import dev.showcode.ui.inbox.ScreenTopBar
 import dev.showcode.ui.theme.AccentInk
 import dev.showcode.ui.theme.Hairline
 import dev.showcode.ui.theme.Ink
+import dev.showcode.ui.theme.InkDisabled
 import dev.showcode.ui.theme.InkMuted
 import dev.showcode.ui.theme.environmentBackground
 import dev.showcode.ui.theme.ShowCodeShapes
@@ -279,7 +278,7 @@ fun SettingsScreen(
                                     .background(SurfaceSunken, ShowCodeShapes.Sm)
                                     .padding(horizontal = 10.dp),
                                 singleLine = true,
-                                textStyle = ShowCodeText.Item.copy(fontWeight = FontWeight.SemiBold),
+                                textStyle = ShowCodeText.Item,
                                 cursorBrush = SolidColor(AccentInk),
                                 decorationBox = { inner ->
                                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
@@ -697,7 +696,7 @@ private fun StepRow(
         Text(
             text = value,
             modifier = Modifier.widthIn(min = 62.dp),
-            style = ShowCodeText.Body.copy(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
+            style = ShowCodeText.Value,
             color = Ink,
             textAlign = TextAlign.Center,
             maxLines = 1,
@@ -722,8 +721,8 @@ private fun StepButton(minus: Boolean, enabled: Boolean, label: String, onClick:
         ) {
             Text(
                 text = if (minus) "−" else "+",
-                style = ShowCodeText.Action.copy(fontSize = 16.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold),
-                color = if (enabled) Ink else InkMuted.copy(alpha = 0.35f),
+                style = ShowCodeText.Glyph,
+                color = if (enabled) Ink else InkDisabled,
             )
         }
     }

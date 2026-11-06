@@ -67,7 +67,11 @@ def main():
     roles = len({m.group(1) for m in re.finditer(r'ShowCodeText\.(\w+)', body)})
     icons_drawn = [f for f in os.listdir(os.path.join(ROOT, 'res', 'drawable')) if f.startswith('ic_point_')]
     kind_covered = sum(1 for k in KINDS if any(k.lower() in f for f in icons_drawn))
-    surfaces = len(re.findall(r'^val (Canvas|Surface\w+|Hairline\w*) = Color', open(
+    # 中性面档数：Color.kt 里 canvas / surface* / hairline* 的声明条数。
+    # 色板收口（Palette.kt）之后这些声明统一写成 `val X: Color get() = ShowCodePaletteState...`，
+    # 原先只认 `= Color(...)` 的模式会把它们全部漏掉、把档数误报成 0。
+    # 这里同时接受 getter 形态——地板仍是 ≥4，没有白名单，也没有下调阈值。
+    surfaces = len(re.findall(r'^val (Canvas|Surface\w+|Hairline\w*)(?:: Color)?(?: get\(\))? =', open(
         os.path.join(ROOT, 'java', 'dev', 'showcode', 'ui', 'theme', 'Color.kt'), encoding='utf-8').read(), re.M))
 
     measured = {

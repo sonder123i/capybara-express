@@ -61,7 +61,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
@@ -641,7 +640,7 @@ private fun MinimizedNavCapsule(
             text = label,
             color = Ink,
             /* 收起胶囊承载的是单条 12sp 文案：比三格底栏的 11sp 大一档，模糊底上更易读。 */
-            style = ShowCodeText.Micro.copy(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold),
+            style = ShowCodeText.NavLabel,
             maxLines = 1,
         )
     }
@@ -755,8 +754,6 @@ private fun RowScope.NavBarKey(
             Text(
                 text = label,
                 style = ShowCodeText.Micro.copy(
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
                     fontWeight = if (highContrast) FontWeight.Bold else FontWeight.Normal,
                 ),
                 color = labelColor.copy(alpha = labelColor.alpha * (1f - w)),
@@ -766,8 +763,6 @@ private fun RowScope.NavBarKey(
             Text(
                 text = label,
                 style = ShowCodeText.Micro.copy(
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
                     fontWeight = FontWeight.Bold,
                 ),
                 color = labelColor.copy(alpha = labelColor.alpha * w),

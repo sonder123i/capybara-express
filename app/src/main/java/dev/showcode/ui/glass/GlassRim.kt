@@ -12,6 +12,8 @@ import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.dp
+import dev.showcode.ui.theme.GlassContourDark
+import dev.showcode.ui.theme.GlassContourLight
 
 /**
  * 玻璃边缘光。逐行移植教务 `ui/system/glass/GlassChipSurface.kt:299-375` 的 `glassRim`，
@@ -92,9 +94,9 @@ fun Modifier.glassRim(
 
         // 外轮廓：均匀一圈，按下时收紧变实，像被压出的应力边
         val contourColor = if (isLightTheme) {
-            Color.Black.copy(alpha = baseContour * intensity * (1f + 0.5f * p))
+            GlassContourLight.copy(alpha = baseContour * intensity * (1f + 0.5f * p))
         } else {
-            Color.White.copy(alpha = baseContour * intensity * (1f + 0.5f * p))
+            GlassContourDark.copy(alpha = baseContour * intensity * (1f + 0.5f * p))
         }
         drawOutline(outline, color = contourColor, style = Stroke(contourWidth))
     }
