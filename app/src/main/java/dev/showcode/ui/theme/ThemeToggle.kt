@@ -142,10 +142,13 @@ private val NightBand4 = Color(0xFF4C505C)
 private val NightBand5 = Color(0xFF646878)
 private val Star = Color(0xFFFFFFFF)
 private val SunFace = Color(0xFFF1C428)
-private val MoonTop = Color(0xFFD6DBE4)
+/* 月亮的灰直接取参考图实测值 #C3C9D1。
+   ⚠️ 曾经提到 #D6DBE4，实测渲染成 216——在深色槽里跳成一块「白饼」。
+   参考图的月亮其实很暗、很平，只靠三个坑和一道落影立住。 */
+private val MoonTop = Color(0xFFC9CFD9)
 private val MoonFace = Color(0xFFC3C9D3)
-private val MoonLow = Color(0xFFAEB5C2)
-private val CraterInk = Color(0xFF959DB0)
+private val MoonLow = Color(0xFFB9C0CC)
+private val CraterInk = Color(0xFF949DB0)
 
 /**
  * 槽：外圈留空（露出来的就是边框），里面缩进一点画天空。
@@ -210,9 +213,11 @@ private fun DrawScope.drawTrack(progress: Float) {
             drawStars(progress)
         }
         /* 内高光：沿井口内侧一圈极淡的白，让槽看起来是「被凿出来的玻璃」。
-           参考图左上那道亮边就是它，只有 0.5dp 宽，但少了它就平。 */
+           参考图左上那道亮边就是它，只有 0.5dp 宽，但少了它就平。
+           ⚠️ **只在亮色画**：暗色下这圈白会变成一道发亮的刮痕，
+           贴在深色卡片上非常刺眼（用户报的「白色区域」之一）。 */
         drawRoundRect(
-            color = Color.White.copy(alpha = 0.22f),
+            color = Color.White.copy(alpha = 0.22f * (1f - progress)),
             topLeft = Offset(well.left + 0.5f, well.top + 0.5f),
             size = Size(well.width - 1f, well.height - 1f),
             cornerRadius = CornerRadius(radius, radius),
@@ -429,22 +434,11 @@ private fun DrawScope.drawThumb(progress: Float) {
     val left = WellInset.toPx() + ThumbPad.toPx() + ThumbTravel.toPx() * progress
     val c = Offset(left + r, size.height / 2f)
 
-    /* 月晕：月亮背后一圈柔光。参考图里月亮周围的天空明显比左边亮，
-       正是这圈光让「夜里有个光源」，而不是「贴了个灰圆片」。 */
-    if (progress > 0.02f) {
-        val haloR = r * 2.6f
-        drawCircle(
-            brush = Brush.radialGradient(
-                0f to Color(0xFF8E96AA).copy(alpha = 0.42f * progress),
-                0.42f to Color(0xFF6E7688).copy(alpha = 0.20f * progress),
-                1f to Color.Transparent,
-                center = c,
-                radius = haloR,
-            ),
-            radius = haloR,
-            center = c,
-        )
-    }
+    /* ⚠️ 这里曾经有一圈「月晕」（半径 2.6r 的灰白径向渐变）。
+       它是个错误：参考图里月亮周围显亮，靠的是**夜色本身就右浅**
+       （`drawNightSky` 的四层云影），不是一圈光。再叠一层灰白渐变，
+       就变成月亮外挂着一块脏雾——用户报的「白色区域」就是它。
+       光源感交给背景的明度差去做，球上不要再加任何发光。 */
 
     /* 落影：球压在槽里的投影，偏下一点。 */
     drawCircle(Color.Black.copy(alpha = 0.18f), r * 0.98f, Offset(c.x, c.y + r * 0.14f))
@@ -480,23 +474,6 @@ private fun DrawScope.drawThumb(progress: Float) {
                 center = c,
             )
             drawMoonCraters(c, r)
-            /* 外缘一圈亮边 + 底缘一圈暗弧：参考图里月亮是「有厚度」的圆片，
-                少了这两笔就会平贴在夜空上。 */
-            drawCircle(
-                color = Color.White.copy(alpha = 0.42f),
-                radius = r - 0.8f,
-                center = c,
-                style = Stroke(width = 1.4f),
-            )
-            drawArc(
-                color = Color(0xFF9AA1B1).copy(alpha = 0.32f),
-                startAngle = 25f,
-                sweepAngle = 130f,
-                useCenter = false,
-                topLeft = Offset(c.x - r + 1f, c.y - r + 1f),
-                size = Size(r * 2f - 2f, r * 2f - 2f),
-                style = Stroke(width = r * 0.14f),
-            )
         }
     }
 }
