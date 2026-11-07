@@ -241,6 +241,19 @@ fun ShowCodeNavBar(
             releaseScaleAnimationSpec = MotionTokens.NavRelease,
         )
     }
+    /* 胶囊的「流动度」：速度越大越像被拖着走的液体，静止时为 0。
+       和 indicatorScale 的 velocity 同源（都取 drag.velocity）——
+       缩放管厚薄，形状管前后不对称，各管一件事。
+       ⚠️ 量级：`velocity` 是**每秒格数**（已按 valueRange 归一化），
+       快速滑动约 6~10 格/秒。所以除以 5 而不是 4200——
+       第一版按 4200 归一化，值永远是 0.00x，形状一动不动。 */
+    val pillFlow = remember {
+        androidx.compose.runtime.derivedStateOf {
+            (kotlin.math.abs(drag.velocity) / 5f).coerceIn(0f, 1f)
+        }
+    }
+    val flowingShape = remember { dev.showcode.ui.theme.FlowingPillShape { pillFlow.value } }
+
     LaunchedEffect(selectedIndex) {
         /* 无条件重定目标。带 `targetValue != selectedIndex` 的早退在快速连切/取消时
            会留下「target 已是新值、value 还停在旧格」的死锁（实测：页面已到身份码，
@@ -372,6 +385,11 @@ fun ShowCodeNavBar(
                             if (glassBackdrop != null) {
                                 Modifier.drawBackdrop(
                                     backdrop = glassBackdrop,
+                                    /* ⚠️ 这里**不能**用 flowingShape：backdrop 的 lens 效果
+                                       只支持 RoundedRectangularShape / CornerBasedShape，
+                                       传任意 Shape 会直接抛 UnsupportedOperationException
+                                       （实测崩在 LensKt.throwUnsupportedSDFException）。
+                                       玻璃档保持 CircleShape，变形只在下面那条回退分支里做。 */
                                     shape = { CircleShape },
                                     effects = {
                                         /* 教务：vibrancy + 采样已模糊的底图；lens 只在按压时从 0 长到 12/18dp */
@@ -415,9 +433,11 @@ fun ShowCodeNavBar(
                                     },
                                 )
                             } else {
+                                /* 无玻璃回退档：这里可以安全地用变形形状——
+                                   没有 lens 效果，只是纯色块，任何 Shape 都成立。 */
                                 Modifier
-                                    .shadow(elevation = if (dark) 2.dp else 3.dp, shape = CircleShape, clip = false)
-                                    .background(capsuleColor, CircleShape)
+                                    .shadow(elevation = if (dark) 2.dp else 3.dp, shape = flowingShape, clip = false)
+                                    .background(capsuleColor, flowingShape)
                             },
                         ),
                 )

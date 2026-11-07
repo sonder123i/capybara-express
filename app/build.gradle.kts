@@ -83,6 +83,9 @@ dependencies {
     /* 底栏那层玻璃。取件码只用到 backdrop，不引 shapes：shapes 是给 lens() 的圆角变体用的，
        本仓库的折射形状只有 CircleShape（CornerBasedShape 系），见 ui/glass/GlassLensCompat。 */
     implementation("io.github.kyant0:backdrop:2.0.0")
+    /* 形状变形：底栏指示胶囊在滑动中从「胶囊」连续变形到「略鼓的胶囊」，
+       顶点一一对应，不是两个形状交叉淡入。Google 官方库，Apache 2.0。 */
+    implementation("androidx.graphics:graphics-shapes:1.1.0")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.activity:activity-compose:1.13.0")
