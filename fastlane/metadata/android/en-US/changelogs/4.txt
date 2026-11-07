@@ -1,0 +1,6 @@
+· Pressing now has weight: cards lift when held, primary buttons sink into their edge and spring back.
+· The "Took it" button rests light grey, turns green with "Taken" on press, and fades back after 2s.
+· Finishing a pickup point fires a single confetti burst with a drawn check beside the capybara.
+· Refreshing sweeps a light band down the list; syncing channels show how many items they have read.
+· Cards now use fill colour for state: due-soon is warm, unrecognised is warm, retired is sunken.
+· Dark mode gets its own rest tone for the action button so it no longer sinks into the background.
