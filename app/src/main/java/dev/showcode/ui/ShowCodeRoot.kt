@@ -43,6 +43,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -105,6 +106,8 @@ import dev.showcode.ui.theme.MotionTokens
 import dev.showcode.ui.theme.NavigationPages
 import dev.showcode.ui.theme.drawEnvironment
 import dev.showcode.ui.theme.rememberNavigationMotionState
+import dev.showcode.ui.theme.ThemeReveal
+import dev.showcode.ui.theme.ThemeRevealOverlay
 import dev.showcode.ui.theme.rememberReducedMotion
 import dev.showcode.widget.PickupWidgetProvider
 import dev.showcode.widget.WidgetNav
@@ -294,6 +297,9 @@ fun ShowCodeRoot() {
        tabRoute 为 null（子屏）时主层不渲染，但 lastTabIndex 要记住「来时在哪一 tab」，
        否则从设置进子屏再回来会被当成回首页。 */
     val reducedMotion = rememberReducedMotion()
+    /* PixelCopy 需要一个挂在窗口上的 View 来找 Window。用 Compose 自己的 LocalView：
+       它一定已经挂进窗口，而 LocalContext 可能是个被包了几层的 ContextWrapper。 */
+    val rootView = LocalView.current
     var lastTabIndex by rememberSaveable { mutableIntStateOf(0) }
     val tabRoute = tabIndexOf(route)
     LaunchedEffect(tabRoute) { if (tabRoute != null) lastTabIndex = tabRoute }
@@ -1095,11 +1101,20 @@ fun ShowCodeRoot() {
                             /* 开关显示的**就是**存下来的偏好：熔断那一档已经按家族的做法去掉了
                                （只取证不动作），所以不再有"开关写着开、其实没玻璃"这种状态。 */
                             themeMode = themeMode,
-                            onThemeToggle = {
+                            onThemeToggle = { origin ->
                                 if (!demo) {
-                                    ThemeController.toggle()
-                                    themeMode = ThemeController.mode
-                                    repository.prefs.themeMode = themeMode
+                                    /* 换主题走圆形扩散：先截图（旧画面），再切主题，
+                                       然后用扩大的圆把旧图擦掉。截不到图就直接切，
+                                       不播动画——换主题不能被动画绑架。 */
+                                    ThemeReveal.start(
+                                        view = rootView,
+                                        origin = origin,
+                                        reduced = reducedMotion,
+                                    ) {
+                                        ThemeController.toggle()
+                                        themeMode = ThemeController.mode
+                                        repository.prefs.themeMode = themeMode
+                                    }
                                 }
                             },
                             glassBarOn = glassBarOn,
@@ -1502,6 +1517,11 @@ fun ShowCodeRoot() {
                 )
             }
         }
+
+        /* 换主题的圆形扩散：**最上层**，连底栏一起盖住。
+           它画的是切换**之前**截下来的那张图，所以必须压在所有内容之上——
+           少盖一层，那一层就会提前变成新主题，扩散看上去像是漏了一块。 */
+        ThemeRevealOverlay(modifier = Modifier.fillMaxSize())
     }
 
 }

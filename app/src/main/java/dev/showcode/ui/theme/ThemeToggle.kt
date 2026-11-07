@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -24,6 +26,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -59,11 +63,15 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun ThemeToggle(
     dark: Boolean,
-    onToggle: () -> Unit,
+    /** 参数是**开关中心在窗口里的坐标**（px）——换主题的圆形扩散从那里长出来。 */
+    onToggle: (Offset) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
     val haptics = LocalHapticFeedback.current
+    /* 扩散的圆心必须精确落在这颗开关上，所以这里记下它在窗口里的位置。
+       `onGloballyPositioned` 在布局完成后回调，点击时一定已经有值。 */
+    var centerInWindow by remember { mutableStateOf(Offset.Zero) }
     val target = if (dark) 1f else 0f
     /* 两条时间线，**故意不同步**：
      *
@@ -87,6 +95,10 @@ fun ThemeToggle(
         modifier = modifier
             .width(TrackWidth)
             .height(TrackHeight)
+            .onGloballyPositioned { coords ->
+                val b = coords.boundsInWindow()
+                centerInWindow = Offset(b.center.x, b.center.y)
+            }
             .clickable(
                 interactionSource = interaction,
                 indication = null,
@@ -94,7 +106,7 @@ fun ThemeToggle(
                 role = Role.Switch,
             ) {
                 haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
-                onToggle()
+                onToggle(centerInWindow)
             }
             .semantics {
                 contentDescription = label

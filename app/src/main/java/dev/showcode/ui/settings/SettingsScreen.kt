@@ -142,7 +142,8 @@ fun SettingsScreen(
     onOpenAppDetails: () -> Unit,
     /** 外观模式（跟随系统 / 亮 / 暗）。开关是二元的，三档偏好留给以后。 */
     themeMode: dev.showcode.core.ThemeMode = dev.showcode.core.ThemeMode.SYSTEM,
-    onThemeToggle: () -> Unit = {},
+    /** 参数是开关中心在窗口里的坐标（px）：换主题的圆形扩散从那里长出来。 */
+    onThemeToggle: (androidx.compose.ui.geometry.Offset) -> Unit = {},
     /** 底栏玻璃效果的开关。 */
     glassBarOn: Boolean,
     /** 这台设备的平台能不能出模糊（API 31+）。不能就当场说清楚，别让那颗开关看起来是坏的。 */
