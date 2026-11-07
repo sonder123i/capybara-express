@@ -51,6 +51,13 @@ data class SyncChannel(
     val action: ChannelAction = ChannelAction.NONE,
     /** 登录已失效或凭据解不开：重试没有意义，必须重新登录。 */
     val needsLogin: Boolean = false,
+    /**
+     * 正在跑的那一轮走到哪：0..1。null = 不知道（读订单阶段还没有分母）。
+     *
+     * 只有 RUNNING 才有值。它给轨道上那一行画一条 2dp 的细进度——
+     * 「在动」必须能被看见，否则用户只会觉得「卡住了」。
+     */
+    val fraction: Float? = null,
 )
 
 enum class ChannelAction { NONE, RETRY, BIND, RELOGIN }
@@ -188,6 +195,7 @@ private fun accountChannel(
         now - account.lastSyncAt <= freshMs -> ChannelState.FRESH
         else -> ChannelState.STALE
     }
+    val fraction = if (state == ChannelState.RUNNING) progressFraction(progress) else null
     val detail = when {
         state == ChannelState.RUNNING -> progressText(progress)
         state == ChannelState.OFF -> "已停用"
@@ -212,7 +220,19 @@ private fun accountChannel(
             else -> ChannelAction.RETRY
         },
         needsLogin = needsLogin,
+        fraction = fraction,
     )
+}
+
+/**
+ * 进度比例。读订单阶段没有分母，返回 null（画成不确定态）；
+ * 详情阶段按 done/total，从 0 起——不把「读订单」那一截算进去，否则一进详情就跳到 50%。
+ */
+private fun progressFraction(progress: SyncProgress?): Float? = when {
+    progress == null -> null
+    progress.phase == SyncPhase.ORDERS -> null
+    progress.total <= 0 -> null
+    else -> (progress.done.toFloat() / progress.total).coerceIn(0f, 1f)
 }
 
 private fun progressText(progress: SyncProgress?): String = when {

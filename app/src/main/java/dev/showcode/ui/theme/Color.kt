@@ -26,6 +26,11 @@ val UrgencyDueSoonTint: Color get() = ShowCodePaletteState.current.urgencyDueSoo
 val UrgencyAtRiskTint: Color get() = ShowCodePaletteState.current.urgencyAtRiskTint
 val BorderDueSoon: Color get() = ShowCodePaletteState.current.borderDueSoon
 
+/** 压在各自 tint 上的副标题色：同色相、足够深，不是半透明。 */
+val UrgencySafeInk: Color get() = ShowCodePaletteState.current.urgencySafeInk
+val UrgencyDueSoonInk: Color get() = ShowCodePaletteState.current.urgencyDueSoonInk
+val UrgencyAtRiskInk: Color get() = ShowCodePaletteState.current.urgencyAtRiskInk
+
 val Accent: Color get() = ShowCodePaletteState.current.accent
 val AccentInk: Color get() = ShowCodePaletteState.current.accentInk
 val AccentTint: Color get() = ShowCodePaletteState.current.accentTint

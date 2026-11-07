@@ -4,6 +4,7 @@ import androidx.annotation.StringRes
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
@@ -125,7 +127,11 @@ import dev.showcode.ui.theme.withTabular
 import dev.showcode.ui.theme.SurfaceCard
 import dev.showcode.ui.theme.SurfaceSunken
 import dev.showcode.ui.theme.TabularNumbers
+import dev.showcode.ui.theme.UrgencyAtRiskInk
 import dev.showcode.ui.theme.UrgencyDueSoon
+import dev.showcode.ui.theme.UrgencyAtRiskInk
+import dev.showcode.ui.theme.UrgencyDueSoon
+import dev.showcode.ui.theme.UrgencyDueSoonInk
 import dev.showcode.ui.theme.UrgencyDueSoonTint
 import dev.showcode.ui.theme.UrgencySafe
 import dev.showcode.ui.theme.UrgencySafeTint
@@ -935,15 +941,22 @@ private fun SyncChannelRow(
             modifier = Modifier.width(52.dp),
             maxLines = 1,
         )
-        Text(
-            text = channel.detail,
-            style = ShowCodeText.Meta,
-            color = InkMuted,
-            /* 展开才有的明细允许两行：被截掉的「跳过 3（已签收）」正是用户要的答案。 */
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = channel.detail,
+                style = ShowCodeText.Meta,
+                color = InkMuted,
+                /* 展开才有的明细允许两行：被截掉的「跳过 3（已签收）」正是用户要的答案。 */
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            /* 正在跑的通道：文字下面一条 2dp 的细进度。
+               不知道分母时画一条来回走的「不确定」段，而不是空的轨道。 */
+            if (channel.state == ChannelState.RUNNING) {
+                Spacer(Modifier.height(4.dp))
+                ChannelProgress(fraction = channel.fraction)
+            }
+        }
         val action = channel.action
         if (action != ChannelAction.NONE) {
             val label = stringResource(
@@ -1013,6 +1026,56 @@ private fun RunningDot() {
     /* 从「转动的弧」换成「呼吸的环」：弧在说「在转」，环在说「在等」。
        同步常常要十几秒，一个匀速转动的圈会让人以为它卡住了；呼吸的节奏更接近「有人在干活」。 */
     BreathingRing(color = AccentInk, modifier = Modifier.size(8.dp), periodMs = 1_400)
+}
+
+/**
+ * 通道行内的 2dp 细进度。
+ *
+ * 确定态（有 done/total）：填充宽度用 `NavSettle` 弹簧推过去——过冲让它像「推进」而不是「加载」。
+ * 不确定态（还在读订单）：一段 30% 宽的亮块在轨道上来回走。
+ */
+@Composable
+private fun ChannelProgress(fraction: Float?) {
+    val track = Hairline
+    val fill = AccentInk
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(2.dp)
+            .background(track, ShowCodeShapes.Pill),
+    ) {
+        if (fraction == null) {
+            val transition = rememberInfiniteTransition(label = "channel-indeterminate")
+            val x by transition.animateFloat(
+                initialValue = -0.3f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1_100, easing = MotionEasing.Standard),
+                    repeatMode = RepeatMode.Restart,
+                ),
+                label = "channel-indeterminate-x",
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.3f)
+                    .height(2.dp)
+                    .offset(x = (x * 100).dp)
+                    .background(fill, ShowCodeShapes.Pill),
+            )
+        } else {
+            val width by animateFloatAsState(
+                targetValue = fraction,
+                animationSpec = MotionTokens.NavSettle,
+                label = "channel-progress",
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(width.coerceIn(0.02f, 1f))
+                    .height(2.dp)
+                    .background(fill, ShowCodeShapes.Pill),
+            )
+        }
+    }
 }
 
 private fun channelStateWord(state: ChannelState): String = when (state) {
@@ -1294,7 +1357,13 @@ private fun PointCard(
             Text(
                 text = subtitle,
                 style = ShowCodeText.Caption,
-                color = if (group.worst == Urgency.SAFE) InkMuted else urgencyColor(group.worst),
+                /* 副标题用同色系降一档，不是灰色：压在暖底/绿底上时灰字会显脏。
+                   SAFE 态没有底色，仍用中性灰。 */
+                color = when (group.worst) {
+                    Urgency.SAFE -> InkMuted
+                    Urgency.DUE_SOON -> UrgencyDueSoonInk
+                    Urgency.AT_RISK -> UrgencyAtRiskInk
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

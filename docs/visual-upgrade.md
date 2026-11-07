@@ -170,8 +170,8 @@ fun SolidButton(
 |---|---|---|
 | P1 | `cardState` + `PointCard` 四态 | ✅ 已做（`ui/CardState.kt`；取件点卡 + 未识别行） |
 | P2 | `SolidButton` 抽取 + 替换 | ✅ 已做（`ui/SolidButton.kt`；引导、规则、身份码、手动导入、现场宽按钮） |
-| P3 | 同步通道进度 + 刷新进度条 | ⏳ 部分：扫描光 + 呼吸环 + 收束脉冲已做；**逐通道数值进度未做** |
-| P4 | 换件落点 + 副标题同色系 | ⏳ 落点已做；**副标题同色系未做** |
+| P3 | 同步通道进度 + 刷新进度条 | ✅ 已做（通道行内 2dp 进度：确定态按 done/total 用 `NavSettle` 推进，不确定态来回走；另有扫描光 + 呼吸环 + 收束脉冲） |
+| P4 | 换件落点 + 副标题同色系 | ✅ 已做（8dp 落点；新增 `UrgencySafeInk` / `UrgencyDueSoonInk` / `UrgencyAtRiskInk` 三个同色系副标题色） |
 | P5 | 空态图标去 emoji | ✅ 已完成（现场收工屏、首页均无 emoji；余下只有 `✕` 关闭符号，属图标级） |
 
 **动效部分已全部落地**（`ui/motion/MotionKit.kt`）：按压抬升、画出来的勾、扫描光、
