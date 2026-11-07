@@ -883,6 +883,17 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
         }
     }
 
+    /**
+     * 拖拽之后重排规则。顺序是**语义**：`ParseRules.apply` 取第一条命中，
+     * 所以两条规则都能抓到时，谁在前决定了这件货归到哪个取件点。
+     */
+    fun reorderParseRules(orderedIds: List<Long>) {
+        scope.launch {
+            db.reorderRules(orderedIds)
+            reload()
+        }
+    }
+
     // ---------- 身份码 ----------
 
     /**

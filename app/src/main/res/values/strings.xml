@@ -298,6 +298,8 @@
 
     <string name="rules_title">解析规则</string>
     <string name="rules_hint">认不出的短信，可以在这里补一条。</string>
+    <!-- 顺序有语义：两条规则都能抓到时，上面那条先命中。所以这句话必须说清「上面优先」。 -->
+    <string name="rules_drag_hint">长按拖动排序 · 上面的先命中</string>
     <string name="rules_empty">还没有规则。哪条短信没认出来，可以从「没认出来的取件短信」里直接写一条。</string>
     <string name="rules_add">＋ 新写一条</string>
     <string name="rules_on">生效中</string>

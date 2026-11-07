@@ -165,7 +165,8 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
               point_name TEXT NOT NULL,
               locker_no TEXT,
               enabled INTEGER NOT NULL DEFAULT 1,
-              created_at INTEGER NOT NULL
+              created_at INTEGER NOT NULL,
+              sort_order INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent()
         )
@@ -299,6 +300,7 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
         if (oldVersion < 9) upgradeToV9(db)
         if (oldVersion < 10) upgradeToV10(db)
         if (oldVersion < 11) upgradeToV11(db)
+        if (oldVersion < 12) upgradeToV12(db)
     }
 
     /**
@@ -458,6 +460,31 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
         db.execSQL("DELETE FROM unrecognized WHERE id NOT IN (SELECT MIN(id) FROM unrecognized GROUP BY body_fp)")
         // 「已取 → 刷新」攒下的复活行。
         db.execSQL("DELETE FROM parcel WHERE id NOT IN (SELECT MIN(id) FROM parcel GROUP BY code, point_key, raw)")
+    }
+
+    /**
+     * v11 → v12：解析规则支持手动排序。
+     *
+     * 为什么要这一列：`ParseRules.apply` 按列表顺序**取第一条命中**，
+     * 所以规则顺序是**语义**，不只是偏好——两条正则都能抓到时，谁在前就决定了
+     * 这件货被归到哪个取件点。原来靠 `created_at DESC`（新规则优先）隐式排序，
+     * 用户想让某条老规则优先就没有任何办法。
+     *
+     * 回填用 `created_at DESC` 的序号，让升级后的顺序**和升级前完全一致**——
+     * 迁移不能顺手改变谁先命中，那是用户看不见却会改变结果的事。
+     */
+    private fun upgradeToV12(db: SQLiteDatabase) {
+        addColumnIfMissing(db, "parse_rule", "sort_order", "INTEGER NOT NULL DEFAULT 0")
+        /* 按原来的顺序（created_at DESC）编号：0 是最高优先级。 */
+        db.execSQL(
+            """
+            UPDATE parse_rule SET sort_order = (
+              SELECT COUNT(*) FROM parse_rule AS r2
+              WHERE r2.created_at > parse_rule.created_at
+                 OR (r2.created_at = parse_rule.created_at AND r2.id > parse_rule.id)
+            )
+            """.trimIndent()
+        )
     }
 
     private fun addColumnIfMissing(db: SQLiteDatabase, table: String, column: String, type: String) {
@@ -818,8 +845,9 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
 
     fun allRules(): List<ParseRule> = readableDatabase
         .rawQuery(
+            /* 按 sort_order 而不是 created_at：用户拖过顺序之后，谁先命中必须由那个顺序决定。 */
             "SELECT id, pattern, point_name, locker_no, enabled, created_at FROM parse_rule" +
-                " ORDER BY created_at DESC",
+                " ORDER BY sort_order ASC, created_at DESC",
             null,
         )
         .use { c ->
@@ -839,9 +867,17 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
             }
         }
 
-    /** 和 [insertParcel] 同一条规矩：撞约束只返回 -1 不抛，调用方必须查返回值。 */
-    fun insertRule(pattern: String, pointName: String, lockerNo: String?, at: Long): Long =
-        writableDatabase.insert(
+    /**
+     * 和 [insertParcel] 同一条规矩：撞约束只返回 -1 不抛，调用方必须查返回值。
+     *
+     * 新规则排到**末尾**（sort_order = 现有最大值 + 1）。规则是「补一条内置没认出来的写法」，
+     * 新写的通常更窄、更专用，不该抢在已经调好的规则前面——那是升级后顺序突变的反向。
+     */
+    fun insertRule(pattern: String, pointName: String, lockerNo: String?, at: Long): Long {
+        val nextOrder = readableDatabase
+            .rawQuery("SELECT COALESCE(MAX(sort_order) + 1, 0) FROM parse_rule", null)
+            .use { c -> if (c.moveToFirst()) c.getLong(0) else 0L }
+        return writableDatabase.insert(
             "parse_rule",
             null,
             ContentValues().apply {
@@ -850,8 +886,35 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
                 put("locker_no", lockerNo)
                 put("enabled", 1)
                 put("created_at", at)
+                put("sort_order", nextOrder)
             },
         )
+    }
+
+    /**
+     * 拖拽之后整体重写顺序。[orderedIds] 是新的从上到下的 id 序列，index 就是 sort_order。
+     *
+     * 整表重写而不是「只挪动那一条」：只改一条的话，中间那些行的 sort_order 会出现重复，
+     * 而 `apply()` 取第一条命中——重复序号意味着谁先命中变成未定义的。
+     * 规则上限 20 条，整表重写是几十微秒的事。
+     */
+    fun reorderRules(orderedIds: List<Long>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            orderedIds.forEachIndexed { index, id ->
+                db.update(
+                    "parse_rule",
+                    ContentValues().apply { put("sort_order", index) },
+                    "id = ?",
+                    arrayOf(id.toString()),
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
 
     fun setRuleEnabled(id: Long, enabled: Boolean) {
         writableDatabase.update(
@@ -1115,6 +1178,6 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
 
     private companion object {
         const val NAME = "showcode.db"
-        const val VERSION = 11
+        const val VERSION = 12
     }
 }

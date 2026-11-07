@@ -1,5 +1,8 @@
 package dev.showcode.ui.rules
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.graphics.graphicsLayer
+import dev.showcode.ui.theme.InkFaint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -76,7 +79,17 @@ fun RuleListScreen(
     onAdd: () -> Unit,
     onToggle: (Long, Boolean) -> Unit,
     onDelete: (Long) -> Unit,
+    /** 拖拽之后的新顺序（id 从上到下）。顺序是语义：谁在前谁先命中。 */
+    onReorder: (List<Long>) -> Unit = {},
 ) {
+    /* 拖拽期间的顺序只在内存里改，松手才落库——每换一次位就写一次库，
+       一次拖动会写十几次，中途卡顿还会让画面和库错位。 */
+    var order by remember { mutableStateOf(rules.map { it.id }) }
+    /* 规则集合本身变了（增删）就重置：内存顺序里可能还留着已删掉的 id。 */
+    LaunchedEffect(rules) {
+        if (rules.map { it.id } != order) order = rules.map { it.id }
+    }
+    val byId = remember(rules) { rules.associateBy { it.id } }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -110,8 +123,31 @@ fun RuleListScreen(
                     )
                 }
             }
-            items(rules, key = { it.id }) { rule ->
-                RuleRow(rule = rule, onToggle = onToggle, onDelete = onDelete)
+            item {
+                /* 拖拽区：**长按**才起来，短按仍然走原来的开关/删除。
+                   用 item{} 包一层而不是直接放进 LazyColumn 的 items：
+                   排序需要一个整体可测量的容器，逐项可拖在 Lazy 里做不准换位阈值。 */
+                DraggableList(
+                    itemCount = order.size,
+                    onMove = { from, to ->
+                        order = order.toMutableList().apply {
+                            add(to, removeAt(from))
+                        }
+                    },
+                    onSettle = { onReorder(order) },
+                ) { index, dragging ->
+                    byId[order.getOrNull(index)]?.let { rule ->
+                        /* 拖拽把手单独一颗，不抢卡内「删除」「开关」的手势。
+                           长按整张卡会和它们冲突：卡里的 clickable 会先消费掉长按。 */
+                        RuleRow(
+                            rule = rule,
+                            onToggle = onToggle,
+                            onDelete = onDelete,
+                            showDragHint = index == 0 && order.size > 1,
+                            dragging = dragging,
+                        )
+                    }
+                }
             }
             item {
                 Text(
@@ -131,13 +167,22 @@ fun RuleListScreen(
 }
 
 @Composable
-private fun RuleRow(rule: ParseRule, onToggle: (Long, Boolean) -> Unit, onDelete: (Long) -> Unit) {
+private fun RuleRow(
+    rule: ParseRule,
+    onToggle: (Long, Boolean) -> Unit,
+    onDelete: (Long) -> Unit,
+    /** 只有第一行显示「长按拖动排序」——每行都写一遍就成了噪音。 */
+    showDragHint: Boolean = false,
+    /** 正在被拖动：整张卡淡一点，让「它浮起来了」看得出来。 */
+    dragging: Boolean = false,
+) {
     // 删除是两次点击的事：这条规则可能是他照着一条难短信调了半小时调出来的，
     // 而手滑一下就能把它清掉——「误删只能重写」不是我们能接受的回退成本。
     var confirming by remember(rule.id) { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer { alpha = if (dragging) 0.98f else 1f }
             .background(SurfaceCard, ShowCodeShapes.Md)
             .border(1.dp, Hairline, ShowCodeShapes.Md)
             .padding(14.dp),
@@ -170,6 +215,14 @@ private fun RuleRow(rule: ParseRule, onToggle: (Long, Boolean) -> Unit, onDelete
             style = ShowCodeText.CodeSmall,
             color = InkSecondary,
         )
+        if (showDragHint) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.rules_drag_hint),
+                style = ShowCodeText.Caption,
+                color = InkFaint,
+            )
+        }
         if (rule.lockerNo != null) {
             Spacer(Modifier.height(4.dp))
             Text(

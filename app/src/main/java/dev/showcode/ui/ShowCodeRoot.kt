@@ -1319,6 +1319,7 @@ fun ShowCodeRoot() {
                         },
                         onToggle = { id, enabled -> repository.setRuleEnabled(id, enabled) },
                         onDelete = { id -> repository.deleteParseRule(id) },
+                        onReorder = { ids -> repository.reorderParseRules(ids) },
                     )
 
                     Route.RULE_EDIT -> RuleEditScreen(
