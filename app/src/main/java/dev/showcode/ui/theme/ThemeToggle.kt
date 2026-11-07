@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -140,13 +141,16 @@ private val NightBand2 = Color(0xFF2D333D)
 private val NightBand3 = Color(0xFF3E4250)
 private val NightBand4 = Color(0xFF4C505C)
 private val Star = Color(0xFFFFFFFF)
+/* 太阳的三个色阶：亮面 / 本色 / 暗面。幅度 ±6%，哑光球的分寸。 */
+private val SunLit = Color(0xFFF9D451)
 private val SunFace = Color(0xFFF1C428)
-/* 月亮的灰直接取参考图实测值 #C3C9D1。
-   ⚠️ 曾经提到 #D6DBE4，实测渲染成 216——在深色槽里跳成一块「白饼」。
-   参考图的月亮其实很暗、很平，只靠三个坑和一道落影立住。 */
-private val MoonTop = Color(0xFFC9CFD9)
+private val SunShade = Color(0xFFDDAE1C)
+/* 月亮的三个色阶，取参考图实测的 #C3C9D1 做中间值。
+   ⚠️ 曾经把中间值提到 #D6DBE4，渲染成 216——在深色槽里跳成一块「白饼」。
+   立体感靠**球内**的斜向渐变和边缘压暗，不靠提亮。 */
+private val MoonLit = Color(0xFFCFD5DF)
 private val MoonFace = Color(0xFFC3C9D3)
-private val MoonLow = Color(0xFFB9C0CC)
+private val MoonShade = Color(0xFFAEB6C4)
 private val CraterInk = Color(0xFF949DB0)
 
 /**
@@ -444,8 +448,44 @@ private fun DrawScope.drawThumb(progress: Float) {
      * 球和槽的层次已经由**槽本身**承担（上缘压暗 + 内高光），
      * 球只需要是一块干净的实心色。 */
 
-    /* 太阳：整颗纯黄，没有光芒也没有高光（参考图就是一块实心色）。 */
-    drawCircle(SunFace, r, c)
+    /* 太阳：**球内**一层斜向渐变 + 一圈极淡的边缘压暗。
+     *
+     * 参考图的太阳其实是一块平色 `#F1C428`（逐像素量过，整片球面没有明暗变化），
+     * 但平色在 28dp 上读起来像贴纸。立体感全部做在**球内**：
+     * - 主渐变：光从左上来，右上略亮、左下略深，幅度只有 ±6%，
+     *   再多就变成塑料球；
+     * - 边缘压暗：贴着球缘一圈 8% 的黑，模拟球面朝外弯下去，
+     *   这是「球」和「圆片」的差别所在。
+     *
+     * 三条铁律（前几轮显脏全是违反它们）：
+     * ① 一切渐变都在 `clipPath(球)` 里，绝不出球；
+     * ② 不画投影、不画外发光——那会在球外留一圈灰；
+     * ③ 幅度小：球是哑光的，不是玻璃球。 */
+    clipPath(Path().apply { addOval(Rect(center = c, radius = r)) }) {
+        drawCircle(
+            brush = Brush.linearGradient(
+                0f to SunLit,
+                0.55f to SunFace,
+                1f to SunShade,
+                start = Offset(c.x - r * 0.72f, c.y - r * 0.78f),
+                end = Offset(c.x + r * 0.68f, c.y + r * 0.82f),
+            ),
+            radius = r,
+            center = c,
+        )
+        /* 边缘压暗：径向渐变只在外圈 22% 里从透明走到 8% 黑。 */
+        drawCircle(
+            brush = Brush.radialGradient(
+                0f to Color.Transparent,
+                0.78f to Color.Transparent,
+                1f to Color.Black.copy(alpha = 0.10f),
+                center = c,
+                radius = r,
+            ),
+            radius = r,
+            center = c,
+        )
+    }
 
     /* 月亮：从右边缘起，用一个大圆当遮罩扫过来。p=0 时遮罩完全在球外，
        p=1 时把整颗球盖住。半径取 1.9r，边界因此是一段缓弧而不是直线。 */
@@ -454,22 +494,29 @@ private fun DrawScope.drawThumb(progress: Float) {
         /* 圆心从「球右缘再往外 1.9r」移到「球心」，正好扫完整颗球。 */
         val wipeCx = c.x + (1f - progress) * (r + wipeR)
         val moonMask = Path().apply {
-            addOval(
-                androidx.compose.ui.geometry.Rect(
-                    center = Offset(wipeCx, c.y),
-                    radius = wipeR,
-                )
-            )
+            addOval(Rect(center = Offset(wipeCx, c.y), radius = wipeR))
         }
         clipPath(moonMask) {
             /* 多画 1px：遮罩边缘抗锯齿会漏出底下那道黄，缩在 r 上会留一圈金边。 */
             drawCircle(
-                brush = Brush.verticalGradient(
-                    0f to MoonTop,
+                brush = Brush.linearGradient(
+                    0f to MoonLit,
                     0.55f to MoonFace,
-                    1f to MoonLow,
-                    startY = c.y - r,
-                    endY = c.y + r,
+                    1f to MoonShade,
+                    start = Offset(c.x - r * 0.70f, c.y - r * 0.78f),
+                    end = Offset(c.x + r * 0.66f, c.y + r * 0.84f),
+                ),
+                radius = r + 1f,
+                center = c,
+            )
+            /* 边缘压暗：和太阳同一套，让月亮也「弯下去」而不是一张圆片。 */
+            drawCircle(
+                brush = Brush.radialGradient(
+                    0f to Color.Transparent,
+                    0.80f to Color.Transparent,
+                    1f to Color.Black.copy(alpha = 0.09f),
+                    center = c,
+                    radius = r,
                 ),
                 radius = r + 1f,
                 center = c,
@@ -479,7 +526,13 @@ private fun DrawScope.drawThumb(progress: Float) {
     }
 }
 
-/** 月亮上的三个坑，位置与大小照参考图（左中最大、右上中等、右下最小）。 */
+/**
+ * 月亮上的三个坑，位置与大小照参考图（左中最大、右上中等、右下最小）。
+ *
+ * 坑不是一块平的灰圆：光从左上来，所以每个坑的**左上缘暗、右下缘亮**。
+ * 两笔就够——底色圆 + 右下角一道更亮的月牙。少了这道月牙，
+ * 三个坑就只是「贴了三张灰贴纸」。
+ */
 private fun DrawScope.drawMoonCraters(center: Offset, r: Float) {
     val craters = listOf(
         Triple(-0.16f, 0.16f, 0.30f),
@@ -487,11 +540,18 @@ private fun DrawScope.drawMoonCraters(center: Offset, r: Float) {
         Triple(0.34f, 0.40f, 0.13f),
     )
     craters.forEach { (dx, dy, rr) ->
+        val cc = Offset(center.x + r * dx, center.y + r * dy)
+        val cr = r * rr
+        drawCircle(color = CraterInk, radius = cr, center = cc)
+        /* 右下缘的亮边：亮圆和暗圆只差 6%，露出来的才是一道**细月牙**。
+           ⚠️ 第一次差 20%（0.92 / 0.80），露出来的是一圈白环，
+           三个坑全变成「凸起的小球」，比不加还糟。 */
         drawCircle(
-            color = CraterInk,
-            radius = r * rr,
-            center = Offset(center.x + r * dx, center.y + r * dy),
+            color = Color.White.copy(alpha = 0.20f),
+            radius = cr,
+            center = Offset(cc.x + cr * 0.07f, cc.y + cr * 0.08f),
         )
+        drawCircle(color = CraterInk, radius = cr * 0.94f, center = cc)
     }
 }
 
