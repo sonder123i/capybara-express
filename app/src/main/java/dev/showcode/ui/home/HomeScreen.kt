@@ -1001,7 +1001,7 @@ private fun ChannelDot(state: ChannelState, pulse: Int = 0) {
         if (pulse == 0) return@LaunchedEffect
         scale.snapTo(1f)
         scale.animateTo(1.45f, tween(90, easing = MotionEasing.FastOutSlowIn))
-        scale.animateTo(1f, MotionTokens.NavRelease)
+        scale.animateTo(1f, MotionTokens.Settle)
     }
     Box(
         modifier = Modifier

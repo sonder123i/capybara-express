@@ -72,6 +72,7 @@ import dev.showcode.ui.theme.ShowCodeShapes
 import dev.showcode.ui.theme.ShowCodeText
 import dev.showcode.ui.theme.SurfaceCard
 import dev.showcode.ui.theme.MotionProfile
+import dev.showcode.ui.theme.MotionTokens
 import dev.showcode.ui.theme.TabularNumbers
 import dev.showcode.ui.theme.UrgencySafe
 import dev.showcode.ui.theme.rememberReducedMotion
@@ -155,7 +156,7 @@ fun OnsiteCodeBody(
     val focus = remember(parcel.code) { Animatable(if (reducedMotion) 1f else 0f) }
     LaunchedEffect(parcel.code) {
         if (!reducedMotion) {
-            focus.animateTo(1f, MotionProfile.iconSpring())
+            focus.animateTo(1f, MotionTokens.Focus)
         }
     }
 

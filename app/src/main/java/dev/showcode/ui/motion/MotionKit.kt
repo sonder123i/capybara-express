@@ -60,9 +60,11 @@ fun Modifier.pressLift(
     val reduced = rememberReducedMotion()
     val pressed by interaction.collectIsPressedAsState()
     val lift = if (!enabled || reduced) 0f else if (pressed) 1f else 0f
+    /* 按下用 PressDown（171ms 收住），抬起用 PressLift（4.6% 果冻）——
+       同一颗弹簧管两个方向会让「按下」比手指慢半拍。 */
     val animated by androidx.compose.animation.core.animateFloatAsState(
         targetValue = lift,
-        animationSpec = MotionTokens.NavRelease,
+        animationSpec = if (pressed) MotionTokens.PressDown else MotionTokens.PressLift,
         label = "press-lift",
     )
     return graphicsLayer {

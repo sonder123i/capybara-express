@@ -95,6 +95,7 @@ import dev.showcode.ui.theme.InkFaint
 import dev.showcode.ui.theme.MotionDuration
 import dev.showcode.ui.theme.MotionEasing
 import dev.showcode.ui.theme.MotionProfile
+import dev.showcode.ui.theme.MotionTokens
 import dev.showcode.ui.theme.InkMuted
 import dev.showcode.ui.theme.InkSecondary
 import dev.showcode.ui.theme.OnsiteInk
@@ -902,12 +903,13 @@ private fun PickedButton(onClick: () -> Unit) {
 
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.98f else 1f,
-        animationSpec = MotionProfile.iconSpring(),
+        animationSpec = if (pressed) MotionTokens.PressDown else MotionTokens.PressLift,
         label = "picked-press",
     )
+    /* 沉入要跟手（171ms），回弹可以带一点果冻（258ms）。 */
     val sink by animateFloatAsState(
         targetValue = if (pressed) 3f else 0f,
-        animationSpec = MotionProfile.iconSpring(),
+        animationSpec = if (pressed) MotionTokens.PressDown else MotionTokens.PressLift,
         label = "picked-sink",
     )
 

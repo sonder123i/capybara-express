@@ -79,4 +79,52 @@ object MotionTokens {
 
     /** 液态控件落位：`liquidSettle(0.80, 420)`——收起形态的整栏收拢/单胶囊弹出共用。 */
     val LiquidSettle: FiniteAnimationSpec<Float> = spring(dampingRatio = 0.80f, stiffness = 420f)
+
+    /* ── 手感档（2026-11-07 定）──────────────────────────────────────
+     *
+     * 上面那几条是从教务搬来的，解决的是「有没有动效」；这一组解决的是「动得对不对」。
+     * 每一档都按阻尼比算出过冲与稳定时间，写在注释里，改参数前先看那两行数。
+     *
+     * 判据：**同一类动作的手感必须一致**。按压就该 150-180ms 收住、几乎不弹；
+     * 抬升可以带 4-5% 的果冻；对焦必须又直又快（码在动的时候不能让人怀疑扫不上）。
+     */
+
+    /**
+     * 按下：0.6% 过冲 / 171ms 稳定。
+     *
+     * 按压反馈超过 200ms 就会「跟不上手指」。`iconSpring` 是 330ms，用在按压上偏慢，
+     * 所以按下单独一档。
+     */
+    val PressDown: FiniteAnimationSpec<Float> = spring(dampingRatio = 0.85f, stiffness = 1000f)
+
+    /**
+     * 抬起/回弹：4.6% 过冲 / 258ms 稳定。
+     *
+     * 4-5% 是「有重量但不弹」的窗口：低于 2% 读起来像 tween，高于 8% 就变成玩具。
+     */
+    val PressLift: FiniteAnimationSpec<Float> = spring(dampingRatio = 0.70f, stiffness = 650f)
+
+    /**
+     * 对焦：0.1% 过冲 / 118ms 稳定。
+     *
+     * 现场屏的码从 0.94 放大到位，**必须 180ms 内收住且几乎不弹**——
+     * 扫码机可能在动画途中取帧，一张还在回弹的码会被读成模糊。
+     * 所以这一档阻尼接近临界（0.92），刚度拉高，宁可「啪」一下到位。
+     */
+    val Focus: FiniteAnimationSpec<Float> = spring(dampingRatio = 0.92f, stiffness = 1800f)
+
+    /**
+     * 落位（换件、面板归位）：1.5% 过冲 / 245ms 稳定。
+     *
+     * 位置类移动要「稳」：过冲会让内容短暂越界，读起来像没对齐。
+     */
+    val Land: FiniteAnimationSpec<Float> = spring(dampingRatio = 0.80f, stiffness = 550f)
+
+    /**
+     * 收束回弹（脉冲回落、状态点归位）：8.4% 过冲 / 281ms 稳定。
+     *
+     * 这是唯一允许「明显弹一下」的一档，因为它表达的是「事情结束了」，
+     * 而结束值得被看见。
+     */
+    val Settle: FiniteAnimationSpec<Float> = spring(dampingRatio = 0.62f, stiffness = 700f)
 }
