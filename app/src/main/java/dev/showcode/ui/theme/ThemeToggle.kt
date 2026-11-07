@@ -141,21 +141,18 @@ private val NightBand2 = Color(0xFF2D333D)
 private val NightBand3 = Color(0xFF3E4250)
 private val NightBand4 = Color(0xFF4C505C)
 private val Star = Color(0xFFFFFFFF)
-/* 太阳的三个色阶：亮面 / 本色 / 暗面。
-   参考图的太阳几乎是平色 #F1C428（逐像素量过，整片球面没有明暗变化），
-   所以这里只留一点点体积感：亮面比本色浅 6%、暗面深 6%。
-   再深就变成塑料球了。
-   ⚠️ 两轮踩过的坑：暗面压到 #C99910 时整颗球都被拉暗（径向渐变里暗面
-   覆盖球的一大半）；线性渐变则把球切成平行色带，像一张饼。 */
-private val SunLit = Color(0xFFF9D13A)
+/* 太阳：本色 + 两档边缘压暗。色值取自参考图逐像素采样：
+   0 ~ 0.88r 全是 #F1C428，0.92r 是 #E5BB25，1.0r 是 #B19222。
+   ⚠️ 不要「亮面」这一档——参考图的球面没有高光，
+   加一个亮斑就变成乒乓球（用户连着两次说不对）。 */
 private val SunFace = Color(0xFFF1C428)
-private val SunShade = Color(0xFFE5B722)
-/* 月亮的三个色阶，取参考图实测的 #C3C9D1 做中间值。
-   ⚠️ 曾经把中间值提到 #D6DBE4，渲染成 216——在深色槽里跳成一块「白饼」。
-   立体感靠**球内**的斜向渐变和边缘压暗，不靠提亮。 */
-private val MoonLit = Color(0xFFC9CFDA)
+private val SunEdge = Color(0xFFE5BB25)
+private val SunRim = Color(0xFFC69C1E)
+/* 月亮：本色 + 两档边缘压暗，和太阳同一套。
+   ⚠️ 曾经把本色提到 #D6DBE4，渲染成 216——在深色槽里跳成一块「白饼」。 */
 private val MoonFace = Color(0xFFC3C9D3)
-private val MoonShade = Color(0xFFB9C0CC)
+private val MoonEdge = Color(0xFFB8BFCA)
+private val MoonRim = Color(0xFFA5ADBB)
 private val CraterInk = Color(0xFF949DB0)
 
 /**
@@ -453,31 +450,33 @@ private fun DrawScope.drawThumb(progress: Float) {
      * 球和槽的层次已经由**槽本身**承担（上缘压暗 + 内高光），
      * 球只需要是一块干净的实心色。 */
 
-    /* 太阳：**球内**一层偏心径向渐变。
+    /* 太阳：**平色 + 只在下缘压暗**。
      *
-     * ⚠️ 这里踩过一个大坑：先用的是 `linearGradient`（左上亮、右下暗）。
-     * 线性渐变横切一个圆，出来的是**平行的色带**，球面读成一张摊开的饼。
-     * 球的立体感只能来自**径向**渐变——亮度从一个偏心的高光点向外衰减，
-     * 才有「面朝光、背面暗」的弧。
+     * 这是逐像素量了参考图之后的结论，和前几版都不一样：
+     * 从球心到 0.88r 全是纯 `#F1C428`，没有任何明暗；只有最底部 12% 变暗
+     * （0.92r → #E5BB25，1.0r → #B19222）。也就是**光从正前方打过来**，
+     * 球面一片均匀，只有下缘因为弯下去而变暗。
      *
-     * 参数：高光点偏到左上（-0.34r, -0.36r），半径 1.15r（比球略大，
-     * 让最暗处落在球缘之外，球缘因此不是最黑的），
-     * 亮度从亮面走到本色再走到暗面，全程只差 ±7%——哑光球，不是玻璃球。
+     * 踩过的两个坑：
+     * - `linearGradient` → 平行色带，像一张摊开的饼；
+     * - 偏心 `radialGradient`（左上高光）→ 球心一个亮斑、四周渐暗，
+     *   那是**乒乓球/塑料球**的打光，不是太阳。用户两次都说不对。
      *
-     * 三条铁律（前几轮显脏全是违反它们）：
-     * ① 一切渐变都在 `clipPath(球)` 里，绝不出球；
-     * ② 不画投影、不画外发光——那会在球外留一圈灰；
-     * ③ 幅度小。
+     * 正确做法：径向渐变的高光点就在**球心**，且亮面区间要宽
+     * （0 ~ 0.62 都是本色），暗面只在最后 38% 才开始压。
+     * 这样球面是平的，只有边缘收进去——正是参考图的样子。
+     *
+     * 三条铁律：① 一切渐变都在球内；② 不画投影/外发光；③ 幅度小。
      */
-    val hi = Offset(c.x - r * 0.34f, c.y - r * 0.36f)
     clipPath(Path().apply { addOval(Rect(center = c, radius = r)) }) {
         drawCircle(
             brush = Brush.radialGradient(
-                0.00f to SunLit,
-                0.34f to SunFace,
-                1.00f to SunShade,
-                center = hi,
-                radius = r * 1.10f,
+                0.00f to SunFace,
+                0.62f to SunFace,
+                0.88f to SunEdge,
+                1.00f to SunRim,
+                center = c,
+                radius = r,
             ),
             radius = r,
             center = c,
@@ -495,15 +494,16 @@ private fun DrawScope.drawThumb(progress: Float) {
         }
         clipPath(moonMask) {
             /* 多画 1px：遮罩边缘抗锯齿会漏出底下那道黄，缩在 r 上会留一圈金边。 */
-            /* 和太阳同一套：偏心径向渐变，光从左上打过来。
-               线性渐变在这里同样会把球压成一张饼。 */
+            /* 和太阳同一套：球面平、只在边缘收进去。
+               参考图的月亮同样没有偏心亮斑，整片均匀，只有下缘略深。 */
             drawCircle(
                 brush = Brush.radialGradient(
-                    0.00f to MoonLit,
-                    0.36f to MoonFace,
-                    1.00f to MoonShade,
-                    center = Offset(c.x - r * 0.30f, c.y - r * 0.32f),
-                    radius = r * 1.08f,
+                    0.00f to MoonFace,
+                    0.66f to MoonFace,
+                    0.90f to MoonEdge,
+                    1.00f to MoonRim,
+                    center = c,
+                    radius = r + 1f,
                 ),
                 radius = r + 1f,
                 center = c,
