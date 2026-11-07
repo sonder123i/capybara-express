@@ -91,10 +91,43 @@ adb install -r app/build/outputs/apk/benchmark/app-benchmark.apk
 `IllegalArgumentException: Must set baselineProfileMode != Ignore, or warmup iterations > 0`。
 没有 profile 的那条对照用 `CompilationMode.None()`。
 
-## 为什么 CI 里不跑
+## 本机跑（CI 里不跑）
 
-`connectedBenchmarkAndroidTest` 需要一台**真机或模拟器**，而且跑一次要 3-4 分钟
-（5 次冷启动 × 3 条测试）。CI 的 runner 没有设备，也不值得为它挂一个。
-所以它是**本机命令**，改启动路径时手动跑一次。
+这些是**本机命令**，改启动路径时手动跑一次。
+
+为什么不在 CI 里跑：`connectedBenchmarkAndroidTest` 要一台真机或模拟器，
+跑一次 3-4 分钟（5 次冷启动 × 3 条测试），而 CI 的 runner 上现起模拟器要再等
+2-3 分钟、还得开 KVM，且没有 GPU（GL 探针会因 swiftshader 假红）。
+本地已经有常驻模拟器，没必要为它加一个每天都要付时间的 job。
+
+### 本机模拟器上的一条龙
+
+```bash
+# 0. 确认模拟器在
+adb devices
+
+# 1. 装 app 的 benchmark 变体（debuggable=false、未混淆）
+./gradlew :app:assembleBenchmark
+adb install -r app/build/outputs/apk/benchmark/app-benchmark.apk
+
+# 2. 采集 profile（3-4 分钟）
+./gradlew :baselineprofile:connectedBenchmarkAndroidTest
+
+# 3. 拷回仓库
+cp "baselineprofile/build/outputs/connected_android_test_additional_output/benchmark/connected/<设备>/BaselineProfileGenerator_generate-baseline-prof.txt"    app/src/main/baseline-prof.txt
+
+# 4. 确认 App 规则不是 0 条（0 条 = 测试没驱动到 App，见上面坑 2）
+grep -c "dev/showcode" app/src/main/baseline-prof.txt
+```
+
+### 顺带能跑的两条设备测试
+
+```bash
+./gradlew :app:connectedDebugAndroidTest
+```
+
+它跑的是 GL 折射探针（EGL + 着色器在这台设备上起不起来）和 Keystore
+（JVM 里没有 AndroidKeyStore，只能在设备上验）。这两条不需要 benchmark 变体，
+用普通的 debug 包就行。
 
 `baseline-prof.txt` 本身进版本库——它是产物，但也是「这次发布用的是哪份清单」的记录。
