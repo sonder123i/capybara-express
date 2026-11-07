@@ -16,7 +16,7 @@
 |---|---|---|
 | ![](docs/screenshots/00-onboarding.png) | ![](docs/screenshots/01-home-samples.png) | ![](docs/screenshots/02-onsite-demo.png) |
 
-> 后两张图里是**演示数据**（带「示例」水印），首次打开时不用真收一条短信就能看到产品长什么样。
+> 后两张图里是**演示数据**（屏上标注了「演示数据」），首次打开时不用真收一条短信就能看到产品长什么样。
 
 ## 它做什么
 
