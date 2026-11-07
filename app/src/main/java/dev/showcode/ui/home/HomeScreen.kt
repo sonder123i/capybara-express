@@ -114,6 +114,7 @@ import dev.showcode.ui.theme.InkWatermark
 import dev.showcode.ui.theme.InkSecondary
 import dev.showcode.ui.theme.ModuleMotion
 import dev.showcode.ui.theme.MotionEasing
+import dev.showcode.ui.theme.MotionTokens
 import dev.showcode.ui.theme.OnsiteSurface
 import dev.showcode.ui.theme.moduleEntrance
 import dev.showcode.ui.theme.rememberReducedMotion
@@ -792,6 +793,16 @@ private fun SyncRailRow(
         )
     }
     val warning = manualMessage == null && !rail.running && rail.failedLabels.isNotEmpty()
+
+    /* 收束脉冲：从「有通道在跑」变成「一个都没在跑」的那一下，四个点一起弹一下。
+       它是「都回来了」的统一信号——不然同步结束只是某个弧悄悄消失。 */
+    var wasRunning by remember { mutableStateOf(rail.running) }
+    var pulse by remember { mutableIntStateOf(0) }
+    LaunchedEffect(rail.running) {
+        if (wasRunning && !rail.running) pulse++
+        wasRunning = rail.running
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -805,7 +816,7 @@ private fun SyncRailRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         rail.channels.forEach { channel ->
-            ChannelDot(channel.state)
+            ChannelDot(channel.state, pulse)
             Spacer(Modifier.width(4.dp))
         }
         Spacer(Modifier.width(2.dp))
@@ -968,8 +979,21 @@ private fun SyncChannelRow(
  * 失败是唯一带颜色的（琥珀），因为它必须能从一行灰字里跳出来。
  */
 @Composable
-private fun ChannelDot(state: ChannelState) {
-    Box(modifier = Modifier.size(8.dp), contentAlignment = Alignment.Center) {
+private fun ChannelDot(state: ChannelState, pulse: Int = 0) {
+    /* 一次 0.22 秒的脉冲：1 → 1.45 → 1，弹簧收尾。pulse 每变一次播一遍。 */
+    val scale = remember { Animatable(1f) }
+    LaunchedEffect(pulse) {
+        if (pulse == 0) return@LaunchedEffect
+        scale.snapTo(1f)
+        scale.animateTo(1.45f, tween(90, easing = MotionEasing.FastOutSlowIn))
+        scale.animateTo(1f, MotionTokens.NavRelease)
+    }
+    Box(
+        modifier = Modifier
+            .size(8.dp)
+            .graphicsLayer { scaleX = scale.value; scaleY = scale.value },
+        contentAlignment = Alignment.Center,
+    ) {
         when (state) {
             ChannelState.FRESH -> Box(Modifier.size(6.dp).background(Ink, CircleShape))
             ChannelState.STALE -> Box(Modifier.size(6.dp).background(InkMuted, CircleShape))

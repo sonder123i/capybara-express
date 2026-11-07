@@ -315,11 +315,15 @@ fun OnsiteScreen(
                     // 多件时暗示「旁边还有一件」；单件时 offset 恒为 0，不出现。
                     val pageOffset = abs(pagerState.currentPage - index + pagerState.currentPageOffsetFraction)
                         .coerceIn(0f, 1f)
+                    /* 落点：翻到这一页时它从下方 8dp 落回原位（弹簧，不是 tween）。
+                       和邻页露边的缩放叠加——两者都只在「正在换页」时不为 0，静止时完全没有偏移。 */
+                    val landed = 1f - pageOffset
                     Box(
                         modifier = Modifier.graphicsLayer {
                             scaleX = 1f - 0.03f * pageOffset
                             scaleY = 1f - 0.03f * pageOffset
                             alpha = 1f - 0.22f * pageOffset
+                            translationY = (1f - landed) * 8.dp.toPx()
                         },
                     ) {
                     OnsiteCodeBody(

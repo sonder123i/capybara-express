@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,8 +71,10 @@ import dev.showcode.ui.theme.OnsiteInk
 import dev.showcode.ui.theme.ShowCodeShapes
 import dev.showcode.ui.theme.ShowCodeText
 import dev.showcode.ui.theme.SurfaceCard
+import dev.showcode.ui.theme.MotionProfile
 import dev.showcode.ui.theme.TabularNumbers
 import dev.showcode.ui.theme.UrgencySafe
+import dev.showcode.ui.theme.rememberReducedMotion
 import dev.showcode.ui.urgencyColor
 import kotlinx.coroutines.delay
 
@@ -145,6 +148,17 @@ fun OnsiteCodeBody(
         }
     }
 
+    /* 对焦：进屏（或换件）时码从 0.94 放大到 1.0 并上移 6dp。
+       它必须**在 180ms 内走完**——比这更长就会和「举起手机等扫码」抢时间；
+       减少动画时直接落在终态，不播。 */
+    val reducedMotion = rememberReducedMotion()
+    val focus = remember(parcel.code) { Animatable(if (reducedMotion) 1f else 0f) }
+    LaunchedEffect(parcel.code) {
+        if (!reducedMotion) {
+            focus.animateTo(1f, MotionProfile.iconSpring())
+        }
+    }
+
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         // vw 是视口宽度而不是内容宽度，所以必须在 padding 之前量。
         val viewportWidthDp = maxWidth.value
@@ -175,7 +189,15 @@ fun OnsiteCodeBody(
             /* 取件码：等宽 + 超大 + 纯黑，连字符降墨。点一下复制，长按仍然可以。 */
             Text(
                 text = dimmedSeparators(parcel.code),
-                modifier = Modifier.pointerInput(parcel.code) {
+                modifier = Modifier
+                    .graphicsLayer {
+                        val p = focus.value
+                        val s = 0.94f + 0.06f * p
+                        scaleX = s
+                        scaleY = s
+                        translationY = (1f - p) * 6.dp.toPx()
+                    }
+                    .pointerInput(parcel.code) {
                     detectTapGestures(
                         onTap = { copy() },
                         onLongPress = { copy() },
