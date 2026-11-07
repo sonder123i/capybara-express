@@ -40,3 +40,6 @@ showcode-*.apk
 
 # 截图回归的中间产物；基准图在 app/src/test/screenshots/ 里，要进版本库。
 app/build/outputs/roborazzi/
+
+# Baseline Profile 的采集产物：基准清单在 app/src/main/baseline-prof.txt，那个进版本库。
+baselineprofile/build/

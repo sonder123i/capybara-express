@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "ShowCode"
 include(":app")
+include(":baselineprofile")

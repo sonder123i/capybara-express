@@ -89,7 +89,22 @@ android {
         }
     }
 
+    /* 宏基准跑在 benchmark 变体上。`testBuildType` 决定 androidTest 挂在哪个
+       buildType 上——不写就只挂在 debug 上，而 debug 包会被宏基准拒绝
+       （ERROR: Benchmark Target is Debuggable）。 */
+
     buildTypes {
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            /* 宏基准要关掉混淆，否则 profiler 拿到的符号对不上。 */
+            isMinifyEnabled = false
+            /* ⚠️ 必须显式 false：宏基准会拒绝在 debuggable 的包上跑
+               （报「ERROR: Benchmark Target is Debuggable」）——
+               debuggable 会为了支持调试大幅拖慢执行，测出来的数不代表真实用户。 */
+            isDebuggable = false
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -148,6 +163,9 @@ dependencies {
     /* JVM 单测里的 android.jar 只是空桩（org.json 一调就抛「not mocked」）。
        更新检查要解析 Release JSON，单测必须拿真实现。 */
     testImplementation("org.json:json:20240303")
+    /* profileinstaller：让 Baseline Profile 在 Android 12 以下也能装
+       （12+ 系统自己装，12 以下要这个库代劳）。 */
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     /* 截图回归：JVM 上跑 Compose 截图，不用模拟器。
        存在的理由：visual-audit 只查得动**代码**（裸字号、裸圆角、透明度），
