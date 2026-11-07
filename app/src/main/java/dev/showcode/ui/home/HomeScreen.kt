@@ -130,6 +130,9 @@ import dev.showcode.ui.theme.UrgencySafe
 import dev.showcode.ui.theme.UrgencySafeTint
 import dev.showcode.ui.points.MergeUndoBar
 import dev.showcode.ui.points.SuspectHintCard
+import dev.showcode.ui.motion.BreathingRing
+import dev.showcode.ui.motion.ScanSweep
+import dev.showcode.ui.motion.pressLift
 import dev.showcode.ui.urgencyColor
 import dev.showcode.ui.urgencyLabel
 import kotlinx.coroutines.delay
@@ -445,6 +448,13 @@ fun HomeScreen(
                 isRefreshing = false,
                 onRefresh = onRefresh,
             ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                /* 刷新时一道光从上往下扫过整列：比转圈多说的是「正在一页一页看过去」。
+                   扫完自己停，不留任何常驻层。 */
+                ScanSweep(
+                    trigger = if (accountsSyncing && !isDemo) accountsSyncing else null,
+                    modifier = Modifier.matchParentSize(),
+                )
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = navBarClearance()),
@@ -593,6 +603,7 @@ fun HomeScreen(
                             )
                         }
                     }
+                }
                 }
             }
         }
@@ -970,28 +981,12 @@ private fun ChannelDot(state: ChannelState) {
     }
 }
 
-/** 正在跑的通道：一段 240° 的弧自己转，只有这个状态在动。 */
+/** 正在跑的通道：一圈缓慢呼吸的环，只有这个状态在动。 */
 @Composable
 private fun RunningDot() {
-    val transition = rememberInfiniteTransition(label = "sync-rail-running")
-    val angle by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(900, easing = MotionEasing.Linear)),
-        label = "sync-rail-angle",
-    )
-    Canvas(modifier = Modifier.size(8.dp)) {
-        val stroke = 1.5.dp.toPx()
-        drawArc(
-            color = AccentInk,
-            startAngle = angle,
-            sweepAngle = 240f,
-            useCenter = false,
-            topLeft = Offset(stroke / 2f, stroke / 2f),
-            size = Size(size.width - stroke, size.height - stroke),
-            style = Stroke(width = stroke, cap = StrokeCap.Round),
-        )
-    }
+    /* 从「转动的弧」换成「呼吸的环」：弧在说「在转」，环在说「在等」。
+       同步常常要十几秒，一个匀速转动的圈会让人以为它卡住了；呼吸的节奏更接近「有人在干活」。 */
+    BreathingRing(color = AccentInk, modifier = Modifier.size(8.dp), periodMs = 1_400)
 }
 
 private fun channelStateWord(state: ChannelState): String = when (state) {
@@ -1185,12 +1180,16 @@ private fun PointCard(
     val urgencyText = if (group.worst == Urgency.SAFE) null else urgencyLabel(group.worst)
     val subtitle = listOfNotNull(kindText, closingText, urgencyText).joinToString(" · ")
 
+    /* 按下时整张卡被「拎起来」2dp 并放大 1.2%：列表卡片要的是「拿起一件东西」，
+       不是「按下一个按钮」。松手落回，弹簧参数与底栏同一套。 */
+    val press = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .pressLift(press)
             .background(SurfaceCard, ShowCodeShapes.Md)
             .border(1.dp, Hairline, ShowCodeShapes.Md)
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = press, indication = null, onClick = onClick)
             .padding(14.dp)
     ) {
         // 色条：首页唯一的颜色编码位置。颜色之外永远有文字冗余（brief 的人群适配策略）

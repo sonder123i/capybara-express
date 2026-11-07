@@ -78,6 +78,7 @@ import dev.showcode.core.countdownOf
 import dev.showcode.core.staleDaysOf
 import dev.showcode.core.urgencyOf
 import dev.showcode.ui.ConfettiBurst
+import dev.showcode.ui.motion.DrawingCheck
 import dev.showcode.ui.copyCode
 import dev.showcode.ui.performTrackingLookup
 import dev.showcode.ui.pointIconOf
@@ -792,11 +793,11 @@ private fun UndoBar(isDemo: Boolean, onUndo: () -> Unit) {
                     .background(UrgencySafe, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    Icons.Filled.Check,
-                    contentDescription = null,
+                /* 勾是画出来的，不是贴上去的：多出来的 180ms 是「完成了」被看见的时间。 */
+                DrawingCheck(
+                    color = OnsiteSurface,
+                    strokeWidthDp = 2f,
                     modifier = Modifier.size(14.dp),
-                    tint = OnsiteSurface,
                 )
             }
             Spacer(Modifier.width(10.dp))
