@@ -145,9 +145,9 @@ private val Star = Color(0xFFFFFFFF)
    0 ~ 0.88r 全是 #F1C428，0.92r 是 #E5BB25，1.0r 是 #B19222。
    ⚠️ 不要「亮面」这一档——参考图的球面没有高光，
    加一个亮斑就变成乒乓球（用户连着两次说不对）。 */
-private val SunFace = Color(0xFFF1C428)
-private val SunEdge = Color(0xFFE5BB25)
-private val SunRim = Color(0xFFC69C1E)
+private val SunFace = Color(0xFFF7CB32)
+private val SunEdge = Color(0xFFEDC02C)
+private val SunRim = Color(0xFFCFA424)
 /* 月亮：本色 + 两档边缘压暗，和太阳同一套。
    ⚠️ 曾经把本色提到 #D6DBE4，渲染成 216——在深色槽里跳成一块「白饼」。 */
 private val MoonFace = Color(0xFFC3C9D3)
