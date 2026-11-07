@@ -139,7 +139,6 @@ private val NightBand1 = Color(0xFF1C1F2C)
 private val NightBand2 = Color(0xFF2D333D)
 private val NightBand3 = Color(0xFF3E4250)
 private val NightBand4 = Color(0xFF4C505C)
-private val NightBand5 = Color(0xFF646878)
 private val Star = Color(0xFFFFFFFF)
 private val SunFace = Color(0xFFF1C428)
 /* 月亮的灰直接取参考图实测值 #C3C9D1。
@@ -251,11 +250,16 @@ private fun DrawScope.drawNightSky(alpha: Float) {
     drawRect(color = NightBand1.copy(alpha = NightBand1.alpha * a))
     /* (边界 x, 颜色, 圆的垂直中心偏移)：偏移让每层的弧顶高低错开，
        否则四条弧会在同一高度对齐，又变回「竖线」。 */
+    /* 只有三层，**最右那层刻意不再提亮**。
+       原本还有第 4 层 `NightBand5`（#646878）铺在 0.92 处，但月亮正好在轨道
+       最右端，把那层盖住大半，只在球的左缘和下缘露出一圈更亮的灰——
+       读起来就像月亮外挂了一圈脏光（用户说的「显脏」就是这个）。
+       参考图月亮右侧的天空实测 (78,83,94)，和左边几乎一样深，所以这里收在
+       NightBand4 就停。 */
     val layers = listOf(
         Triple(0.26f, NightBand2, 0.30f),
         Triple(0.48f, NightBand3, 0.62f),
         Triple(0.70f, NightBand4, 0.36f),
-        Triple(0.92f, NightBand5, 0.66f),
     )
     layers.forEach { (edge, color, cyf) ->
         val r = h * 2.4f
@@ -440,8 +444,18 @@ private fun DrawScope.drawThumb(progress: Float) {
        就变成月亮外挂着一块脏雾——用户报的「白色区域」就是它。
        光源感交给背景的明度差去做，球上不要再加任何发光。 */
 
-    /* 落影：球压在槽里的投影，偏下一点。 */
-    drawCircle(Color.Black.copy(alpha = 0.18f), r * 0.98f, Offset(c.x, c.y + r * 0.14f))
+    /* 落影：球压在槽里的投影，偏下一点。
+       ⚠️ **只在白天（太阳）画**。夜里这颗球是月亮，它的光是自己发出来的，
+       再压一圈投影就成了「月亮外面套了个脏边」——半径 0.98r 的硬圆只往
+       下偏 0.14r，露出来的那圈暗环紧贴球缘，读成描边而不是投影。
+       这就是「月光显脏」的最后一点来源。 */
+    if (progress < 1f) {
+        drawCircle(
+            color = Color.Black.copy(alpha = 0.18f * (1f - progress)),
+            radius = r * 0.98f,
+            center = Offset(c.x, c.y + r * 0.14f),
+        )
+    }
 
     /* 太阳：整颗纯黄，没有光芒也没有高光（参考图就是一块实心色）。 */
     drawCircle(SunFace, r, c)
