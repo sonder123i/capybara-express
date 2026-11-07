@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -62,10 +63,21 @@ fun ThemeToggle(
     enabled: Boolean = true,
 ) {
     val haptics = LocalHapticFeedback.current
-    val progress by animateFloatAsState(
-        targetValue = if (dark) 1f else 0f,
+    val target = if (dark) 1f else 0f
+    /* 两条时间线，**故意不同步**：
+     *
+     * - **天空**（`skyProgress`）**瞬时**跟着页面走。页面主题是瞬间切换的
+     *   （`ShowCodePaletteState` 一改全 App 立刻重组），天空只要慢一帧，
+     *   就会在刚变白的卡片上留一块深色——那正是「暗切亮时框内闪黑」。
+     *   这里曾经给天空 140ms 的 tween，仍然看得见；所以它现在是 0。
+     * - **球**（`thumbProgress`）走 280ms 的弹簧，它才是「角色在动」的那一半，
+     *   而且球本来就只在槽内移动，不参与背景明暗，慢一点不会有色块冲突。
+     */
+    val skyProgress = target
+    val thumbProgress by animateFloatAsState(
+        targetValue = target,
         animationSpec = MotionTokens.LiquidSettle,
-        label = "theme-toggle",
+        label = "theme-toggle-thumb",
     )
     val interaction = remember { MutableInteractionSource() }
     val label = if (dark) "当前是暗色，点一下换亮色" else "当前是亮色，点一下换暗色"
@@ -90,8 +102,8 @@ fun ThemeToggle(
         contentAlignment = Alignment.CenterStart,
     ) {
         Canvas(modifier = Modifier.width(TrackWidth).height(TrackHeight)) {
-            drawTrack(progress)
-            drawThumb(progress)
+            drawTrack(skyProgress)
+            drawThumb(thumbProgress)
         }
     }
 }
@@ -106,15 +118,33 @@ private val ThumbSize = 28.dp                                      // 井 36dp �
 private val ThumbTravel = TrackWidth - WellInset * 2 - ThumbPad * 2 - ThumbSize
 
 /* ── 颜色：全部从参考图取样 ─────────────────────────────────────────── */
-private val SkyShadow = Color(0xFF2E4A66)
-private val SkyMid = Color(0xFF5A93C1)
-private val SkyLight = Color(0xFF9BC9E4)
+/* 晴朗的天：从「浅天蓝」到「近白的地平线」，全程不提黑。
+   参考图的顶部其实有一道深蓝，但缩到 44dp 高之后那一道会被读成「发霉」，
+   所以这里刻意提亮——用户要的是「晴朗」，不是「傍晚」。 */
+/* 色值直接取自参考图（`ref-sky-big.png` 逐像素采样）：
+   天空中部 #4888BB、下部 #5893C5。参考图的「晴朗」来自**饱和度**，
+   不是来自亮度——所以这一版比上一版更深、更蓝，但顶部绝不再压黑。 */
+private val SkyTopEdge = Color(0xFF5D91C2)
+private val SkyMain = Color(0xFF538CC2)
+private val SkyLower = Color(0xFF7FB4DA)
+private val SkyHaze = Color(0xFFD8ECF8)
 private val Cloud = Color(0xFFFFFFFF)
-private val NightDeep = Color(0xFF3F4250)
-private val NightSoft = Color(0xFF565A6B)
+/* 云的三层：越远越蓝、越小、位置越高。参考图里正是这三层叠出纵深。 */
+private val CloudFar = Color(0xFFB6D3EA)   // 参考图取样 #ADCAE6，略提亮以抵消屏幕压缩
+private val CloudMid = Color(0xFFD6E8F6)
+/* 阳光的暖白：纯白在蓝天上像雾，带一点黄才像光。 */
+private val SunGlow = Color(0xFFFFF0C8)
+/* 夜空的四段带，色值取自参考图逐列采样（`ref-frame5.png`）。 */
+private val NightBand1 = Color(0xFF1C1F2C)
+private val NightBand2 = Color(0xFF2D333D)
+private val NightBand3 = Color(0xFF3E4250)
+private val NightBand4 = Color(0xFF4C505C)
+private val NightBand5 = Color(0xFF646878)
 private val Star = Color(0xFFFFFFFF)
 private val SunFace = Color(0xFFF1C428)
+private val MoonTop = Color(0xFFD6DBE4)
 private val MoonFace = Color(0xFFC3C9D3)
+private val MoonLow = Color(0xFFAEB5C2)
 private val CraterInk = Color(0xFF959DB0)
 
 /**
@@ -142,32 +172,58 @@ private fun DrawScope.drawTrack(progress: Float) {
     )
 
     clipPath(wellPath) {
-        /* 白天与黑夜两层交叉淡入：不是滑过去，是「同一块天空换了时间」。 */
+        /* 晴天永远画满（alpha = 1），夜色只往上叠一层。
+         *
+         * ⚠️ 这里曾经是「两层都按 progress 交叉淡入」——那会在中点留下 25% 的透明，
+         * 卡片底色从井里透出来，就是用户报的「暗色切亮色时框内闪黑」。
+         * 天空必须是不透明的地板，夜色是盖在上面的被子，顺序不能反。
+         */
         drawRect(
             brush = Brush.verticalGradient(
-                0f to SkyShadow,
-                0.45f to SkyMid,
-                0.78f to SkyLight,
-                1f to Color.White,
+                0.00f to SkyTopEdge,
+                0.34f to SkyMain,
+                0.70f to SkyLower,
+                0.94f to SkyHaze,
+                1.00f to SkyHaze,
             ),
-            alpha = 1f - progress,
         )
-        drawRect(
-            brush = Brush.verticalGradient(
-                0f to Color(0xFF23252E),
-                0.5f to NightDeep,
-                1f to NightSoft,
-            ),
-            alpha = progress,
+        /* 晴天的三件套，按「远 → 近」叠：光束 → 远云 → 近云。
+           参考图里最显眼的就是那几道从太阳斜着射出去的浅色光带——
+           它比云更能表达「晴」，所以放在云下面、只压天空。 */
+        if (progress < 1f) {
+            val a = 1f - progress
+            drawSunRays(a)
+            drawClouds(a)
+        }
+        /* 夜色：参考图（`ref-frame5.png`）从左到右是 **四层由深到浅的云影**，
+           而不是一块黑底撒几颗星。正是这四层让暗色和白天一样有纵深。
+         *
+         * ⚠️ 两层都试过，都不行：
+         * - 纯 `horizontalGradient` 四段：边界是**竖直线**，读成「画了三条线」；
+         * - 过渡区间给到 0.09：四段被渐变糊成一片，完全看不出层次。
+         *
+         * 参考图的边界其实是**弧**（凸向左侧，像一团团云的后缘），
+         * 所以这里用半径很大的圆来切——半径是井高的 1.6 倍，
+         * 弧顶位置就是色带的边界，弧线因此极缓，看不出是圆。 */
+        if (progress > 0f) {
+            drawNightSky(progress)
+            drawStars(progress)
+        }
+        /* 内高光：沿井口内侧一圈极淡的白，让槽看起来是「被凿出来的玻璃」。
+           参考图左上那道亮边就是它，只有 0.5dp 宽，但少了它就平。 */
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.22f),
+            topLeft = Offset(well.left + 0.5f, well.top + 0.5f),
+            size = Size(well.width - 1f, well.height - 1f),
+            cornerRadius = CornerRadius(radius, radius),
+            style = Stroke(width = 1f),
         )
-        if (progress < 1f) drawClouds(1f - progress)
-        if (progress > 0f) drawStars(progress)
         /* 槽顶压暗一档：这是「凹」最直接的一笔。 */
         drawRect(
             brush = Brush.verticalGradient(
-                colors = listOf(Color.Black.copy(alpha = 0.26f), Color.Transparent),
+                colors = listOf(Color.Black.copy(alpha = 0.11f), Color.Transparent),
                 startY = well.top,
-                endY = well.top + well.height * 0.40f,
+                endY = well.top + well.height * 0.09f,
             ),
         )
     }
@@ -175,20 +231,155 @@ private fun DrawScope.drawTrack(progress: Float) {
 }
 
 /**
- * 云：一整个连续的团，不是三个分离的圆——同色圆叠在一起，重叠处自然合成一片。
- * 越靠右越大越低，给左边的太阳让出位置。
+ * 夜空：四层弧边云影，从深到浅往右排。
+ *
+ * 每层的边界是「半径 = 2.4 × 井高的大圆的左缘」——弧顶落在 [edgeX]，
+ * 弧线极缓，视觉上就是一条微微向左鼓的软边，和参考图一致。
+ *
+ * 为什么不用 `horizontalGradient` 分四段：那样边界是**竖直线**，
+ * 缩到 44dp 高之后读成「画了三条线」，完全没有参考图那种云影的层次。
+ */
+private fun DrawScope.drawNightSky(alpha: Float) {
+    val a = alpha.coerceIn(0f, 1f)
+    val h = size.height
+    val w = size.width
+    drawRect(color = NightBand1.copy(alpha = NightBand1.alpha * a))
+    /* (边界 x, 颜色, 圆的垂直中心偏移)：偏移让每层的弧顶高低错开，
+       否则四条弧会在同一高度对齐，又变回「竖线」。 */
+    val layers = listOf(
+        Triple(0.26f, NightBand2, 0.30f),
+        Triple(0.48f, NightBand3, 0.62f),
+        Triple(0.70f, NightBand4, 0.36f),
+        Triple(0.92f, NightBand5, 0.66f),
+    )
+    layers.forEach { (edge, color, cyf) ->
+        val r = h * 2.4f
+        drawCircle(
+            color = color.copy(alpha = color.alpha * a),
+            radius = r,
+            center = Offset(w * edge + r, h * cyf),
+        )
+    }
+}
+
+/**
+ * 光束：从太阳中心斜着射出去的几道浅色带。
+ *
+ * 参考图里那几道竖条纹不是装饰——它们是「太阳在左边、光往右上走」的方向感。
+ * 做法是几个平行四边形（随高度略微右倾），越靠右越淡、越窄，
+ * 全部用白 6%~10% 的极低透明度，叠在天空上只提亮、不变白。
+ */
+/**
+ * 晴天的光：太阳周围一小圈暖光 + 三道**宽而近垂直**的光带。
+ *
+ * 两次失败换来的结论：
+ * - 光晕半径不能大（1.25h 时整块天空被洗成灰绿，云也糊了），这里收到 0.85h、峰值 0.28；
+ * - 光带不能窄、不能斜（0.06w × 0.34h 斜切读成栅栏），要**宽**（0.13w）且几乎垂直（0.04h）。
+ */
+private fun DrawScope.drawSunRays(alpha: Float) {
+    val a = alpha.coerceIn(0f, 1f)
+    val h = size.height
+    val w = size.width
+    val sunCx = WellInset.toPx() + ThumbPad.toPx() + ThumbSize.toPx() / 2f
+    val sunCy = size.height / 2f
+
+    /* ① 紧贴球缘的一圈白光。
+       半径 0.85h 的暖光晕试过，会把左上角洗成灰绿——那不是「晴」，是「雾霾」。
+       参考图里太阳边缘其实只有极窄的一圈提亮，所以这里收到 0.58h、峰值 0.16。 */
+    val glowR = h * 0.62f
+    drawCircle(
+        brush = Brush.radialGradient(
+            0f to SunGlow.copy(alpha = a * 0.34f),
+            0.50f to SunGlow.copy(alpha = a * 0.11f),
+            1f to Color.Transparent,
+            center = Offset(sunCx, sunCy),
+            radius = glowR,
+        ),
+        radius = glowR,
+        center = Offset(sunCx, sunCy),
+    )
+
+    /* ② 三道宽光带，从太阳右缘往外铺；越远越淡。 */
+    val bands = listOf(
+        Triple(0.33f, 0.115f, 0.20f),
+        Triple(0.48f, 0.095f, 0.16f),
+        Triple(0.62f, 0.075f, 0.12f),
+    )
+    bands.forEach { (fx, fw, fa) ->
+        val top = fx * w
+        val skew = h * 0.04f
+        val path = Path().apply {
+            moveTo(top, 0f)
+            lineTo(top + fw * w, 0f)
+            lineTo(top + fw * w + skew, h)
+            lineTo(top + skew, h)
+            close()
+        }
+        drawPath(
+            path = path,
+            brush = Brush.horizontalGradient(
+                0f to Color.Transparent,
+                0.45f to Color.White.copy(alpha = a * fa),
+                1f to Color.Transparent,
+                startX = top,
+                endX = top + fw * w + skew,
+            ),
+        )
+    }
+
+}
+
+/**
+ * 云：两层。
+ *
+ * - **远云**（`CloudFar`）：更大、更高、偏灰蓝，压在天空里，制造纵深；
+ * - **近云**（白）：贴底、更实、边缘更清晰，是参考图里那几团大白。
+ *
+ * 只有一层会显得「贴纸感」——纵深靠的就是这一前一后两个明度差。
  */
 private fun DrawScope.drawClouds(alpha: Float) {
     val a = alpha.coerceIn(0f, 1f)
     val h = size.height
     val w = size.width
-    fun puff(fx: Float, fy: Float, fr: Float, al: Float) {
-        drawCircle(Cloud.copy(alpha = a * al), h * fr, Offset(w * fx, h * fy))
+    fun puff(color: Color, fx: Float, fy: Float, fr: Float, al: Float) {
+        drawCircle(color.copy(alpha = color.alpha * a * al), h * fr, Offset(w * fx, h * fy))
     }
-    puff(0.44f, 1.02f, 0.30f, 0.95f)
-    puff(0.60f, 0.92f, 0.34f, 1.00f)
-    puff(0.78f, 1.00f, 0.32f, 1.00f)
-    puff(0.94f, 0.88f, 0.28f, 0.95f)
+    /* 云按参考图（`ref-sky-big.png`）量出来的轮廓摆，井口归一化成 0~1：
+     *
+     * | x    | 白云顶 | 淡云顶 |
+     * |------|--------|--------|
+     * | 0.42 | 0.77   | 0.58   |
+     * | 0.62 | 0.83   | 0.49   |
+     * | 0.77 | 0.74   | 0.40   |
+     * | 0.92 | 0.29   | 0.00   |
+     *
+     * 关键那条：**右侧是一整片斜着爬上去的云堤**，从左下一直顶到右上角。
+     * 只把云铺在底边，右半张就全是空蓝——那才是「单调」的根。
+     *
+     * 形状上试过三种：
+     * - 正圆半径 0.24h：圆之间只剩深谷，读成「扇贝边」；
+     * - 横向压扁的椭圆：云顶变成一道软坡，**体积感全丢**（更糟）；
+     * - 正圆半径 0.30~0.34h：相邻圆重叠过半，交点只比圆顶低一点点，
+     *   云顶既连成一片又保留圆顶的起伏——参考图就是这个。
+     */
+    /* ① 远云：最蓝，垫在最后，只在右上露出来。 */
+    puff(CloudFar, 0.60f, 0.86f, 0.34f, 0.92f)
+    puff(CloudFar, 0.82f, 0.62f, 0.35f, 0.92f)
+    puff(CloudFar, 1.02f, 0.30f, 0.36f, 0.92f)
+    /* ② 中云：淡蓝，把远云和白云隔开一层。
+       这一层比白云高半格，露出来的那半圈就是「云后面的云」。 */
+    puff(CloudMid, 0.46f, 0.94f, 0.33f, 0.97f)
+    puff(CloudMid, 0.68f, 0.80f, 0.34f, 0.97f)
+    puff(CloudMid, 0.90f, 0.54f, 0.35f, 0.97f)
+    /* ③ 近云：纯白，参考图里那几团最实的大白，右端顺着斜线一路爬高。
+       fy 一律压在 1.02~1.06：再低就只剩一条白边，再高就盖掉太阳。 */
+    puff(Cloud, 0.30f, 1.06f, 0.31f, 1.00f)
+    puff(Cloud, 0.48f, 1.04f, 0.32f, 1.00f)
+    puff(Cloud, 0.66f, 1.02f, 0.32f, 1.00f)
+    puff(Cloud, 0.84f, 0.86f, 0.32f, 1.00f)
+    puff(Cloud, 1.02f, 0.54f, 0.34f, 1.00f)
+    /* 太阳脚下压一团：让球「坐」在云上而不是浮着。 */
+    puff(Cloud, 0.08f, 1.16f, 0.28f, 0.96f)
 }
 
 /** 星：一小撮亮点 + 两颗四角星。位置固定，随机会让每帧画面抖。 */
@@ -202,6 +393,9 @@ private fun DrawScope.drawStars(alpha: Float) {
         Triple(0.31f, 0.48f, 0.40f),
         Triple(0.40f, 0.76f, 0.50f),
         Triple(0.48f, 0.32f, 0.35f),
+        Triple(0.09f, 0.60f, 0.30f),
+        Triple(0.26f, 0.20f, 0.26f),
+        Triple(0.44f, 0.62f, 0.22f),
     )
     dots.forEach { (fx, fy, bright) ->
         drawCircle(Star.copy(alpha = a * bright), h * 0.016f, Offset(w * fx, h * fy))
@@ -222,33 +416,93 @@ private fun DrawScope.fourPointStar(cx: Float, cy: Float, len: Float, alpha: Flo
 
 /* ── 球：太阳与月亮 ─────────────────────────────────────────────────── */
 
+/**
+ * 球：太阳与月亮在同一颗球上「擦除式」交替。
+ *
+ * 参考图里的过渡不是淡入淡出，是**一道弧从右往左扫过球面**：
+ * 扫过的部分是月亮（灰 + 坑），没扫过的还是太阳（黄）。
+ * 所以这里画两颗同心的球，用一条半径很大的圆弧当遮罩——
+ * 大半径让边界看起来是「弯的」，和参考图一致。
+ */
 private fun DrawScope.drawThumb(progress: Float) {
     val r = ThumbSize.toPx() / 2f
     val left = WellInset.toPx() + ThumbPad.toPx() + ThumbTravel.toPx() * progress
     val c = Offset(left + r, size.height / 2f)
 
+    /* 月晕：月亮背后一圈柔光。参考图里月亮周围的天空明显比左边亮，
+       正是这圈光让「夜里有个光源」，而不是「贴了个灰圆片」。 */
+    if (progress > 0.02f) {
+        val haloR = r * 2.6f
+        drawCircle(
+            brush = Brush.radialGradient(
+                0f to Color(0xFF8E96AA).copy(alpha = 0.42f * progress),
+                0.42f to Color(0xFF6E7688).copy(alpha = 0.20f * progress),
+                1f to Color.Transparent,
+                center = c,
+                radius = haloR,
+            ),
+            radius = haloR,
+            center = c,
+        )
+    }
+
     /* 落影：球压在槽里的投影，偏下一点。 */
     drawCircle(Color.Black.copy(alpha = 0.18f), r * 0.98f, Offset(c.x, c.y + r * 0.14f))
 
-    /* 球体近乎纯色：参考图里太阳是一整块 #F1C428，只有最外缘一圈略暗。
-       不用径向高光——那会变成塑料球。 */
-    drawCircle(lerpColor(SunFace, MoonFace, progress), r, c)
+    /* 太阳：整颗纯黄，没有光芒也没有高光（参考图就是一块实心色）。 */
+    drawCircle(SunFace, r, c)
 
-    if (progress < 1f) drawSunFace(c, r, 1f - progress)
-    if (progress > 0f) drawMoonFace(c, r, progress)
+    /* 月亮：从右边缘起，用一个大圆当遮罩扫过来。p=0 时遮罩完全在球外，
+       p=1 时把整颗球盖住。半径取 1.9r，边界因此是一段缓弧而不是直线。 */
+    if (progress > 0f) {
+        val wipeR = r * 1.9f
+        /* 圆心从「球右缘再往外 1.9r」移到「球心」，正好扫完整颗球。 */
+        val wipeCx = c.x + (1f - progress) * (r + wipeR)
+        val moonMask = Path().apply {
+            addOval(
+                androidx.compose.ui.geometry.Rect(
+                    center = Offset(wipeCx, c.y),
+                    radius = wipeR,
+                )
+            )
+        }
+        clipPath(moonMask) {
+            /* 多画 1px：遮罩边缘抗锯齿会漏出底下那道黄，缩在 r 上会留一圈金边。 */
+            drawCircle(
+                brush = Brush.verticalGradient(
+                    0f to MoonTop,
+                    0.55f to MoonFace,
+                    1f to MoonLow,
+                    startY = c.y - r,
+                    endY = c.y + r,
+                ),
+                radius = r + 1f,
+                center = c,
+            )
+            drawMoonCraters(c, r)
+            /* 外缘一圈亮边 + 底缘一圈暗弧：参考图里月亮是「有厚度」的圆片，
+                少了这两笔就会平贴在夜空上。 */
+            drawCircle(
+                color = Color.White.copy(alpha = 0.42f),
+                radius = r - 0.8f,
+                center = c,
+                style = Stroke(width = 1.4f),
+            )
+            drawArc(
+                color = Color(0xFF9AA1B1).copy(alpha = 0.32f),
+                startAngle = 25f,
+                sweepAngle = 130f,
+                useCenter = false,
+                topLeft = Offset(c.x - r + 1f, c.y - r + 1f),
+                size = Size(r * 2f - 2f, r * 2f - 2f),
+                style = Stroke(width = r * 0.14f),
+            )
+        }
+    }
 }
 
-/**
- * 太阳：参考图里就是一颗**纯平**的黄球——没有光芒、没有高光、没有内圈。
- *
- * 这一版什么都不画。之前加过一圈 9% 的白当高光，在深色槽上渲染成一道可见的环，
- * 反而像贴了个塑料盖；参考图的干净正是来自「什么都不加」。
- */
-private fun DrawScope.drawSunFace(center: Offset, r: Float, alpha: Float) = Unit
-
-/** 月亮：三个坑，位置与大小照参考图（左中最大、右上中等、右下最小）。 */
-private fun DrawScope.drawMoonFace(center: Offset, r: Float, alpha: Float) {
-    val a = alpha.coerceIn(0f, 1f)
+/** 月亮上的三个坑，位置与大小照参考图（左中最大、右上中等、右下最小）。 */
+private fun DrawScope.drawMoonCraters(center: Offset, r: Float) {
     val craters = listOf(
         Triple(-0.16f, 0.16f, 0.30f),
         Triple(0.30f, -0.34f, 0.20f),
@@ -256,7 +510,7 @@ private fun DrawScope.drawMoonFace(center: Offset, r: Float, alpha: Float) {
     )
     craters.forEach { (dx, dy, rr) ->
         drawCircle(
-            color = CraterInk.copy(alpha = a * 0.72f),
+            color = CraterInk,
             radius = r * rr,
             center = Offset(center.x + r * dx, center.y + r * dy),
         )
