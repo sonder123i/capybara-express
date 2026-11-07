@@ -28,6 +28,9 @@ val BorderDueSoon: Color get() = ShowCodePaletteState.current.borderDueSoon
 
 /** 压在各自 tint 上的副标题色：同色相、足够深，不是半透明。 */
 val UrgencySafeInk: Color get() = ShowCodePaletteState.current.urgencySafeInk
+
+/** 成功色按钮的键程底边（同色相压深一档，暗色下压亮）。 */
+val UrgencySafeEdge: Color get() = ShowCodePaletteState.current.urgencySafeEdge
 val UrgencyDueSoonInk: Color get() = ShowCodePaletteState.current.urgencyDueSoonInk
 val UrgencyAtRiskInk: Color get() = ShowCodePaletteState.current.urgencyAtRiskInk
 

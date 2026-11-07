@@ -43,6 +43,8 @@ data class ShowCodePalette(
     /* 同色系「降一档」的文字色：压在各自的 tint 上当副标题用。
        不是半透明（那会掉对比度），是把同一个色相压深/提亮到能过 4.5:1 的值。 */
     val urgencySafeInk: Color,
+    /** 成功色按钮的「键程」底边：同一色相压深一档。 */
+    val urgencySafeEdge: Color,
     val urgencyDueSoonInk: Color,
     val urgencyAtRiskInk: Color,
     val surfaceInset: Color,
@@ -80,6 +82,7 @@ val ShowCodeLightPalette = ShowCodePalette(
     urgencyDueSoonTint = Color(0xFFFFF4E9),
     urgencyAtRiskTint = Color(0xFFFFEAEC),
     urgencySafeInk = Color(0xFF00734C),
+    urgencySafeEdge = Color(0xFF00A16B),
     urgencyDueSoonInk = Color(0xFFA85A00),
     urgencyAtRiskInk = Color(0xFFB0121D),
     surfaceInset = Color(0x09000000),
@@ -123,6 +126,7 @@ val ShowCodeDarkPalette = ShowCodePalette(
     urgencyDueSoonTint = Color(0xFF3A2C14),
     urgencyAtRiskTint = Color(0xFF3A1D22),
     urgencySafeInk = Color(0xFF6FE3B4),
+    urgencySafeEdge = Color(0xFF2FB37B),
     urgencyDueSoonInk = Color(0xFFFFC46B),
     urgencyAtRiskInk = Color(0xFFFF9A9A),
     surfaceInset = Color(0x0AFFFFFF),

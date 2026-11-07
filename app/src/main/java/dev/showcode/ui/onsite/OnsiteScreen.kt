@@ -55,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -101,12 +102,16 @@ import dev.showcode.ui.theme.OnsiteSurface
 import dev.showcode.ui.theme.ShowCodeShapes
 import dev.showcode.ui.theme.ShowCodeText
 import dev.showcode.ui.theme.SurfaceFloating
+import dev.showcode.ui.theme.SurfaceDeep
 import dev.showcode.ui.theme.SurfaceInsetStrong
+import dev.showcode.ui.theme.HairlineStrong
+import dev.showcode.ui.theme.SurfaceSunken
 import dev.showcode.ui.theme.TabularNumbers
 import dev.showcode.ui.theme.UrgencyDueSoon
 import dev.showcode.ui.theme.UrgencyDueSoonTint
 import dev.showcode.ui.theme.environmentBackground
 import dev.showcode.ui.theme.UrgencySafe
+import dev.showcode.ui.theme.UrgencySafeEdge
 import dev.showcode.ui.theme.UrgencySafeTint
 import dev.showcode.ui.theme.rememberReducedMotion
 import kotlin.math.abs
@@ -870,13 +875,29 @@ private fun PositionRow(index: Int, total: Int, showTilesEntry: Boolean, onOpenT
     }
 }
 
-/** 「已取」：底部安全区之上、单手拇指可达、64dp 高（≥56dp 硬标准，手套 + 水屏容错）。
- *  多邻国那种实体键：下面垫一条 4dp 的边，按下去时整颗键沉进去；落指一次轻触觉。 */
+/**
+ * 「已取」：底部安全区之上、单手拇指可达、64dp 高（≥56dp 硬标准，手套 + 水屏容错）。
+ *
+ * 借多邻国那颗绿色继续键的三段：
+ * 1. **静止是淡灰**——它不是一个「危险的黑按钮」，而是一颗等着被按的键；
+ * 2. **按下去立刻转绿**（110ms）——绿只在这一下出现，是「做成了」而不是「可以做」；
+ * 3. **绿停留 220ms 再退灰**——退的时候下一件已经换上来，绿是上一件的句号。
+ *
+ * 键程照旧：底下一条 3dp 深色边，按下沉 3dp。落指一次轻震。
+ * 点击回调在**第一帧**就发出去（loading-submit 红线：状态不能等动画），
+ * 绿只是这一颗键自己的表演。
+ */
 @Composable
 private fun PickedButton(onClick: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
+    val reduced = rememberReducedMotion()
+
+    /* 0 = 淡灰待按，1 = 成功绿。 */
+    val success = remember { Animatable(0f) }
+    var firing by remember { mutableStateOf(false) }
+
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.98f else 1f,
         animationSpec = MotionProfile.iconSpring(),
@@ -887,6 +908,29 @@ private fun PickedButton(onClick: () -> Unit) {
         animationSpec = MotionProfile.iconSpring(),
         label = "picked-sink",
     )
+
+    LaunchedEffect(firing) {
+        if (!firing) return@LaunchedEffect
+        if (reduced) {
+            /* 减少动画：不闪，只把状态交出去。 */
+            success.snapTo(1f)
+        } else {
+            success.animateTo(1f, tween(110, easing = MotionEasing.FastOutSlowIn))
+            delay(220)
+            success.animateTo(0f, tween(200, easing = MotionEasing.Standard))
+        }
+        firing = false
+    }
+
+    val p = success.value
+    val face = lerp(SurfaceSunken, UrgencySafe, p)
+    val edge = lerp(SurfaceDeep, UrgencySafeEdge, p)
+    /* 静止态的文字用 InkSecondary 而不是 InkMuted：淡灰底 + 浅灰字会被读成「禁用」，
+       而它其实是这一屏唯一要按的键。 */
+    val label = lerp(InkSecondary, OnsiteSurface, p)
+    /* 静止时补一圈描边：有轮廓才像一颗「等着被按的键」，纯色块像占位。 */
+    val outline = lerp(HairlineStrong, UrgencySafe, p)
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -896,8 +940,8 @@ private fun PickedButton(onClick: () -> Unit) {
         Box(
             modifier = Modifier
                 .matchParentSize()
-                .offset(y = 4.dp)
-                .background(InkMuted, RoundedCornerShape(16.dp)),
+                .offset(y = 3.dp)
+                .background(edge, ShowCodeShapes.Md),
         )
         Row(
             modifier = Modifier
@@ -908,17 +952,31 @@ private fun PickedButton(onClick: () -> Unit) {
                     scaleX = scale
                     scaleY = scale
                 }
-                .background(OnsiteInk, RoundedCornerShape(16.dp))
+                .background(face, ShowCodeShapes.Md)
+                .border(1.dp, outline, ShowCodeShapes.Md)
                 .clickable(interactionSource = interaction, indication = null) {
+                    if (firing) return@clickable
                     haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                    firing = true
+                    /* 回调在第一帧就发：绿是表演，不能拖住状态。 */
                     onClick()
                 },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
-            Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(22.dp), tint = OnsiteSurface)
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = label,
+            )
             Spacer(Modifier.width(8.dp))
-            Text(text = stringResource(R.string.onsite_picked), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = OnsiteSurface)
+            Text(
+                text = stringResource(R.string.onsite_picked),
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = label,
+            )
         }
     }
 }
