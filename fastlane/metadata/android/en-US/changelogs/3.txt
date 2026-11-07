@@ -1,0 +1,6 @@
+· Refresh is faster: unchanged parcels are no longer re-fetched; a steady-state refresh usually takes a few seconds.
+· A new sync rail on Home shows each channel (SMS / JD / Taobao / Pinduoduo) with per-channel retry.
+· Onboarding is down to two screens: a sample pickup card, then an optional account binding.
+· Identity codes: pin-to-home is gone; saved codes come before the official-entry list.
+· On-site mode: tap the code to copy; a completion screen appears after the last parcel.
+· Settings copy is tighter, and there is a new "Check for updates" (Gitee first, GitHub fallback, checksum verified).
