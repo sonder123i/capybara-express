@@ -33,3 +33,7 @@ docs/screenshots/ref-nav-*
 docs/screenshots/ref-runtime-*
 docs/screenshots/ref-nav-motion.*
 *.dump
+
+# 本机签名产物 / 发布附件
+/SHA256SUMS.txt
+showcode-*.apk

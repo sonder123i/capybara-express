@@ -188,6 +188,12 @@ Gitee 没有这个版本时才回 GitHub。镜像创建发行版失败不会阻�
 再在 Gitee「设置 → 私人令牌」建一个带 `projects` 权限的令牌，存进 GitHub Actions 的
 `GITEE_TOKEN`。之后每次打 `v*` 标签都会同时出两边的发行版；**不发标签就不会有更新提示**。
 
+没有配 CI 密钥时，也可以本机签好包后直接补一个 Gitee 发行版：
+
+```bash
+GITEE_TOKEN=xxxx tools/publish-gitee.sh v0.3.0 showcode-0.3.0.apk SHA256SUMS.txt
+```
+
 ### 商店
 
 尚未上架任何应用商店（包括 F-Droid）。仓库里已经按 F-Droid 的格式放好了
