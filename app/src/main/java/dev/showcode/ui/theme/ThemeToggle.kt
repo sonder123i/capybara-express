@@ -235,40 +235,31 @@ private fun DrawScope.drawTrack(progress: Float) {
 }
 
 /**
- * 夜空：四层弧边云影，从深到浅往右排。
+ * 夜空：一条**平滑**的左深右浅渐变，不带任何可见的边界。
  *
- * 每层的边界是「半径 = 2.4 × 井高的大圆的左缘」——弧顶落在 [edgeX]，
- * 弧线极缓，视觉上就是一条微微向左鼓的软边，和参考图一致。
+ * 这里试过三版「分层」，全部被读成脏痕，最后放弃：
  *
- * 为什么不用 `horizontalGradient` 分四段：那样边界是**竖直线**，
- * 缩到 44dp 高之后读成「画了三条线」，完全没有参考图那种云影的层次。
+ * 1. `horizontalGradient` 分四段（边界竖线）→ 像刷了三道竖痕；
+ * 2. 三层弧各用不同圆心高度 → 弧线互相交叉，交叉处拼出斑块；
+ * 3. 三层同心弧 + 描一道 4.5% 的白当亮边 → 那根 `Stroke` 就是划痕本身。
+ *
+ * 根因是**尺寸**：参考图轨道宽 212px，能容下三道云影的边界；
+ * 这里只有 95dp，任何一条边界都只有一两像素的过渡空间，必然读成线。
+ * 所以夜色只保留「右浅」这个方向感——它靠渐变就够，不需要画出来。
+ *
+ * 星星仍然是星星，纵深交给它们和月亮的明度差去做。
  */
 private fun DrawScope.drawNightSky(alpha: Float) {
     val a = alpha.coerceIn(0f, 1f)
-    val h = size.height
-    val w = size.width
-    drawRect(color = NightBand1.copy(alpha = NightBand1.alpha * a))
-    /* (边界 x, 颜色, 圆的垂直中心偏移)：偏移让每层的弧顶高低错开，
-       否则四条弧会在同一高度对齐，又变回「竖线」。 */
-    /* 只有三层，**最右那层刻意不再提亮**。
-       原本还有第 4 层 `NightBand5`（#646878）铺在 0.92 处，但月亮正好在轨道
-       最右端，把那层盖住大半，只在球的左缘和下缘露出一圈更亮的灰——
-       读起来就像月亮外挂了一圈脏光（用户说的「显脏」就是这个）。
-       参考图月亮右侧的天空实测 (78,83,94)，和左边几乎一样深，所以这里收在
-       NightBand4 就停。 */
-    val layers = listOf(
-        Triple(0.26f, NightBand2, 0.30f),
-        Triple(0.48f, NightBand3, 0.62f),
-        Triple(0.70f, NightBand4, 0.36f),
+    drawRect(
+        brush = Brush.horizontalGradient(
+            0.00f to NightBand1,
+            0.38f to NightBand2,
+            0.72f to NightBand3,
+            1.00f to NightBand4,
+        ),
+        alpha = a,
     )
-    layers.forEach { (edge, color, cyf) ->
-        val r = h * 2.4f
-        drawCircle(
-            color = color.copy(alpha = color.alpha * a),
-            radius = r,
-            center = Offset(w * edge + r, h * cyf),
-        )
-    }
 }
 
 /**
