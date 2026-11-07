@@ -64,6 +64,7 @@ import dev.showcode.core.qr.Qr
 import dev.showcode.data.InstalledApp
 import dev.showcode.ui.readText
 import dev.showcode.ui.inbox.ScreenTopBar
+import dev.showcode.ui.SolidButton
 import dev.showcode.ui.theme.Accent
 import dev.showcode.ui.theme.AccentInk
 import dev.showcode.ui.theme.Canvas
@@ -726,22 +727,16 @@ fun IdentityEditScreen(
             }
             item {
                 val canSave = reject == null
-                Text(
+                SolidButton(
                     text = stringResource(R.string.identity_save),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                        .background(if (canSave) Ink else SurfaceCard, ShowCodeShapes.Md)
-                        .border(1.dp, if (canSave) Ink else Hairline, ShowCodeShapes.Md)
-                        .clickable(enabled = canSave) {
-                            scope.launch {
-                                val stored = onSave(effectiveLabel, value, kind, dynamic == true, note, app?.packageName)
-                                // 以落库的返回为准：失败时字要留在屏上。
-                                if (stored) savedFlag = true
-                            }
-                        },
-                    style = ShowCodeText.Section,
-                    color = if (canSave) OnsiteSurface else InkMuted,
+                    enabled = canSave,
+                    onClick = {
+                        scope.launch {
+                            val stored = onSave(effectiveLabel, value, kind, dynamic == true, note, app?.packageName)
+                            // 以落库的返回为准：失败时字要留在屏上。
+                            if (stored) savedFlag = true
+                        }
+                    },
                 )
             }
         }

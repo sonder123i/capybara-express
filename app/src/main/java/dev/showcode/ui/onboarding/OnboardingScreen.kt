@@ -48,6 +48,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.showcode.R
 import dev.showcode.ui.theme.AccentInk
+import dev.showcode.ui.GhostButton
+import dev.showcode.ui.SolidButton
 import dev.showcode.ui.theme.Hairline
 import dev.showcode.ui.theme.Ink
 import dev.showcode.ui.theme.InkMuted
@@ -446,11 +448,11 @@ private fun Connect(
         }
         Column(modifier = Modifier.padding(bottom = 10.dp)) {
             if (accountCount > 0) {
-                PrimaryButton(text = stringResource(R.string.ob_connect_done), onClick = onFinish)
+                SolidButton(text = stringResource(R.string.ob_connect_done), onClick = onFinish)
                 Spacer(Modifier.height(8.dp))
                 GhostButton(text = stringResource(R.string.ob_connect_again), onClick = onBind)
             } else {
-                PrimaryButton(text = stringResource(R.string.ob_connect_bind), onClick = onBind)
+                SolidButton(text = stringResource(R.string.ob_connect_bind), onClick = onBind)
                 Spacer(Modifier.height(8.dp))
                 GhostButton(text = stringResource(R.string.ob_connect_skip), onClick = onFinish)
             }
@@ -466,31 +468,3 @@ private fun Connect(
     }
 }
 
-/* ── 按钮 ───────────────────────────────────────────────────────────── */
-
-@Composable
-private fun PrimaryButton(text: String, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(52.dp)
-            .background(Ink, ShowCodeShapes.Md)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text = text, style = ShowCodeText.Section, color = OnsiteSurface)
-    }
-}
-
-@Composable
-private fun GhostButton(text: String, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(46.dp)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text = text, style = ShowCodeText.Body, color = InkSecondary)
-    }
-}

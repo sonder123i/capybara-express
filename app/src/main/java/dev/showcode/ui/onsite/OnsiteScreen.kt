@@ -78,6 +78,7 @@ import dev.showcode.core.countdownOf
 import dev.showcode.core.staleDaysOf
 import dev.showcode.core.urgencyOf
 import dev.showcode.ui.ConfettiBurst
+import dev.showcode.ui.SolidButton
 import dev.showcode.ui.motion.DrawingCheck
 import dev.showcode.ui.copyCode
 import dev.showcode.ui.performTrackingLookup
@@ -740,16 +741,12 @@ private fun NextStopCard(nextStop: NextStop, now: Long, onClick: () -> Unit) {
 
 @Composable
 private fun OnsiteWideButton(text: String, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(52.dp)
-            .background(OnsiteInk, RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = OnsiteSurface)
-    }
+    /* 与「已取」同一套键程：现场屏上的每一颗实心键都该按得下去。 */
+    SolidButton(
+        text = text,
+        onClick = onClick,
+        modifier = Modifier.padding(horizontal = 20.dp),
+    )
 }
 
 @Composable

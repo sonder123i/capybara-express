@@ -42,6 +42,7 @@ import dev.showcode.core.parse.ParseRules
 import dev.showcode.core.parse.RuleCheck
 import dev.showcode.core.parse.RuleReject
 import dev.showcode.ui.inbox.ScreenTopBar
+import dev.showcode.ui.SolidButton
 import dev.showcode.ui.theme.AccentInk
 import dev.showcode.ui.theme.Hairline
 import dev.showcode.ui.theme.Ink
@@ -346,23 +347,17 @@ fun RuleEditScreen(
                 item { VerdictBlock(text = stringResource(R.string.rules_saved), ok = true) }
             }
             item {
-                Text(
+                SolidButton(
                     text = stringResource(R.string.rules_save),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                        .background(if (canSave) Ink else SurfaceCard, ShowCodeShapes.Md)
-                        .border(1.dp, if (canSave) Ink else Hairline, ShowCodeShapes.Md)
-                        .clickable(enabled = canSave) {
-                            scope.launch {
-                                val stored = onSave(pattern.trim(), pointName, lockerNo)
-                                // 以落库的返回为准，不能点下去就当成功：失败时字要留在屏上。
-                                if (stored) savedFlag = true
-                                else notice = context.getString(R.string.rules_save_failed)
-                            }
-                        },
-                    style = ShowCodeText.Section,
-                    color = if (canSave) OnsiteSurface else InkMuted,
+                    enabled = canSave,
+                    onClick = {
+                        scope.launch {
+                            val stored = onSave(pattern.trim(), pointName, lockerNo)
+                            // 以落库的返回为准，不能点下去就当成功：失败时字要留在屏上。
+                            if (stored) savedFlag = true
+                            else notice = context.getString(R.string.rules_save_failed)
+                        }
+                    },
                 )
             }
         }

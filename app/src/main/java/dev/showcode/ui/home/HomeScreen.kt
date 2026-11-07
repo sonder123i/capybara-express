@@ -132,6 +132,8 @@ import dev.showcode.ui.theme.UrgencySafeTint
 import dev.showcode.ui.points.MergeUndoBar
 import dev.showcode.ui.points.SuspectHintCard
 import dev.showcode.ui.motion.BreathingRing
+import dev.showcode.ui.CardState
+import dev.showcode.ui.cardState
 import dev.showcode.ui.motion.ScanSweep
 import dev.showcode.ui.motion.pressLift
 import dev.showcode.ui.urgencyColor
@@ -1207,12 +1209,17 @@ private fun PointCard(
     /* 按下时整张卡被「拎起来」2dp 并放大 1.2%：列表卡片要的是「拿起一件东西」，
        不是「按下一个按钮」。松手落回，弹簧参数与底栏同一套。 */
     val press = remember { MutableInteractionSource() }
+    /* 四态用填充 + 描边表达：临期转暖、其余保持白面。
+       色条仍然保留——它说的是「多急」，四态说的是「这条记录是什么状态」，两件事。 */
+    val state = when (group.worst) {
+        Urgency.AT_RISK, Urgency.DUE_SOON -> CardState.URGENT
+        else -> CardState.IDLE
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
             .pressLift(press)
-            .background(SurfaceCard, ShowCodeShapes.Md)
-            .border(1.dp, Hairline, ShowCodeShapes.Md)
+            .cardState(state)
             .clickable(interactionSource = press, indication = null, onClick = onClick)
             .padding(14.dp)
     ) {

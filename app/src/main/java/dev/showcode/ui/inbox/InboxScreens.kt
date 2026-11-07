@@ -55,7 +55,10 @@ import dev.showcode.core.parse.ParseOutcome
 import dev.showcode.core.parse.PickupCodeParser
 import dev.showcode.core.parse.UnrecognizedReason
 import dev.showcode.data.UnrecognizedMessage
+import dev.showcode.ui.CardState
+import dev.showcode.ui.SolidButton
 import dev.showcode.ui.Explain
+import dev.showcode.ui.cardState
 import dev.showcode.ui.readText
 import dev.showcode.ui.relativeTimeText
 import dev.showcode.ui.theme.AccentInk
@@ -270,8 +273,9 @@ private fun UnrecognizedRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(SurfaceCard, ShowCodeShapes.Md)
-            .border(1.dp, Hairline, ShowCodeShapes.Md)
+            /* 未识别是「要你看一眼」的状态，不是普通卡片：走 URGENT 的暖底 + 深描边。
+               这一屏本来就没有别的状态，四态里只用到这一个。 */
+            .cardState(CardState.URGENT)
             .padding(14.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -587,39 +591,28 @@ fun ManualImportScreen(
                 }
             }
             item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                        .background(Ink, ShowCodeShapes.Md)
-                        .clickable {
-                            val trimmedCode = code.trim()
-                            val trimmedName = pointName.trim()
-                            if (trimmedCode.isEmpty() || trimmedName.isEmpty()) {
-                                error = context.getString(R.string.manual_import_need_both)
-                            } else {
-                                // 以落库的返回为准，不能点下去就当成功。
-                                scope.launch {
-                                    val stored = onSave(
-                                        trimmedCode,
-                                        trimmedName,
-                                        lockerNo.trim().takeIf { it.isNotEmpty() },
-                                        raw,
-                                        owner,
-                                    )
-                                    if (!stored) error = context.getString(R.string.manual_import_save_failed)
-                                }
+                SolidButton(
+                    text = stringResource(R.string.manual_import_save),
+                    onClick = {
+                        val trimmedCode = code.trim()
+                        val trimmedName = pointName.trim()
+                        if (trimmedCode.isEmpty() || trimmedName.isEmpty()) {
+                            error = context.getString(R.string.manual_import_need_both)
+                        } else {
+                            // 以落库的返回为准，不能点下去就当成功。
+                            scope.launch {
+                                val stored = onSave(
+                                    trimmedCode,
+                                    trimmedName,
+                                    lockerNo.trim().takeIf { it.isNotEmpty() },
+                                    raw,
+                                    owner,
+                                )
+                                if (!stored) error = context.getString(R.string.manual_import_save_failed)
                             }
-                        },
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        text = stringResource(R.string.manual_import_save),
-                        style = ShowCodeText.Section,
-                        color = OnsiteSurface,
-                    )
-                }
+                        }
+                    },
+                )
             }
         }
     }
