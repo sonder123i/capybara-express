@@ -24,8 +24,6 @@
 - 静态长按快捷方式：`dumpsys shortcut` 里 6 条全部注册（`taobao_identity` /
   `pinduoduo_identity` / `cainiao_identity` / `taobao_pending` / `jd_pending` / `xhs_pending`）。
 - 模拟器的 Lawnchair 只在长按弹窗里显示前 2 条；这是桌面限制，不是注册失败。
-- 钉到桌面：淘宝身份码钉出后主屏标签为「淘宝身份码」，点击直达淘宝，
-  `dev.showcode/.MainActivity` 不在任务栈里（已 `finish()`）。
 - 冷启动与热启动两条都验过：冷启动 `am start -W` 直接报 Taobao Welcome；热启动走 `onNewIntent`。
 
 ## 已知差异（竞品 issue #3）

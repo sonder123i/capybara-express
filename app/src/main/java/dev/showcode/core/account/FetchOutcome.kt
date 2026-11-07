@@ -39,6 +39,13 @@ sealed interface FetchOutcome {
     data class Failure(val reason: String, val kind: FailureKind = FailureKind.TRANSIENT) : FetchOutcome
 }
 
-/** 一件详情都没解析出来时整批算失败：交出一个「0 新增」的成功等于骗人。 */
+/**
+ * 这一批详情是不是「全军覆没」。
+ *
+ * 判据要求**至少两单**：只有一单时，它没解析出来更可能是这一单本身没有物流
+ * （虚拟商品、兑换码、还没揽收），不足以证明整条链路坏了。那种情况交
+ * `Success(detailsFailed = 1)`，文案会说「1 件详情没抓到」——比把整个账号标成
+ * 「没同步上」诚实，也不会让首页的通道点无故变琥珀。
+ */
 internal fun allDetailsFailed(attempted: Int, failed: Int): Boolean =
-    attempted > 0 && failed >= attempted
+    attempted >= 2 && failed >= attempted

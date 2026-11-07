@@ -3,6 +3,7 @@ package dev.showcode.data
 import dev.showcode.core.account.AccountState
 import dev.showcode.core.account.FailureKind
 import dev.showcode.core.account.FetchOutcome
+import dev.showcode.core.account.SYNC_OK_PREFIX
 import dev.showcode.core.account.allDetailsFailed
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -68,7 +69,21 @@ class AccountSyncTest {
             skippedHistory = 0, skippedNoTracking = 0, skippedNoPoint = 0, skippedNoCode = 0,
             at = 0L,
         )
-        assertEquals("新增 2 · 更新 1", syncSuccessMessage(result))
+        assertEquals("同步成功 · 新增 2 · 更新 1", syncSuccessMessage(result))
+    }
+
+    /**
+     * `last_sync_result` 没有单独的布尔位；同步轨道靠这个前缀判断上次是成功还是失败。
+     * 这条一破，「成功但新增 0」的账号就会在首页被标成琥珀色失败。
+     */
+    @Test
+    fun everySuccessMessageCarriesThePrefixContract() {
+        val messages = listOf(
+            AccountSyncResult(0, 0, 0, 0, 0, 0, 0L),
+            AccountSyncResult(2, 1, 1, 0, 0, 0, 0L),
+            AccountSyncResult(0, 0, 0, 0, 0, 0, 0L, detailsFailed = 2),
+        )
+        messages.forEach { assertTrue(syncSuccessMessage(it).startsWith(SYNC_OK_PREFIX)) }
     }
 
     @Test
@@ -78,7 +93,7 @@ class AccountSyncTest {
             skippedHistory = 2, skippedNoTracking = 1, skippedNoPoint = 0, skippedNoCode = 0,
             at = 0L,
         )
-        assertEquals("新增 2 · 更新 1 · 跳过 3（已签收 2 / 无运单号 1）", syncSuccessMessage(result))
+        assertEquals("同步成功 · 新增 2 · 更新 1 · 跳过 3（已签收 2 / 无运单号 1）", syncSuccessMessage(result))
     }
 
     @Test
@@ -90,7 +105,7 @@ class AccountSyncTest {
             detailsFailed = 3,
         )
         /* 不能吞成「没有新件」：3 件详情没抓到必须说出来。 */
-        assertEquals("新增 0 · 更新 0 · 3 件详情没抓到", syncSuccessMessage(result))
+        assertEquals("同步成功 · 新增 0 · 更新 0 · 3 件详情没抓到", syncSuccessMessage(result))
         assertFalse(syncSuccessMessage(result).contains("没有新件"))
     }
 
@@ -99,6 +114,16 @@ class AccountSyncTest {
         assertTrue(allDetailsFailed(attempted = 3, failed = 3))
         assertFalse(allDetailsFailed(attempted = 3, failed = 2))
         assertFalse(allDetailsFailed(attempted = 0, failed = 0))
+    }
+
+    /**
+     * 只有一单时，它没解析出来不足以证明整条链路坏了（虚拟商品、兑换码、还没揽收
+     * 都没有物流）。这一单要落到 `Success(detailsFailed = 1)`，账号不能被标成失败。
+     */
+    @Test
+    fun oneUnparseableDetailIsNotABatchFailure() {
+        assertFalse(allDetailsFailed(attempted = 1, failed = 1))
+        assertTrue(allDetailsFailed(attempted = 2, failed = 2))
     }
 
     @Test

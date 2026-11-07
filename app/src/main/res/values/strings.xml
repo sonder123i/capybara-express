@@ -32,17 +32,12 @@
     <string name="home_stale">更新于 %1$s · 可能不是最新</string>
     <string name="home_stale_failed">上次同步没成功，看到的码可能不是最新的</string>
     <string name="home_stale_retry">重试</string>
-    <string name="home_syncing">正在同步…</string>
-    <string name="home_sync_failed">同步失败</string>
-    <string name="home_sync_added">新增 %1$d 件</string>
-    <string name="home_sync_none">无新件</string>
     <string name="home_never_synced">还没同步过</string>
-    <string name="home_synced_at">更新于 %1$s</string>
     <string name="time_just_now">刚刚</string>
     <string name="home_enable_ingest">开启自动收录</string>
     <string name="home_enable_ingest_hint">读短信与通知，把取件码自动归到对应取件点下、按紧急度排好。取件码永不出本机。</string>
     <string name="home_enable_notification">开启通知收录</string>
-    <string name="home_enable_notification_hint">有些驿站不发短信、只在自家 App 推通知；家人经微信转发的取件码也只能从这里进来。</string>
+    <string name="home_enable_notification_hint">驿站只推 App 通知、不发短信的件，要靠它收。</string>
 
     <!-- 首页空态：语义完全不同的几种空态绝不共用文案（edge meta-3） -->
     <string name="home_empty_first_time_title">绑定平台账号，快递自己进来</string>
@@ -52,7 +47,6 @@
     <string name="demo_home_marker">演示模式 · 示例数据</string>
     <string name="demo_exit">退出</string>
     <string name="demo_entry">演示模式（宣传片录制）</string>
-    <string name="demo_entry_hint">固定示例数据、本地商品图、不读真实账号、不请求任何权限。</string>
     <string name="demo_feedback_copied">已复制完整单号（演示）</string>
     <string name="demo_feedback_query">演示态不打开淘宝；录制时这里会拉起淘宝搜索</string>
     <string name="demo_feedback_picked">已标记取出（演示，不落库）</string>
@@ -78,7 +72,7 @@
     <string name="onsite_picked">已取</string>
     <string name="onsite_tiles_entry">平铺看全部</string>
     <string name="onsite_tiles_title">%1$s · 共 %2$d 件</string>
-    <string name="onsite_copy_hint">长按可复制</string>
+    <string name="onsite_copy_hint">轻触复制</string>
     <string name="onsite_silence_hint">轻触恢复</string>
     <string name="onsite_copied">取件码已复制</string>
     <string name="onsite_locker_label">格口</string>
@@ -91,7 +85,7 @@
     <string name="onsite_stale_code_title">这是 %1$d 天前的码，可能已失效</string>
     <string name="onsite_stale_code_hint">不影响出示</string>
     <string name="onsite_empty_title">这个点没有待取的件</string>
-    <string name="onsite_all_done_title">这个点已经取完了</string>
+    <string name="onsite_all_done_title">这个点取完了</string>
     <string name="onsite_empty_anchor">最近一次取件：%1$s</string>
     <string name="onsite_next_stop">下一站 · %1$s</string>
     <string name="onsite_next_count">%1$d 件</string>
@@ -117,17 +111,16 @@
     <string name="settings_threshold_decrease">调小%1$s</string>
     <string name="settings_threshold_increase">调大%1$s</string>
     <string name="settings_preview_some">按这个设置，你当前有 %1$d 件是临期：%2$s</string>
-    <string name="settings_preview_none">按这个设置，当前没有临期的件</string>
+    <string name="settings_preview_none">当前没有临期件</string>
     <string name="settings_restore">恢复默认</string>
     <string name="settings_health_section">权限体检</string>
     <string name="settings_health_all_good">全部正常 ✓ 自动收录在正常工作</string>
     <string name="health_sms">短信导入（可选）</string>
-    <string name="health_sms_hint">不开也能用：绑定平台账号的件不受影响，只是收不到只发短信的件。</string>
+    <string name="health_sms_hint">不开也能用；只发短信的件收不到。</string>
     <!-- 抖音/小红书只有 App 入口，自动同步接不进来；这句只说明短信那条路管到哪些平台。 -->
-    <string name="health_sms_platform">抖音等平台的件需要靠它收录。</string>
     <string name="health_notification">读取通知</string>
     <!-- 通知监听是补充手段：未开启只做中性说明，不报警、不催促。 -->
-    <string name="health_notification_hint">部分平台走短信；不开也能用平台账号的件，不受影响。</string>
+    <string name="health_notification_hint">不开也能用平台账号的件；部分平台走短信。</string>
     <string name="health_miui">小米「通知类短信」</string>
     <string name="health_background">后台运行</string>
     <string name="health_on">已开启</string>
@@ -163,13 +156,16 @@
     <string name="widget_configure_add">添加</string>
 
     <!-- 首页反向绑定横幅（story-3 AC5） -->
-    <string name="home_widget_hint">想让某个取件点在桌面单独可见？添加组件时选择它，就能只看那一个点。</string>
+    <string name="home_widget_hint">想只看一个取件点？添加桌面组件时选它。</string>
     <string name="home_widget_hint_action">添加</string>
     <string name="home_unrecognized_action">查看</string>
 
     <!-- 未识别收容页 -->
     <string name="unrecognized_title">没认出来的取件短信</string>
     <string name="unrecognized_empty">所有取件短信都识别成功 ✓</string>
+    <string name="explain_collapse">收起说明</string>
+    <string name="unrecognized_why_label">为什么有些短信认不出来？</string>
+    <string name="unrecognized_food_why_label">外卖为什么收不进来？</string>
     <string name="unrecognized_empty_hint">如果有哪条没认出来，它会出现在这里，不会悄悄漏掉。</string>
     <string name="unrecognized_extract">手动提取</string>
     <string name="unrecognized_ignore">忽略</string>
@@ -199,66 +195,35 @@
     <string name="manual_import_save">保存</string>
     <string name="manual_import_carrier">手动导入</string>
 
-    <!-- onboarding：先理解价值，再请求权限 -->
-    <string name="ob_welcome_sub">取快递时，不用再翻三个 App\n找那些取件码。</string>
-    <string name="ob_value_1">绑定淘宝 / 拼多多 / 京东，到站件自动收进来</string>
-    <string name="ob_value_2">按取件点分好，到哪个点看哪个</string>
-    <string name="ob_value_3">快递柜还剩多少免费时间，一眼就知道</string>
-    <string name="ob_privacy_title">你的取件码永不出本机。</string>
-    <string name="ob_privacy_body">解析全在手机本地完成，不上传、不注册、无广告。只有公共数据（驿站营业时间、快递柜收费规则）会下载。</string>
-    <string name="ob_cta_demo">先看完整演示</string>
-    <string name="ob_cta_setup">直接开始设置</string>
+    <!-- onboarding：两屏。先给价值，再决定接不接平台；权限留给真正用得上的那一刻 -->
+    <string name="ob_headline">不用再翻三个 App</string>
+    <string name="ob_sub">到站件自动收进来，按取件点分好。</string>
+    <string name="ob_trait_auto">自动收件</string>
+    <string name="ob_trait_group">按点分组</string>
+    <string name="ob_trait_offline">离线可用</string>
+    <string name="ob_sample_point">示例驿站 · 东门</string>
+    <string name="ob_sample_badge">示例</string>
+    <string name="ob_sample_code">2-3-06120</string>
+    <string name="ob_sample_locker">A01</string>
+    <string name="ob_sample_eta">还剩 5 小时免费</string>
     <string name="ob_cta_bind">绑定平台账号</string>
-    <string name="ob_account_title">绑定平台账号</string>
-    <string name="ob_account_body">淘宝、拼多多、京东的订单会自动变成待取件；不用等短信，也不用手动抄码。</string>
-    <string name="ob_account_point_1">只读你自己的订单，凭据加密存在本机</string>
-    <string name="ob_account_point_2">到站件按驿站分好，到哪个点看哪个</string>
-    <string name="ob_account_point_3">短信导入仍然可用，只是补充手段</string>
-    <string name="ob_account_sms_optional">也可以用短信导入（可选）</string>
-    <string name="ob_account_platform_note">抖音、小红书只有 App 入口，暂时也靠短信收件。</string>
-    <string name="ob_account_bind_cta">去绑定平台账号</string>
-    <string name="ob_account_skip_cta">暂时跳过</string>
-    <string name="ob_account_check">平台账号</string>
-    <string name="ob_sms_continue_cta">不用短信，继续</string>
-    <string name="ob_sms_allow_optional_cta">允许读取短信（可选）</string>
-    <string name="ob_footer">无需注册 · 无广告 · 开源</string>
-    <string name="ob_step">第 %1$d / %2$d 步</string>
-    <string name="ob_skip">跳过这一步</string>
-    <string name="ob_sms_title">短信导入（可选）</string>
-    <string name="ob_sms_body">有些驿站只发短信、不推订单。开了短信能多收这一类；不开也不影响绑定账号收件。</string>
-    <string name="ob_sms_allow_title">开启短信</string>
-    <string name="ob_sms_allow_desc">多收一类\n只发短信的件</string>
-    <string name="ob_sms_deny_title">不开</string>
-    <string name="ob_sms_deny_desc">账号件照常\n一条不少</string>
-    <string name="ob_sms_denied">不开短信也能用——账号里的件照常收；只有只发短信的驿站会漏，之后再开也行。</string>
-    <string name="ob_sms_allow_cta">允许并继续</string>
-    <string name="ob_sms_deny_cta">不用了，我自己粘贴</string>
-    <string name="ob_notif_title">读取通知</string>
-    <string name="ob_notif_body">有些取件码不发短信，只推送到 App 或微信。开了能多收下面这几类；不开也不影响绑定账号的件。</string>
-    <string name="ob_notif_list_header">开了能多收的来源</string>
-    <string name="ob_notif_src_1">微信「服务通知」 · 很多驿站只推微信，且常被折叠成一条摘要</string>
-    <string name="ob_notif_src_2">菜鸟 App 推送 · 淘系包裹常只在这里出现</string>
-    <string name="ob_notif_src_3">京东 App 推送 · 自提点通知</string>
-    <string name="ob_notif_src_4">丰巢 App 推送 · 入柜通知，部分柜机不发短信</string>
-    <string name="ob_notif_note">这一步会跳到系统设置页，开启后手动返回本 App 即可。取件码仍然只在手机本地解析，不上传。</string>
-    <string name="ob_notif_cta">去系统设置里开启</string>
-    <string name="ob_notif_skip">就这样用，先跳过</string>
-    <string name="ob_widget_title">放到桌面上</string>
-    <string name="ob_widget_body">这一步值得做：瞟一眼桌面就知道该不该现在出门、先去哪个点，不用解锁后翻 App。点某个取件点，直接跳到它的取件码。</string>
-    <string name="ob_widget_step_1">长按桌面空白处</string>
-    <string name="ob_widget_step_2">点「小组件」/「小工具」</string>
-    <string name="ob_widget_step_3">找到「卡皮巴拉快递助手」，长按拖到桌面</string>
-    <string name="ob_widget_caveat">小米 / 华为等机型可能还要单独允许「创建桌面小组件」。加不了也没关系，先跳过，之后随时补。</string>
-    <string name="ob_widget_done">我已添加到桌面</string>
-    <string name="ob_widget_skip">暂时跳过</string>
-    <string name="ob_ready_title">设置好了</string>
-    <string name="ob_ready_body">绑定平台账号后，到站件会自动出现在首页和桌面组件上。\n短信只是补充手段，不开也能用。</string>
-    <string name="ob_ready_partial">还有 %1$d 项通道没开启，只影响对应来源；随时可以补。</string>
-    <string name="ob_ready_health">权限体检</string>
-    <string name="ob_ready_cta">进首页</string>
-    <string name="ob_ready_manual">等不及？手动导入一条试试</string>
+    <string name="ob_choice_bind_sub">到站件自己进来</string>
+    <string name="ob_choice_demo_sub">用示例数据走一遍</string>
+    <string name="ob_mascot_line">交给我，取的时候看一眼就行。</string>
+    <string name="ob_cta_demo">先看演示</string>
+    <string name="ob_skip">跳过，直接进入</string>
+    <string name="ob_footer">无需注册 · 无广告 · 开源 · 数据只在本机</string>
+    <string name="ob_connect_title">接上你的平台</string>
+    <string name="ob_connect_body">登录后，App 从订单里把件收进来。</string>
+    <string name="ob_connect_platforms">淘宝 · 京东 · 拼多多</string>
+    <string name="ob_connect_bound">已绑定 %1$d 个平台</string>
+    <string name="ob_connect_outcome">绑好之后，首页直接出现待取件。</string>
+    <string name="ob_connect_done">开始使用</string>
+    <string name="ob_connect_again">再绑一个</string>
+    <string name="ob_connect_bind">去绑定账号</string>
+    <string name="ob_connect_skip">先不绑定，直接进入</string>
+    <string name="ob_connect_note">短信、通知、桌面组件都能稍后在设置里开。</string>
     <string name="home_manual_entry">有个件平台没推给你？手动记一条</string>
-    <string name="ob_ready_note">以上任何一项都能稍后在设置里改</string>
     <string name="merge_suspect">「%1$s」和「%2$s」可能是同一个点？</string>
     <string name="merge_suspect_yes">是同一个</string>
     <string name="merge_suspect_no">不是</string>
@@ -289,6 +254,24 @@
     <string name="home_refresh_no_account">先去绑定平台账号</string>
     <string name="home_refresh_demo">演示模式不联网</string>
     <string name="home_refresh_failed">这次没同步上，稍后再试</string>
+
+    <!-- 首页同步轨道：四条通道各自的状态，收在一行里，点开看明细 -->
+    <string name="sync_rail_title">同步轨道</string>
+    <string name="sync_rail_refresh_all">全部刷新</string>
+    <string name="sync_rail_retry">重试</string>
+    <string name="sync_rail_bind">去绑定</string>
+    <string name="sync_rail_relogin">重新登录</string>
+    <string name="sync_rail_needs_login">%1$s需要重新登录</string>
+    <string name="sync_rail_running">正在同步%1$s…</string>
+    <string name="sync_rail_running_any">正在同步…</string>
+    <string name="sync_rail_channels">%1$s · %2$d/%3$d 通道</string>
+    <string name="sync_rail_never">还没同步过</string>
+    <string name="sync_rail_failed">%1$s没同步上</string>
+    <string name="sync_rail_digest">新增 %1$d · 更新 %2$d</string>
+    <string name="sync_rail_digest_skipped"> · 跳过 %1$d</string>
+    <string name="sync_rail_digest_partial"> · 有通道没同步上</string>
+    <string name="sync_rail_digest_none">没有变化 · 都看过了</string>
+    <string name="sync_rail_force_started">正在强制重抓…</string>
     <string name="home_search_close">收起搜索</string>
     <string name="home_search_hint">取件码、取件点、快递公司或柜号</string>
     <string name="home_search_clear">清空</string>
@@ -305,15 +288,13 @@
     <string name="detail_owner_family">代取</string>
     <string name="detail_owner_hint">点一下切换归属；代取的件在现场模式里单独成组，不会滑进你的码里。</string>
     <string name="settings_family_label">代取件分组的名字</string>
-    <string name="settings_family_label_hint">现场模式里那个分组现在叫「%1$s」。改成你家里实际的说法。</string>
 
     <string name="settings_rules">解析规则</string>
     <string name="settings_rules_count">%1$d 条</string>
-    <string name="settings_rules_hint">哪些短信 App 认不出来，你自己定一条。只对这台手机生效，不联网、不上传。</string>
 
     <string name="rules_title">解析规则</string>
-    <string name="rules_hint">内置解析器认不出的写法，可以在这里补一条。规则只在内置一个都没认出来的时候才起作用，所以它不会改坏已经认对的件。最多 %1$d 条。</string>
-    <string name="rules_empty">还没有规则。哪条短信没被认出来，它就在那份「没认出来的取件短信」里，可以从那里直接写一条。</string>
+    <string name="rules_hint">认不出的短信，可以在这里补一条。</string>
+    <string name="rules_empty">还没有规则。哪条短信没认出来，可以从「没认出来的取件短信」里直接写一条。</string>
     <string name="rules_add">＋ 新写一条</string>
     <string name="rules_on">生效中</string>
     <string name="rules_off">已关掉</string>
@@ -322,7 +303,7 @@
     <string name="rules_delete_confirm">再点一次确认删除</string>
 
     <string name="rules_edit_title">写一条规则</string>
-    <string name="rules_edit_hint">把那条没认出来的短信原文贴进来，抄下里面的取件码，填上它到底是哪个点。正则由 App 生成，你不用会写。</string>
+    <string name="rules_edit_hint">贴上短信原文、抄下取件码、填上取件点。正则由 App 生成，不用你会写。</string>
     <string name="rules_field_raw">短信原文</string>
     <string name="rules_field_code">取件码（照原文抄）</string>
     <string name="rules_field_point">这个件在哪个点取 *</string>
@@ -358,12 +339,13 @@
     <string name="tile_description">点一下立刻重读收件箱里的取件码。通知监听没开启时，它先把你送到能开它的地方——那时它不报件数，因为那些数不可信。</string>
 
     <string name="identity_title">身份码</string>
-    <string name="identity_entries_hint">这几家不用存码：点一下就打开它的取件页或订单列表，在里面现取一张、或看一眼有没有漏掉的件。有些件不发短信、也不推通知，只有在那一栏里才看得见。</string>
+    <string name="identity_intro">要扫一下才开门、才寄件。存在本机，不联网。</string>
+    <string name="identity_section_codes">已存的码</string>
+    <string name="identity_section_entries">官方入口</string>
+    <string name="identity_entries_hint">点一下直接打开官方页面；不用先把码存进来。</string>
     <string name="identity_entry_open">去取</string>
     <string name="identity_entry_open_pending">看订单</string>
-    <string name="identity_hint">这里存的是「我是谁」那一类码，不是取件码：要扫一下才开门、才寄件的东西。都存在这台手机上，不联网。</string>
-    <string name="identity_empty">还没有存码。值得存的只有长期不变的那一种：驿站会员码、小区门禁。每隔几十秒就换一次的那种不用存——存下来的那一份一定扫不过。</string>
-    <string name="identity_empty_no_presets">这台手机上没装我们认识的那几家（淘宝、拼多多、菜鸟、丰巢、京东、小红书）。装了任意一家，它会直接出现在这一屏顶部，点一下就打开——那一种不用存。</string>
+    <string name="identity_empty">还没有存码。值得存的只有长期不变的那种：会员码、门禁码——几十秒换一次的不必存。</string>
     <string name="identity_add">＋ 存一张</string>
     <string name="identity_dynamic">会变</string>
     <string name="identity_static">固定</string>
@@ -374,7 +356,7 @@
     <string name="identity_delete_confirm">再点一次确认删除</string>
 
     <string name="identity_edit_title">存一张身份码</string>
-    <string name="identity_edit_hint">那页上如果有复制按钮，就复制码本身过来点粘贴；没有再照原样打字。别存截图——二维码由这台手机现算，截图存进来是一张不能缩放、不能重画的死图。</string>
+    <string name="identity_edit_hint">复制码本身，别存截图——二维码由这台手机现算。</string>
     <string name="identity_field_label">叫什么 *</string>
     <string name="identity_field_value">码上的字符 *</string>
     <string name="identity_paste">从剪贴板粘贴这串字符</string>
@@ -386,7 +368,7 @@
     <string name="identity_dynamic_question">这张码会不会变？ *</string>
     <string name="identity_dynamic_no">固定不变</string>
     <string name="identity_dynamic_yes">每次都要现取</string>
-    <string name="identity_dynamic_question_hint">有些驿站那张码每隔几十秒换一次。那种码存在这里只能当参照，出示时会提醒你直接开官方 App——这一格不猜，猜错的代价是你举着一张废码站在机器前。</string>
+    <string name="identity_dynamic_question_hint">会变的码存下来一定扫不过；出示时会提醒你直接开官方 App。</string>
 
     <string name="identity_app_none">还没选官方 App</string>
     <string name="identity_app_chosen">官方 App：%1$s</string>
@@ -406,14 +388,9 @@
     <string name="shortcut_taobao_pending">淘宝待取</string>
     <string name="shortcut_jd_pending">京东待取</string>
     <string name="shortcut_xhs_pending">小红书待取</string>
-    <string name="shortcut_pin">钉到桌面</string>
-    <string name="shortcut_label_identity">%1$s身份码</string>
-    <string name="shortcut_label_pending">%1$s待取</string>
-    <string name="shortcut_pin_unsupported">这个桌面不支持钉快捷方式。</string>
-    <string name="shortcut_pin_failed">没能钉到桌面，换个桌面或稍后再试。</string>
     <string name="identity_app_clear">取消</string>
-    <string name="identity_app_hint">选上之后，出示那一屏会多一颗「打开它」的按钮——码扫不过时的那条退路。</string>
-    <string name="identity_app_hint_entry">入口全靠这一步跳转：没选它就什么都点不出来。</string>
+    <string name="identity_app_hint">码扫不过时，出示屏会多一颗「打开它」的按钮。</string>
+    <string name="identity_app_hint_entry">入口全靠这一步跳转：没选它就打不开。</string>
     <string name="identity_app_picker_title">选一个 App</string>
     <string name="identity_app_picker_search">搜名字</string>
     <string name="identity_app_picker_none_installed">这台手机上没有能启动的应用。</string>
@@ -433,8 +410,8 @@
     <string name="identity_kind_question">要存哪一种？</string>
     <string name="identity_kind_code">一张要扫的码</string>
     <string name="identity_kind_entry">一个去取件的入口</string>
-    <string name="identity_kind_code_hint">把那页上显示的字符抄（或粘贴）进来，这台手机现算成二维码给你出示。只有它长期不变时才值得这么存。</string>
-    <string name="identity_kind_entry_hint">不存任何码，只留一颗按钮：点这里直接打开那家 App，在那一页现取。每隔几十秒就换一次的码请用这一种——存下来的那一份一定扫不过。</string>
+    <string name="identity_kind_code_hint">把页面上的字符抄（或粘贴）进来，本机现算成二维码。</string>
+    <string name="identity_kind_entry_hint">不存码，只留一颗打开那家 App 的按钮。会变的码请选这一种。</string>
     <string name="identity_go">去取件</string>
     <string name="identity_kind_entry_badge">入口</string>
     <string name="identity_entry_hint">用下面的按钮打开那家 App，在里面现取一张码。</string>
@@ -454,18 +431,15 @@
 
     <string name="settings_notify">通知来源</string>
     <string name="settings_notify_count">%1$d 个</string>
-    <string name="settings_notify_hint">哪些 App 的通知还在收。这里只列推过取件相关通知的来源，关掉谁只对以后生效。</string>
 
     <string name="notify_title">通知来源</string>
-    <string name="notify_hint">这里只列「推过和取件有关的通知」的来源：认出了码，或者长得像码以至于进了「没认出来」那一屏。银行、聊天、系统 App 的通知不会被记进这张表。列出来的默认全都在收——关掉谁，那条通道以后就不进来了。</string>
-    <string name="notify_empty">还没见过任何和取件有关的通知。可能是还没给通知使用权，也可能是那些 App 还没推过东西，还有一种是好消息：推过的通知全都和取件无关，所以没记进来。权限状态在首页那条体检里能看到。</string>
+    <string name="notify_empty">还没见过和取件有关的通知。可能没给通知使用权，也可能推过的都和取件无关。</string>
     <string name="notify_on">在收</string>
     <string name="notify_off">已关掉</string>
     <string name="notify_seen">与取件有关 %1$d 条 · %2$s见过一次</string>
-    <string name="notify_forward_warning">这个 App 转发过别人的取件码（妈妈经微信发来的那种）。关掉它，那条入口一起没了。</string>
-    <string name="notify_forward_confirm">再点一次真的关掉：以后经它转来的码不会出现在任何地方，包括「没认出来的取件短信」。</string>
+    <string name="notify_forward_confirm">再点一次确认：这个 App 转发过别人的取件码，关掉后那条入口一起没了。</string>
     <string name="notify_cancel">不关了</string>
-    <string name="notify_irreversible_hint">通知不像短信有收件箱可以回填：关掉期间推来的那几条永久收不回，重新打开只救以后的。这里只管通知——短信那边的屏蔽在「不再显示此类」那格，两套互不影响。</string>
+    <string name="notify_irreversible_hint">关掉期间推来的收不回；重新打开只救以后。短信那边不受影响。</string>
 
     <string name="reminder_channel">巡检提醒</string>
     <string name="reminder_channel_desc">每天一次，叫你去平台那一栏对一眼有没有漏掉的件。</string>
@@ -473,18 +447,17 @@
     <string name="reminder_body">有些件不发短信、也不推通知，只在它们自己的「取快递」那一栏里露一下。点一下直接去那一栏，比等它自己冒出来可靠。</string>
     <string name="reminder_body_first">上次那个件是你自己录进来的——说明那个平台不会把它推给你。以后每天这个点提醒你对一眼；不想听可以在设置里关掉。</string>
     <string name="settings_reminder">每天提醒我对一眼</string>
-    <string name="settings_reminder_hint">只在你手动录过件之后才开始提醒（那说明有平台根本不推送）。拒了通知权限它就不响，改成进 App 时提示你。</string>
     <string name="settings_reminder_needs_permission">要通知权限：没给的话这条提醒不会响。</string>
+    <string name="settings_reminder_state">手动录过一件之后才会开始响。</string>
     <string name="settings_accounts">平台账号</string>
-    <string name="settings_accounts_section">平台登录</string>
-    <string name="settings_accounts_hint">绑定后从京东 / 淘宝 / 拼多多的订单里收录件；凭据加密存本机。</string>
+    <string name="settings_accounts_section">收件来源</string>
     <string name="settings_accounts_none">未绑定</string>
     <string name="settings_accounts_count">已绑定 %1$d 个</string>
     <string name="settings_accounts_issue">需重新登录</string>
     <string name="account_title">平台账号</string>
-    <string name="account_intro">这里读的是你自己账号里的订单。不绑定，就只能靠短信、通知和手动导入。</string>
-    <string name="account_platform_note">抖音、小红书这类只有 App 入口的平台暂时不能自动同步，它们的到站件走短信导入。</string>
-    <string name="account_unbound">未绑定。登录后从账号的订单里收录件。</string>
+    <string name="account_intro">登录后从平台的订单里收件。</string>
+    <string name="account_platform_note">抖音、小红书暂不支持自动同步。</string>
+    <string name="account_unbound">未绑定</string>
     <string name="account_bound_meta">已绑定 · 尚未同步</string>
     <string name="account_expired">登录已失效，需要重新登录</string>
     <string name="account_broken">凭据解不开，需要重新登录</string>
@@ -546,8 +519,23 @@
     <string name="login_switch_account">换个账号</string>
     <string name="settings_appearance_section">外观</string>
     <string name="settings_glass">底栏玻璃效果</string>
-    <string name="settings_glass_hint">底栏背后那条列表会被雾化。关掉就是今天的不透明灰底——更省电，也更实。</string>
-    <string name="settings_glass_needs_os">这台设备的系统版本太低：模糊要 Android 12 及以上，现在只能用不透明底栏。</string>
+    <string name="settings_glass_needs_os">系统低于 Android 12，只能用不透明底栏。</string>
+    <string name="settings_privacy_note">数据只存在这台手机上，不联网、不上传。</string>
+    <string name="settings_about_section">关于</string>
+    <string name="settings_version">版本 %1$s</string>
+    <string name="settings_version_meta">开源 · 无需注册</string>
+    <string name="settings_update_check">检查更新</string>
+    <string name="settings_update_checking">检查中…</string>
+    <string name="settings_update_latest">已是最新版本</string>
+    <string name="settings_update_none">还没有发布记录</string>
+    <string name="settings_update_available">新版本 %1$s</string>
+    <string name="settings_update_note">只在你按的时候访问 Gitee / GitHub，不做后台检查。</string>
+    <string name="settings_update_no_hash">无校验和</string>
+    <string name="settings_update_download">下载并安装</string>
+    <string name="settings_update_manual">去发布页下载</string>
+    <string name="settings_update_install">安装</string>
+    <string name="settings_update_later">稍后</string>
+    <string name="settings_update_downloading">正在下载…（通知栏可见）</string>
 
     <!-- 查快递入口 -->
 </resources>

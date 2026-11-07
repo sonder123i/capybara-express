@@ -1,160 +1,231 @@
 package dev.showcode.ui.onboarding
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.showcode.R
-import dev.showcode.core.HealthReport
 import dev.showcode.ui.theme.AccentInk
-import dev.showcode.ui.theme.AccentTint
 import dev.showcode.ui.theme.Hairline
 import dev.showcode.ui.theme.Ink
 import dev.showcode.ui.theme.InkMuted
 import dev.showcode.ui.theme.InkSecondary
+import dev.showcode.ui.theme.MotionDuration
+import dev.showcode.ui.theme.MotionEasing
+import dev.showcode.ui.theme.MotionTokens
 import dev.showcode.ui.theme.OnsiteSurface
-import dev.showcode.ui.theme.environmentBackground
 import dev.showcode.ui.theme.ShowCodeShapes
 import dev.showcode.ui.theme.ShowCodeText
 import dev.showcode.ui.theme.SurfaceCard
 import dev.showcode.ui.theme.UrgencyDueSoon
-import dev.showcode.ui.theme.UrgencyDueSoonTint
 import dev.showcode.ui.theme.UrgencySafe
-
-enum class OnboardStep { WELCOME, ACCOUNTS, SMS, NOTIFICATION, WIDGET, READY }
-
-private const val TOTAL_STEPS = 5
+import dev.showcode.ui.theme.environmentBackground
+import dev.showcode.ui.theme.rememberReducedMotion
 
 /**
- * 首次启动引导（story-1）。核心决策只有一条：**先理解价值，再请求权限**。
- * 这里的「理解价值」不用问卷、不用动画，用现场模式演示——
- * 价值就在那一屏超大取件码里。所以 WELCOME 的主 CTA 是看演示，不是要权限。
+ * 首启引导。
  *
- * 每一步都可跳过，拒绝不锁死任何功能（brief 的用户引导策略）。
+ * 只做两件事：**让人看见价值**、**让他自己决定接不接平台**。
+ * 短信 / 通知 / 桌面组件都不在这里要——它们是补充手段，各自该在第一次真的用得上时
+ * 从首页或设置里出现；把四件事塞进一条五步流水线，只会让第一次打开变成一份问卷。
+ *
+ * 交互借的是多邻国那套「一个人、一步一步、每一步都有回应」：
+ * - 卡皮（这个 App 的杜欧）说一句，主标题说事，示例卡把价值直接摆出来；
+ * - 一个屏只做一个决定：两个大选择卡，不是三颗文字按钮；
+ * - 顶部一条会走的进度条（1/2 → 2/2），不是「第 1 / 5 步」；
+ * - 按下有回弹 + 轻触感，绑好平台回来时「已绑定」会浮出来。
+ *
+ * 不搬的是积分 / 连胜 / 排行榜：这是一个一周用几次的取件工具，
+ * 把「打开它」做成要维护的习惯，只会变成骚扰。
  */
+enum class OnboardStep { WELCOME, CONNECT }
+
 @Composable
 fun OnboardingScreen(
     step: OnboardStep,
-    report: HealthReport,
     accountCount: Int,
-    smsGranted: Boolean,
-    notificationEnabled: Boolean,
-    widgetAdded: Boolean,
-    smsAttempted: Boolean,
     onStep: (OnboardStep) -> Unit,
     onEnterDemo: () -> Unit,
     onOpenAccounts: () -> Unit,
-    onRequestSms: () -> Unit,
-    onOpenNotificationSettings: () -> Unit,
-    onPinWidget: () -> Unit,
-    onManualImport: () -> Unit,
     onFinish: () -> Unit,
 ) {
+    val reduced = rememberReducedMotion()
+    /* 进度条放在两屏之上：换屏时它自己往前走，而不是跟着页面一起滑走。 */
+    val target = if (step == OnboardStep.WELCOME) 0.5f else 1f
+    val progress by animateFloatAsState(
+        targetValue = target,
+        animationSpec = tween(MotionDuration.Medium, easing = MotionEasing.FastOutSlowIn),
+        label = "onboarding-progress",
+    )
     Column(
         modifier = Modifier
             .fillMaxSize()
             .environmentBackground()
-            .windowInsetsPadding(WindowInsets.systemBars)
+            .windowInsetsPadding(WindowInsets.systemBars),
     ) {
-        when (step) {
-            OnboardStep.WELCOME -> Welcome(
-                onEnterDemo = onEnterDemo,
-                onSetup = { onStep(OnboardStep.ACCOUNTS) },
-            )
-            OnboardStep.ACCOUNTS -> AccountStep(
-                onBind = onOpenAccounts,
-                onSms = { onStep(OnboardStep.SMS) },
-                onSkip = { onStep(OnboardStep.NOTIFICATION) },
-            )
-            OnboardStep.SMS -> SmsStep(
-                denied = smsAttempted && !smsGranted,
-                onAllow = onRequestSms,
-                onDecline = { onStep(OnboardStep.NOTIFICATION) },
-                onSkip = { onStep(OnboardStep.NOTIFICATION) },
-            )
-            OnboardStep.NOTIFICATION -> NotificationStep(
-                onEnable = onOpenNotificationSettings,
-                onNext = { onStep(OnboardStep.WIDGET) },
-                onSkip = { onStep(OnboardStep.WIDGET) },
-            )
-            OnboardStep.WIDGET -> WidgetStep(
-                onDone = { onPinWidget(); onStep(OnboardStep.READY) },
-                onSkip = { onStep(OnboardStep.READY) },
-            )
-            OnboardStep.READY -> ReadyStep(
-                report = report,
-                accountCount = accountCount,
-                smsGranted = smsGranted,
-                notificationEnabled = notificationEnabled,
-                widgetAdded = widgetAdded,
-                onFinish = onFinish,
-                onManualImport = onManualImport,
-            )
+        StepProgress(progress)
+        AnimatedContent(
+            targetState = step,
+            modifier = Modifier.weight(1f),
+            transitionSpec = {
+                if (reduced) {
+                    fadeIn(tween(MotionDuration.Medium, easing = MotionEasing.Standard)) togetherWith
+                        fadeOut(tween(MotionDuration.Fast, easing = MotionEasing.Standard))
+                } else {
+                    val forward = targetState.ordinal > initialState.ordinal
+                    val enter = slideInHorizontally(
+                        animationSpec = tween(MotionDuration.Medium, easing = MotionEasing.FastOutSlowIn),
+                    ) { width -> if (forward) width / 6 else -width / 6 } +
+                        fadeIn(tween(MotionDuration.Medium, easing = MotionEasing.Standard))
+                    val exit = slideOutHorizontally(
+                        animationSpec = tween(MotionDuration.Medium, easing = MotionEasing.FastOutSlowIn),
+                    ) { width -> if (forward) -width / 6 else width / 6 } +
+                        fadeOut(tween(MotionDuration.Fast, easing = MotionEasing.Standard))
+                    enter togetherWith exit
+                }
+            },
+            label = "onboarding-step",
+        ) { current ->
+            when (current) {
+                OnboardStep.WELCOME -> Welcome(
+                    onBind = { onStep(OnboardStep.CONNECT) },
+                    onDemo = onEnterDemo,
+                    onSkip = onFinish,
+                )
+                OnboardStep.CONNECT -> Connect(
+                    accountCount = accountCount,
+                    onBind = onOpenAccounts,
+                    onFinish = onFinish,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun Welcome(onEnterDemo: () -> Unit, onSetup: () -> Unit) {
+private fun StepProgress(fraction: Float) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp, end = 24.dp, top = 10.dp)
+            .height(4.dp)
+            .background(Hairline, ShowCodeShapes.Pill),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .fillMaxHeight()
+                .background(AccentInk, ShowCodeShapes.Pill),
+        )
+    }
+}
+
+/* ── 第一屏：价值 ───────────────────────────────────────────────────── */
+
+@Composable
+private fun Welcome(onBind: () -> Unit, onDemo: () -> Unit, onSkip: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
-                .padding(start = 24.dp, end = 24.dp, top = 28.dp, bottom = 12.dp)
+                .padding(start = 24.dp, end = 24.dp, top = 18.dp, bottom = 12.dp),
         ) {
-            Text(text = "📦", style = ShowCodeText.Display)
-            Spacer(Modifier.height(8.dp))
-            Text(text = stringResource(R.string.app_name), style = ShowCodeText.Count, color = Ink)
+            Brand()
+            Spacer(Modifier.height(14.dp))
+            MascotLine()
+            Spacer(Modifier.height(20.dp))
+            Text(
+                text = stringResource(R.string.ob_headline),
+                style = ShowCodeText.EmptyState,
+                color = Ink,
+            )
             Spacer(Modifier.height(10.dp))
-            Text(text = stringResource(R.string.ob_welcome_sub), style = ShowCodeText.Meta, color = InkSecondary)
-            Spacer(Modifier.height(18.dp))
-            ValueRow(icon = "📩", text = stringResource(R.string.ob_value_1))
-            ValueRow(icon = "📍", text = stringResource(R.string.ob_value_2))
-            ValueRow(icon = "⏰", text = stringResource(R.string.ob_value_3))
-            /* 隐私承诺必须整张卡都在折叠线之上：在 640dp 高的屏上原来被主 CTA
-               切掉最后一行，而「只有公共数据会下载、不上传」正是这半句最要紧。
-               宁可让上面三段各少 10dp，也不能让它需要滚动才看得全。 */
-            Spacer(Modifier.height(16.dp))
-            PrivacyPromise()
+            Text(
+                text = stringResource(R.string.ob_sub),
+                style = ShowCodeText.Body,
+                color = InkSecondary,
+            )
+            Spacer(Modifier.height(22.dp))
+            SamplePickupCard()
         }
-        Column(modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp)) {
-            // 主 CTA 是绑定平台账号；演示降为「先看看」的次级选择。
-            PrimaryButton(text = stringResource(R.string.ob_cta_bind), onClick = onSetup)
-            Spacer(Modifier.height(10.dp))
-            GhostButton(text = stringResource(R.string.ob_cta_demo), onClick = onEnterDemo)
-            Spacer(Modifier.height(8.dp))
+        Column(modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 10.dp)) {
+            Row(
+                modifier = Modifier.height(IntrinsicSize.Max),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                ChoiceCard(
+                    title = stringResource(R.string.ob_cta_bind),
+                    subtitle = stringResource(R.string.ob_choice_bind_sub),
+                    primary = true,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    onClick = onBind,
+                )
+                ChoiceCard(
+                    title = stringResource(R.string.ob_cta_demo),
+                    subtitle = stringResource(R.string.ob_choice_demo_sub),
+                    primary = false,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    onClick = onDemo,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = stringResource(R.string.ob_skip),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onSkip)
+                    .padding(vertical = 10.dp),
+                style = ShowCodeText.Caption,
+                color = InkMuted,
+                textAlign = TextAlign.Center,
+            )
             Text(
                 text = stringResource(R.string.ob_footer),
                 modifier = Modifier.fillMaxWidth(),
@@ -167,369 +238,235 @@ private fun Welcome(onEnterDemo: () -> Unit, onSetup: () -> Unit) {
 }
 
 @Composable
-private fun ValueRow(icon: String, text: String) {
-    Row(
-        modifier = Modifier.padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(text = icon, style = ShowCodeText.Headline, modifier = Modifier.width(30.dp), textAlign = TextAlign.Center)
+private fun Brand() {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Image(
+            painter = painterResource(R.drawable.ic_splash),
+            contentDescription = null,
+            modifier = Modifier.size(44.dp),
+        )
         Spacer(Modifier.width(10.dp))
-        Text(text = text, style = ShowCodeText.Body, color = Ink)
+        Text(
+            text = stringResource(R.string.app_name),
+            style = ShowCodeText.Section,
+            color = Ink,
+        )
     }
 }
 
-/** 隐私承诺块。放在每一次权限请求的上方——先安心，再要权限。 */
+/** 卡皮说一句话。整屏只有这一句是「角色」的声音，别让它变成第二段说明。 */
 @Composable
-private fun PrivacyPromise() {
+private fun MascotLine() {
+    Text(
+        text = stringResource(R.string.ob_mascot_line),
+        modifier = Modifier
+            .padding(start = 54.dp)
+            .background(SurfaceCard, ShowCodeShapes.Md)
+            .border(1.dp, Hairline, ShowCodeShapes.Md)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        style = ShowCodeText.Meta,
+        color = Ink,
+    )
+}
+
+/**
+ * 一张「看起来就是首页那张卡」的示例。
+ *
+ * 价值不需要用一句话解释——它就在这串码和「还剩 5 小时」里。
+ * 标了「示例」是为了不让人把它读成自己的件。
+ */
+@Composable
+private fun SamplePickupCard() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(SurfaceCard, ShowCodeShapes.Md)
+            .border(1.dp, Hairline, ShowCodeShapes.Md)
             .padding(14.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(20.dp), tint = UrgencySafe)
-        Spacer(Modifier.width(10.dp))
-        Column {
-            Text(text = stringResource(R.string.ob_privacy_title), style = ShowCodeText.Action, color = Ink)
-            Spacer(Modifier.height(2.dp))
-            Text(text = stringResource(R.string.ob_privacy_body), style = ShowCodeText.Caption, color = InkSecondary)
-        }
-    }
-}
-
-@Composable
-private fun StepBar(step: OnboardStep, onSkip: () -> Unit) {
-    Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = stringResource(R.string.ob_step, step.ordinal, TOTAL_STEPS),
-                modifier = Modifier.weight(1f),
-                style = ShowCodeText.Caption,
-                color = InkMuted,
-            )
-            Text(
-                text = stringResource(R.string.ob_skip),
-                modifier = Modifier.clickable(onClick = onSkip),
-                style = ShowCodeText.Caption,
-                color = AccentInk,
-            )
-        }
-        Spacer(Modifier.height(6.dp))
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(4.dp)
-                .background(SurfaceCard, ShowCodeShapes.Pill)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction = step.ordinal.toFloat() / TOTAL_STEPS)
-                    .height(4.dp)
-                    .background(Ink, ShowCodeShapes.Pill)
+                .width(6.dp)
+                .height(64.dp)
+                .background(UrgencySafe, ShowCodeShapes.Pill),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.ob_sample_point),
+                    modifier = Modifier.weight(1f),
+                    style = ShowCodeText.Section,
+                    color = Ink,
+                )
+                Text(
+                    text = stringResource(R.string.ob_sample_badge),
+                    style = ShowCodeText.Micro,
+                    color = InkMuted,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = stringResource(R.string.ob_sample_code),
+                style = ShowCodeText.Count,
+                color = Ink,
             )
+            Spacer(Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.ob_sample_locker),
+                    style = ShowCodeText.CodeSmall,
+                    color = InkSecondary,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = stringResource(R.string.ob_sample_eta),
+                    style = ShowCodeText.Micro,
+                    color = UrgencyDueSoon,
+                )
+            }
         }
     }
 }
 
 /**
- * 账号绑定步骤：这是主路径。短信不在这里当主角，只留一句「也可以这样」的次级入口。
+ * 一个大选择卡：标题 + 一行后果。
+ *
+ * 这是这一屏唯一的决定，所以它足够大、按下去会回弹、还会轻震一下——
+ * 多邻国那种「按一下像按到实体」的感觉，靠的就是这三点，不是靠彩色插画。
  */
 @Composable
-private fun AccountStep(onBind: () -> Unit, onSms: () -> Unit, onSkip: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        StepBar(step = OnboardStep.ACCOUNTS, onSkip = onSkip)
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(start = 20.dp, end = 20.dp, top = 16.dp)
-        ) {
-            Text(text = stringResource(R.string.ob_account_title), style = ShowCodeText.Headline, color = Ink)
-            Spacer(Modifier.height(10.dp))
-            Text(text = stringResource(R.string.ob_account_body), style = ShowCodeText.Body, color = InkSecondary)
-            Spacer(Modifier.height(18.dp))
-            NumberedStep(number = 1, text = stringResource(R.string.ob_account_point_1))
-            NumberedStep(number = 2, text = stringResource(R.string.ob_account_point_2))
-            NumberedStep(number = 3, text = stringResource(R.string.ob_account_point_3))
-            Spacer(Modifier.height(18.dp))
-            PrivacyPromise()
-            Spacer(Modifier.height(16.dp))
-            Text(
-                text = stringResource(R.string.ob_account_sms_optional),
-                modifier = Modifier
-                    .clickable(onClick = onSms)
-                    .padding(top = 10.dp),
-                style = ShowCodeText.Action,
-                color = AccentInk,
-            )
-            /* 补一句「抖音/小红书也在这条路上」：它紧贴上面那颗链接，不重复主路径的说法。 */
-            Text(
-                text = stringResource(R.string.ob_account_platform_note),
-                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
-                style = ShowCodeText.Caption,
-                color = InkMuted,
-            )
-        }
-        Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp, top = 8.dp)) {
-            PrimaryButton(text = stringResource(R.string.ob_account_bind_cta), onClick = onBind)
-            Spacer(Modifier.height(8.dp))
-            GhostButton(text = stringResource(R.string.ob_account_skip_cta), onClick = onSkip)
-        }
-    }
-}
-
-@Composable
-private fun SmsStep(denied: Boolean, onAllow: () -> Unit, onDecline: () -> Unit, onSkip: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        StepBar(step = OnboardStep.SMS, onSkip = onSkip)
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(start = 20.dp, end = 20.dp, top = 16.dp)
-        ) {
-            Text(text = stringResource(R.string.ob_sms_title), style = ShowCodeText.Headline, color = Ink)
-            Spacer(Modifier.height(10.dp))
-            Text(text = stringResource(R.string.ob_sms_body), style = ShowCodeText.Body, color = InkSecondary)
-            Spacer(Modifier.height(20.dp))
-            // 价值对比：不是「需要权限」，而是「有它 / 没它」的差别
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                CompareCard(
-                    title = stringResource(R.string.ob_sms_allow_title),
-                    desc = stringResource(R.string.ob_sms_allow_desc),
-                    highlighted = false,
-                    modifier = Modifier.weight(1f),
-                )
-                CompareCard(
-                    title = stringResource(R.string.ob_sms_deny_title),
-                    desc = stringResource(R.string.ob_sms_deny_desc),
-                    highlighted = false,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Spacer(Modifier.height(20.dp))
-            PrivacyPromise()
-            if (denied) {
-                Spacer(Modifier.height(16.dp))
-                /* 短信是补充手段：拒绝后只留一句中性说明，不出现警示色，也不催再次授权。 */
-                Text(
-                    text = stringResource(R.string.ob_sms_denied),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(SurfaceCard, ShowCodeShapes.Md)
-                        .padding(12.dp),
-                    style = ShowCodeText.Meta,
-                    color = InkSecondary,
-                )
-            }
-        }
-        Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp, top = 8.dp)) {
-            // 主按钮是「不用短信」：短信始终是补充手段，不引导用户把它当必选项。
-            PrimaryButton(text = stringResource(R.string.ob_sms_continue_cta), onClick = onDecline)
-            Spacer(Modifier.height(8.dp))
-            GhostButton(text = stringResource(R.string.ob_sms_allow_optional_cta), onClick = onAllow)
-        }
-    }
-}
-
-@Composable
-private fun CompareCard(title: String, desc: String, highlighted: Boolean, modifier: Modifier = Modifier) {
+private fun ChoiceCard(
+    title: String,
+    subtitle: String,
+    primary: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = MotionTokens.NavRelease,
+        label = "onboarding-choice-press",
+    )
+    val haptics = LocalHapticFeedback.current
     Column(
         modifier = modifier
-            .border(
-                width = if (highlighted) 2.dp else 1.dp,
-                color = if (highlighted) AccentInk else Hairline,
-                shape = ShowCodeShapes.Md,
-            )
-            .background(if (highlighted) AccentTint else SurfaceCard, ShowCodeShapes.Md)
-            .padding(12.dp)
-    ) {
-        Text(text = title, style = ShowCodeText.Caption, color = InkMuted)
-        Spacer(Modifier.height(6.dp))
-        Text(text = desc, style = ShowCodeText.Item, color = Ink)
-    }
-}
-
-@Composable
-private fun NotificationStep(onEnable: () -> Unit, onNext: () -> Unit, onSkip: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        StepBar(step = OnboardStep.NOTIFICATION, onSkip = onSkip)
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(start = 20.dp, end = 20.dp, top = 16.dp)
-        ) {
-            Text(text = stringResource(R.string.ob_notif_title), style = ShowCodeText.Headline, color = Ink)
-            Spacer(Modifier.height(10.dp))
-            Text(text = stringResource(R.string.ob_notif_body), style = ShowCodeText.Body, color = InkSecondary)
-            Spacer(Modifier.height(16.dp))
-            Text(text = stringResource(R.string.ob_notif_list_header), style = ShowCodeText.Caption, color = InkMuted)
-            Spacer(Modifier.height(8.dp))
-            SourceRow(stringResource(R.string.ob_notif_src_1))
-            SourceRow(stringResource(R.string.ob_notif_src_2))
-            SourceRow(stringResource(R.string.ob_notif_src_3))
-            SourceRow(stringResource(R.string.ob_notif_src_4))
-            Spacer(Modifier.height(16.dp))
-            Text(text = stringResource(R.string.ob_notif_note), style = ShowCodeText.Caption, color = InkMuted)
-            Spacer(Modifier.height(16.dp))
-            PrivacyPromise()
-        }
-        Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp, top = 8.dp)) {
-            PrimaryButton(text = stringResource(R.string.ob_notif_cta), onClick = { onEnable(); onNext() })
-            Spacer(Modifier.height(8.dp))
-            GhostButton(text = stringResource(R.string.ob_notif_skip), onClick = onNext)
-        }
-    }
-}
-
-@Composable
-private fun SourceRow(text: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(Icons.Filled.Warning, contentDescription = null, modifier = Modifier.size(14.dp), tint = UrgencyDueSoon)
-        Spacer(Modifier.width(8.dp))
-        Text(text = text, style = ShowCodeText.Meta, color = Ink)
-    }
-}
-
-@Composable
-private fun WidgetStep(onDone: () -> Unit, onSkip: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        StepBar(step = OnboardStep.WIDGET, onSkip = onSkip)
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(start = 20.dp, end = 20.dp, top = 16.dp)
-        ) {
-            Text(text = stringResource(R.string.ob_widget_title), style = ShowCodeText.Headline, color = Ink)
-            Spacer(Modifier.height(10.dp))
-            Text(text = stringResource(R.string.ob_widget_body), style = ShowCodeText.Body, color = InkSecondary)
-            Spacer(Modifier.height(18.dp))
-            NumberedStep(number = 1, text = stringResource(R.string.ob_widget_step_1))
-            NumberedStep(number = 2, text = stringResource(R.string.ob_widget_step_2))
-            NumberedStep(number = 3, text = stringResource(R.string.ob_widget_step_3))
-            Spacer(Modifier.height(8.dp))
-            InfoAlert(text = stringResource(R.string.ob_widget_caveat))
-        }
-        Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp, top = 8.dp)) {
-            PrimaryButton(text = stringResource(R.string.ob_widget_done), onClick = onDone)
-            Spacer(Modifier.height(8.dp))
-            GhostButton(text = stringResource(R.string.ob_widget_skip), onClick = onSkip)
-        }
-    }
-}
-
-@Composable
-private fun NumberedStep(number: Int, text: String) {
-    Row(
-        modifier = Modifier.padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(26.dp)
-                .background(AccentInk, ShowCodeShapes.Md),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(text = number.toString(), style = ShowCodeText.Action, color = OnsiteSurface)
-        }
-        Spacer(Modifier.width(12.dp))
-        Text(text = text, style = ShowCodeText.Body, color = Ink)
-    }
-}
-
-@Composable
-private fun ReadyStep(
-    report: HealthReport,
-    accountCount: Int,
-    smsGranted: Boolean,
-    notificationEnabled: Boolean,
-    widgetAdded: Boolean,
-    onFinish: () -> Unit,
-    onManualImport: () -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        StepBar(step = OnboardStep.READY, onSkip = onFinish)
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(start = 20.dp, end = 20.dp, top = 16.dp)
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(44.dp), tint = UrgencySafe)
-                Spacer(Modifier.height(8.dp))
-                Text(text = stringResource(R.string.ob_ready_title), style = ShowCodeText.Headline, color = Ink)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = stringResource(R.string.ob_ready_body),
-                    style = ShowCodeText.Body,
-                    color = InkMuted,
-                    textAlign = TextAlign.Center,
-                )
+            .heightIn(min = 88.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
             }
-            if (report.issues.isNotEmpty()) {
-                Spacer(Modifier.height(16.dp))
-                InfoAlert(text = stringResource(R.string.ob_ready_partial, report.issues.size))
+            .background(if (primary) Ink else SurfaceCard, ShowCodeShapes.Md)
+            .border(1.dp, if (primary) Ink else Hairline, ShowCodeShapes.Md)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+            ) {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onClick()
             }
-            Spacer(Modifier.height(16.dp))
-            Text(text = stringResource(R.string.ob_ready_health), style = ShowCodeText.Caption, color = InkMuted)
-            Spacer(Modifier.height(8.dp))
-            CheckRow(title = stringResource(R.string.ob_account_check), ok = accountCount > 0)
-            CheckRow(title = stringResource(R.string.health_sms), ok = smsGranted)
-            CheckRow(title = stringResource(R.string.health_notification), ok = notificationEnabled)
-            CheckRow(title = stringResource(R.string.ob_widget_title), ok = widgetAdded)
-            Spacer(Modifier.height(16.dp))
-            Text(text = stringResource(R.string.ob_ready_note), style = ShowCodeText.Micro, color = InkMuted)
-        }
-        Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp, top = 8.dp)) {
-            PrimaryButton(text = stringResource(R.string.ob_ready_cta), onClick = onFinish)
-            Spacer(Modifier.height(8.dp))
-            GhostButton(text = stringResource(R.string.ob_ready_manual), onClick = onManualImport)
-        }
-    }
-}
-
-@Composable
-private fun CheckRow(title: String, ok: Boolean) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.Center,
     ) {
-        Text(text = title, modifier = Modifier.weight(1f), style = ShowCodeText.Body, color = Ink)
         Text(
-            text = stringResource(if (ok) R.string.health_on else R.string.health_off),
-            modifier = Modifier
-                .background((if (ok) UrgencySafe else InkMuted).copy(alpha = 0.12f), ShowCodeShapes.Sm)
-                .padding(horizontal = 8.dp, vertical = 3.dp),
-            style = ShowCodeText.Micro,
-            color = if (ok) UrgencySafe else InkMuted,
+            text = title,
+            style = ShowCodeText.Item,
+            color = if (primary) OnsiteSurface else Ink,
+            maxLines = 2,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = subtitle,
+            style = ShowCodeText.Caption,
+            color = if (primary) OnsiteSurface else InkMuted,
+            maxLines = 2,
         )
     }
 }
 
+/* ── 第二屏：接平台 ─────────────────────────────────────────────────── */
+
 @Composable
-private fun InfoAlert(text: String) {
-    Row(
+private fun Connect(
+    accountCount: Int,
+    onBind: () -> Unit,
+    onFinish: () -> Unit,
+) {
+    Column(
         modifier = Modifier
-            .fillMaxWidth()
-            .background(UrgencyDueSoonTint, ShowCodeShapes.Md)
-            .border(1.dp, UrgencyDueSoon, ShowCodeShapes.Md)
-            .padding(12.dp),
+            .fillMaxSize()
+            .padding(horizontal = 24.dp),
     ) {
-        Icon(Icons.Filled.Warning, contentDescription = null, modifier = Modifier.size(18.dp), tint = UrgencyDueSoon)
-        Spacer(Modifier.width(10.dp))
-        Text(text = text, style = ShowCodeText.Meta, color = Ink)
+        /* 内容在可用高度里居中：两行字贴顶、按钮贴底，中间空一大块会像没画完。 */
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = stringResource(R.string.ob_connect_title),
+                style = ShowCodeText.EmptyState,
+                color = Ink,
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = stringResource(R.string.ob_connect_body),
+                style = ShowCodeText.Body,
+                color = InkSecondary,
+            )
+            Spacer(Modifier.height(20.dp))
+            Text(
+                text = stringResource(R.string.ob_connect_platforms),
+                style = ShowCodeText.Item,
+                color = Ink,
+            )
+            if (accountCount > 0) {
+                Spacer(Modifier.height(14.dp))
+                /* 从登录页回来时不再问「去绑定」：把已经发生的事说出来，主 CTA 换成开始使用。 */
+                Text(
+                    text = stringResource(R.string.ob_connect_bound, accountCount),
+                    modifier = Modifier
+                        .background(SurfaceCard, ShowCodeShapes.Md)
+                        .border(1.dp, Hairline, ShowCodeShapes.Md)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    style = ShowCodeText.Meta,
+                    color = Ink,
+                )
+            } else {
+                Spacer(Modifier.height(12.dp))
+                /* 不绑也进得去，但先说清绑了会得到什么——这一屏只有一个选择要讲。 */
+                Text(
+                    text = stringResource(R.string.ob_connect_outcome),
+                    style = ShowCodeText.Meta,
+                    color = InkMuted,
+                )
+            }
+        }
+        Column(modifier = Modifier.padding(bottom = 10.dp)) {
+            if (accountCount > 0) {
+                PrimaryButton(text = stringResource(R.string.ob_connect_done), onClick = onFinish)
+                Spacer(Modifier.height(8.dp))
+                GhostButton(text = stringResource(R.string.ob_connect_again), onClick = onBind)
+            } else {
+                PrimaryButton(text = stringResource(R.string.ob_connect_bind), onClick = onBind)
+                Spacer(Modifier.height(8.dp))
+                GhostButton(text = stringResource(R.string.ob_connect_skip), onClick = onFinish)
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = stringResource(R.string.ob_connect_note),
+                modifier = Modifier.fillMaxWidth(),
+                style = ShowCodeText.Caption,
+                color = InkMuted,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
+
+/* ── 按钮 ───────────────────────────────────────────────────────────── */
 
 @Composable
 private fun PrimaryButton(text: String, onClick: () -> Unit) {

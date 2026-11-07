@@ -1,5 +1,6 @@
 package dev.showcode.data.fetch
 
+import dev.showcode.core.Parcel
 import dev.showcode.core.Slog
 import dev.showcode.core.account.FetchOutcome
 import dev.showcode.core.account.FailureKind
@@ -7,15 +8,22 @@ import dev.showcode.core.account.FetchedParcel
 import dev.showcode.core.account.GoodsInfo
 import dev.showcode.core.account.Platform
 import dev.showcode.core.account.StageMachine
+import dev.showcode.core.account.SyncPhase
+import dev.showcode.core.account.SyncProgress
 import dev.showcode.core.account.TraceEntry
 import dev.showcode.core.account.TraceParser
 import dev.showcode.core.account.allDetailsFailed
+import dev.showcode.core.account.detailNeeded
 import dev.showcode.core.account.goodsPriceText
 import dev.showcode.core.account.isBlockedOrderPrompt
 import dev.showcode.core.account.isFinishedOrderPrompt
 import dev.showcode.core.account.normalizeImageUrl
 import dev.showcode.core.account.orderTimeMs
+import dev.showcode.core.account.stageOfPrompt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -24,6 +32,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * 淘宝：先用 mtop 拿订单列表，再逐单取 SSR 物流详情（含 mailNo 与多段轨迹）。
@@ -41,7 +50,14 @@ object TbFetcher {
         "Mozilla/5.0 (Linux; Android 12; M2102K1C) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/105.0.0.0 Mobile Safari/537.36 EdgA/105.0.1343.48"
 
-    suspend fun fetch(accountId: String, cookie: String): FetchOutcome =
+    suspend fun fetch(
+        accountId: String,
+        cookie: String,
+        /** 库里这个账号已有的件（键 = 订单号）。状态没变的单不再进详情页。 */
+        known: Map<String, Parcel> = emptyMap(),
+        /** 这一轮走到哪一步：顶栏的「读取详情 2/8」就是它。 */
+        onProgress: suspend (SyncProgress) -> Unit = {},
+    ): FetchOutcome =
         withContext(Dispatchers.IO) {
             if (cookie.isBlank()) {
                 return@withContext FetchOutcome.Failure("Cookie 为空，需要重新登录", FailureKind.AUTH)
@@ -67,22 +83,48 @@ object TbFetcher {
                历史单也不再占用详情名额。 */
             val history = orders.filter { closesOrder(it.status) }.map { it.id }
             val pending = orders.filter { needsDetail(it) }.sortedBy { detailRank(it.status) }
-            /* 上限保留（每单详情都是一次整页请求），但只从真正待取/在途的单里取。 */
-            val candidates = pending.take(MAX_DETAILS)
-            Slog.safe(TAG, "pending=${pending.size} candidates=${candidates.size} history=${history.size}")
+            /* 上限保留（每单详情都是一次整页请求），但只从真正待取/在途的单里取。
+               状态没变、运单号与码都在的单先剔掉：它们这次拿回来的会和上次一样，
+               还白占一个详情名额。判据见 core/account/DetailGate.kt。 */
+            val now = System.currentTimeMillis()
+            val candidates = pending
+                .filter { detailNeeded(it.id, stageOfPrompt(it.status), known, now) }
+                .take(MAX_DETAILS)
+            Slog.safe(
+                TAG,
+                "pending=${pending.size} candidates=${candidates.size} " +
+                    "skip=${pending.size - candidates.size} history=${history.size}",
+            )
+            /* 详情是纯 HTTP、彼此独立：四路并发把 8 单的等待从「串行累加」压成「两轮」。
+               进度按**完成数**报，所以并发下也只增不减。 */
+            val done = AtomicInteger()
+            val attempts = coroutineScope {
+                candidates.map { order ->
+                    async(detailDispatcher) {
+                        val attempt = try {
+                            Attempt(order, detail(cookie, accountId, order), null)
+                        } catch (f: FetchFailure) {
+                            Attempt(order, null, f)
+                        } catch (t: Throwable) {
+                            Attempt(order, DetailOutcome(null, "exception:${t.message}", ""), null)
+                        }
+                        onProgress(SyncProgress(SyncPhase.DETAILS, done.incrementAndGet(), candidates.size))
+                        attempt
+                    }
+                }.awaitAll()
+            }
+            /* 详情页明确 401/403：整批按登录失效处理，不再把剩下的单当成普通失败。 */
+            val authFailure = attempts.firstNotNullOfOrNull { it.auth }
+            if (authFailure != null) {
+                return@withContext FetchOutcome.Failure(
+                    authFailure.message ?: "物流详情没拿到", authFailure.kind,
+                )
+            }
             val result = mutableListOf<FetchedParcel>()
             var detailsFailed = 0
-            candidates.forEachIndexed { index, order ->
-                val outcome = try {
-                    detail(cookie, accountId, order)
-                } catch (f: FetchFailure) {
-                    /* 详情页明确 401/403：整批按登录失效处理，不再把剩下的单当成普通失败。 */
-                    return@withContext FetchOutcome.Failure(
-                        f.message ?: "物流详情没拿到", f.kind,
-                    )
-                } catch (t: Throwable) {
-                    DetailOutcome(null, "exception:${t.message}", "")
-                }
+            attempts.forEachIndexed { index, attempt ->
+                val order = attempt.order
+                val outcome = attempt.outcome ?: DetailOutcome(null, "unknown", "")
                 Slog.i(TAG) {
                     "result[$index] sn=${Slog.mask(order.id)} status=${order.status.ifBlank { "<空>" }} " +
                         "mailNo=${Slog.mask(outcome.mailNo)} goods=${order.goods?.title?.take(28) ?: "<无>"} " +
@@ -111,7 +153,18 @@ object TbFetcher {
         val mailNo: String,
     )
 
+    /** 一单详情的结局。401/403 单独拎出来：它要让整批按登录失效处理。 */
+    private data class Attempt(
+        val order: Order,
+        val outcome: DetailOutcome?,
+        val auth: FetchFailure?,
+    )
+
     private const val MAX_DETAILS = 8
+
+    /** 详情是独立请求，并发四路；再高只会让 mtop 更容易触发风控。 */
+    private const val DETAIL_PARALLELISM = 4
+    private val detailDispatcher = Dispatchers.IO.limitedParallelism(DETAIL_PARALLELISM)
 
     /** SSR 页面正文里的预计送达文案（`logistics` JSON 不含这个字段）。 */
     private val ETA = Regex("预计[^，。；\"\\\\<]{0,18}")

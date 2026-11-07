@@ -101,4 +101,7 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.6.2")
 
     testImplementation("junit:junit:4.13.2")
+    /* JVM 单测里的 android.jar 只是空桩（org.json 一调就抛「not mocked」）。
+       更新检查要解析 Release JSON，单测必须拿真实现。 */
+    testImplementation("org.json:json:20240303")
 }

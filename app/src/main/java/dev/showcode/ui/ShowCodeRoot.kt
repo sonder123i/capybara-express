@@ -61,6 +61,10 @@ import dev.showcode.core.PickupPointGroup
 import dev.showcode.core.shouldShowBackgroundNote
 import dev.showcode.core.account.AccountState
 import dev.showcode.core.account.Platform
+import dev.showcode.core.account.SmsChannelInput
+import dev.showcode.core.account.SyncProgress
+import dev.showcode.core.account.SyncRailState
+import dev.showcode.core.account.syncRailState
 import dev.showcode.core.bodyFingerprint
 import dev.showcode.core.groupByPoint
 import dev.showcode.core.mergePreview
@@ -76,9 +80,9 @@ import dev.showcode.ui.glass.rememberHighTextContrast
 import dev.showcode.ui.home.HomeEmpty
 import dev.showcode.ui.home.HomeScreen
 import dev.showcode.ui.home.HomeUiState
+import dev.showcode.ui.home.SyncDigest
 import dev.showcode.ui.identity.IdentityEditScreen
 import dev.showcode.ui.identity.IdentityListScreen
-import dev.showcode.ui.identity.ShortcutPinning
 import dev.showcode.ui.inbox.ManualImportScreen
 import dev.showcode.ui.inbox.UnrecognizedScreen
 import dev.showcode.ui.onboarding.OnboardStep
@@ -212,6 +216,10 @@ fun ShowCodeRoot() {
     var accounts by remember { mutableStateOf(repository.accounts.list()) }
     var loginPlatformId by rememberSaveable { mutableStateOf(Platform.PDD.id) }
     var accountSyncing by remember { mutableStateOf<String?>(null) }
+    /** 正在同步的那个账号走到哪一步（读订单 / 第几件详情）。顶栏轨道用它说话。 */
+    var accountProgress by remember { mutableStateOf<SyncProgress?>(null) }
+    /** 这一轮手动同步的结果摘要；轨道下面那行 8 秒后回到时间。 */
+    var lastDigest by remember { mutableStateOf<SyncDigest?>(null) }
     var accountSyncMessage by remember { mutableStateOf<String?>(null) }
     /** 正在跑的抓取。进入登录页前必须取消，否则它会和登录页抢同一个 CookieManager。 */
     var accountSyncJob by remember { mutableStateOf<Job?>(null) }
@@ -229,7 +237,6 @@ fun ShowCodeRoot() {
     var familyLabel by remember { mutableStateOf(repository.prefs.familyLabel) }
     var keepTarget by rememberSaveable { mutableStateOf(true) }
     var lastMerge by remember { mutableStateOf<PointAlias?>(null) }
-    var smsAttempted by rememberSaveable { mutableStateOf(false) }
     var widgetAdded by remember { mutableStateOf(false) }
     /* 查快递页面的剪贴板文本预填。 */
 
@@ -378,9 +385,12 @@ fun ShowCodeRoot() {
     suspend fun runAccountSync(
         targets: List<dev.showcode.core.account.BoundAccount>,
         tag: String,
+        /** true = 忽略「状态没变就跳过详情」，这次当全量重抓。 */
+        force: Boolean = false,
     ): AccountSyncResult? {
         var added = 0
         var updated = 0
+        var skipped = 0
         var succeeded = 0
         val lines = mutableListOf<String>()
         for (account in targets) {
@@ -390,12 +400,20 @@ fun ShowCodeRoot() {
                 break
             }
             accountSyncing = account.id
+            accountProgress = null
             accountSyncMessage = null
             Slog.i(tag) { "start ${account.platform.id}" }
             /* 一个账号失败不能中止其余账号：按账号记台账，循环继续。
                取消是另一回事，必须原样抛出去，否则取消会被当成一次普通失败吞掉。 */
             val result = try {
-                AccountSyncEngine.sync(activity, repository, account)
+                AccountSyncEngine.sync(
+                    activity = activity,
+                    repository = repository,
+                    account = account,
+                    force = force,
+                    /* 抓取器在 IO/主线程之间切换，UI 状态只在这里（主线程）改。 */
+                    onProgress = { step -> withContext(Dispatchers.Main) { accountProgress = step } },
+                )
             } catch (cancel: kotlinx.coroutines.CancellationException) {
                 throw cancel
             } catch (error: Exception) {
@@ -403,6 +421,7 @@ fun ShowCodeRoot() {
                 null
             }
             accountSyncing = null
+            accountProgress = null
             /* 账号表在加密库里，读它也要下 IO；Compose 状态只在这里（主线程）改。 */
             accounts = withContext(Dispatchers.IO) { repository.accounts.list() }
             if (result == null) {
@@ -417,6 +436,8 @@ fun ShowCodeRoot() {
             succeeded++
             added += result.added
             updated += result.updated
+            skipped += result.skippedHistory + result.skippedNoTracking +
+                result.skippedNoPoint + result.skippedNoCode
             lines += "${account.platform.label}：${syncSuccessMessage(result)}"
             Slog.i(tag) {
                 "ok ${account.platform.id}: added=${result.added} updated=${result.updated}"
@@ -435,6 +456,13 @@ fun ShowCodeRoot() {
         }
         // 全部账号都失败才算整体失败；只要有一个成功，其余失败只留在状态行里。
         if (succeeded == 0) return null
+        lastDigest = SyncDigest(
+            added = added,
+            updated = updated,
+            skipped = skipped,
+            failed = succeeded < targets.size,
+            at = System.currentTimeMillis(),
+        )
         return AccountSyncResult(added, updated, 0, 0, 0, 0, System.currentTimeMillis())
     }
 
@@ -450,7 +478,13 @@ fun ShowCodeRoot() {
             manualSyncMessage = null
         }
     }
-    fun startManualSync() {
+    /**
+     * 手动刷新。
+     *
+     * @param force true = 长按刷新键的「强制重抓」：忽略详情门控与节流，每一单都重新读。
+     * @param onlyAccountId 轨道上某一格的重试：只跑这一家，其余不动。
+     */
+    fun startManualSync(force: Boolean = false, onlyAccountId: String? = null) {
         if (accountSyncing != null || manualSyncBusy) {
             Slog.i("ManualSync") { "ignore: 已有同步在跑" }
             return
@@ -468,31 +502,46 @@ fun ShowCodeRoot() {
             return
         }
         manualSyncBusy = true
-        manualSyncMessage = null
+        manualSyncMessage = if (force) {
+            context.getString(dev.showcode.R.string.sync_rail_force_started)
+        } else {
+            null
+        }
         accountSyncJob = accountScope.launch {
             /* 账号表读取下 IO；没账号这条消息也在这里给，主线程不做 DB 读。 */
-            val targets = withContext(Dispatchers.IO) {
+            val all = withContext(Dispatchers.IO) {
                 repository.accounts.list().filter { it.enabled }
             }
+            val targets = onlyAccountId?.let { id -> all.filter { it.id == id } } ?: all
             if (targets.isEmpty()) {
                 manualSyncBusy = false
                 manualSyncMessage = context.getString(dev.showcode.R.string.home_refresh_no_account)
                 Slog.i("ManualSync") { "no account" }
                 return@launch
             }
-            val result = runAccountSync(targets, "ManualSync")
+            val result = runAccountSync(targets, "ManualSync", force)
             manualSyncBusy = false
             if (result == null) manualSyncFailSignal++
-            manualSyncMessage = if (result != null) {
-                /* runAccountSync 已经把逐账号结果拼成一句；失败账号也在里面，
-                   不能再用总计数覆盖掉它的名字。 */
-                accountSyncMessage ?: syncSuccessMessage(result)
-            } else {
-                /* 全部失败也要按账号交代是哪家没同步上；没有台账时才退回那句通用文案。 */
-                accountSyncMessage ?: context.getString(dev.showcode.R.string.home_refresh_failed)
+            /* 全量成功时不再抢那一行：轨道会用 8 秒摘要说「新增/更新/跳过」。
+               失败、部分失败、单通道重试仍走逐家台账——那几句里带着是哪一家。 */
+            manualSyncMessage = when {
+                result == null ->
+                    accountSyncMessage ?: context.getString(dev.showcode.R.string.home_refresh_failed)
+                onlyAccountId != null || lastDigest?.failed == true ->
+                    accountSyncMessage ?: syncSuccessMessage(result)
+                else -> null
             }
-            Slog.i("ManualSync") { "done: $manualSyncMessage" }
+            Slog.i("ManualSync") { "done: ${manualSyncMessage ?: "轨道摘要"}" }
         }
+    }
+
+    /**
+     * 下拉 / 红条 / 刷新键的共同入口：先本地（短信收件箱），再平台。
+     * 本地那一步是毫秒级的，不该被「要联网」挡在门外。
+     */
+    fun refreshEverything(force: Boolean = false) {
+        if (!demo) repository.refreshNow()
+        startManualSync(force)
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -550,23 +599,15 @@ fun ShowCodeRoot() {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    var advanceAfterSms by remember { mutableStateOf(false) }
     val smsPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         smsGranted = result[Manifest.permission.READ_SMS] == true
-        smsAttempted = true
         // 授权后立刻回填收件箱：用户手机上本来就躺着待取件，不该让他再等下一条短信
         if (smsGranted) repository.backfillSms()
-        if (advanceAfterSms) {
-            advanceAfterSms = false
-            /* 允许/拒绝都继续往下走：短信不是必须补上的一步。 */
-            onboardStep = OnboardStep.NOTIFICATION
-        }
     }
 
-    fun requestSmsPermission(fromOnboarding: Boolean = false) {
-        advanceAfterSms = fromOnboarding
+    fun requestSmsPermission() {
         smsPermissionLauncher.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS))
     }
 
@@ -739,6 +780,24 @@ fun ShowCodeRoot() {
             appData.unrecognized.map { bodyFingerprint(it.body) }
     }
 
+    /* 四条同步通道的状态。演示态不读真实账号，所以整条轨道在那边不出现。 */
+    val syncRail = if (demo) {
+        null
+    } else {
+        syncRailState(
+            accounts = accounts,
+            sms = SmsChannelInput(
+                enabled = smsGranted,
+                lastAt = appData.lastSmsSyncAt,
+                failed = appData.lastSyncFailed,
+                running = appData.syncing,
+                lastAdded = appData.lastSyncResult?.added ?: 0,
+            ),
+            syncingAccountId = accountSyncing,
+            progress = accountProgress,
+            now = renderNow,
+        )
+    }
     val homeState = if (demo) {
         /* 演示态完全独立：不读真实件、不读权限、不带任何同步/收容/提醒入口。
            空态只剩「全部取完」——录制收尾那一段正好用上。 */
@@ -749,7 +808,6 @@ fun ShowCodeRoot() {
             monthlyPicked = demoPicked.size,
             lastSyncAt = demoNow,
             syncing = false,
-            lastSyncResult = null,
             lastSyncFailed = false,
             unrecognizedCount = 0,
             pickedParcels = demoParcels.filter { it.picked },
@@ -772,7 +830,6 @@ fun ShowCodeRoot() {
             monthlyPicked = appData.monthlyPicked,
             lastSyncAt = appData.lastSyncAt,
             syncing = appData.syncing,
-            lastSyncResult = appData.lastSyncResult,
             lastSyncFailed = appData.lastSyncFailed,
             unrecognizedCount = unrecognizedBadgeCount(appData.unrecognized),
             /* 检索那句「你可能已经取过了」的依据。已取的件不进待取区，但检索仍要能回答
@@ -783,6 +840,8 @@ fun ShowCodeRoot() {
             smsPermissionGranted = smsGranted,
             notificationAccessGranted = notificationGranted,
             suspect = suspect,
+            rail = syncRail,
+            digest = lastDigest,
         )
     }
 
@@ -934,11 +993,13 @@ fun ShowCodeRoot() {
                                 route = Route.ACCOUNT_LIST
                             },
                             onOpenNotificationSettings = { openNotificationSettings() },
-                            onRefresh = { if (!demo) repository.refreshNow() },
+                            onRefresh = { if (!demo) refreshEverything() },
                             accountsSyncing = accountSyncing != null || manualSyncBusy,
                             manualSyncMessage = manualSyncMessage,
                             manualSyncFailedSignal = manualSyncFailSignal,
-                            onManualSync = { startManualSync() },
+                            onManualSync = { refreshEverything() },
+                            onForceSync = { refreshEverything(force = true) },
+                            onRetryChannel = { id -> startManualSync(onlyAccountId = id) },
                             /* 演示态没有「管理这个点」：那会进真实的合并/别名流程。
                                长按菜单在这一态直接不提供。 */
                             onManagePoint = if (demo) {
@@ -975,9 +1036,6 @@ fun ShowCodeRoot() {
                                 // 用途跟着这一行走：淘宝/拼多多/菜鸟是身份码，京东/小红书是订单列表。
                                 onOpenEntry = { entry ->
                                     identityLaunch = repository.openOfficialApp(entry.packageName, entry.purpose)
-                                },
-                                onPinEntry = { entry, label ->
-                                    ShortcutPinning.request(context, entry, label)
                                 },
                                 onShow = { code ->
                                     identityShowId = code.id
@@ -1342,8 +1400,6 @@ fun ShowCodeRoot() {
                             if (stored) {
                                 manualSourceBody = null
                                 manualPrefill = ""
-                                // 从引导里手动导入成功 = 用户已经拿到价值，引导可以收尾了
-                                if (manualReturn == Route.ONBOARDING) repository.prefs.onboardingDone = true
                                 manualReturn = Route.HOME
                                 route = Route.HOME
                             }
@@ -1383,26 +1439,12 @@ fun ShowCodeRoot() {
 
                     Route.ONBOARDING -> OnboardingScreen(
                         step = onboardStep,
-                        report = healthReport,
                         accountCount = accounts.size,
-                        smsGranted = smsGranted,
-                        notificationEnabled = notificationGranted,
-                        widgetAdded = widgetAdded,
-                        smsAttempted = smsAttempted,
                         onStep = { onboardStep = it },
                         onEnterDemo = { enterDemo() },
                         onOpenAccounts = {
                             accountReturn = Route.ONBOARDING
                             route = Route.ACCOUNT_LIST
-                        },
-                        onRequestSms = { requestSmsPermission(fromOnboarding = true) },
-                        onOpenNotificationSettings = { openNotificationSettings() },
-                        onPinWidget = { requestPinWidget() },
-                        onManualImport = {
-                            manualPrefill = ""
-                            manualSourceBody = null
-                            manualReturn = Route.ONBOARDING
-                            route = Route.MANUAL_IMPORT
                         },
                         onFinish = {
                             repository.prefs.onboardingDone = true

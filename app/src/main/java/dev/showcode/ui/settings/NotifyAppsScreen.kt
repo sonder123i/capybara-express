@@ -75,13 +75,6 @@ fun NotifyAppsScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item {
-                Text(
-                    text = stringResource(R.string.notify_hint),
-                    style = ShowCodeText.Meta,
-                    color = InkMuted,
-                )
-            }
             if (apps.isEmpty()) {
                 // 空态说的是「通知监听还没见过任何东西」，不是「这个功能没做」——
                 // 而这一屏恰恰是用户怀疑自己没配好的时候会来的地方，两件事必须分得开。
@@ -161,26 +154,23 @@ private fun NotifyAppRow(app: NotifyApp, now: Long, onToggle: (String, Boolean) 
             style = ShowCodeText.Caption,
             color = InkMuted,
         )
-        if (needsConfirm) {
+        /* 第一次点只把「关掉之后会发生什么」摊开；永久挂着的警告只会变成背景噪音。 */
+        if (needsConfirm && confirming) {
             Spacer(Modifier.height(6.dp))
             Text(
-                text = stringResource(
-                    if (confirming) R.string.notify_forward_confirm else R.string.notify_forward_warning
-                ),
+                text = stringResource(R.string.notify_forward_confirm),
                 style = ShowCodeText.Meta,
                 color = UrgencyDueSoon,
             )
-            if (confirming) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = stringResource(R.string.notify_cancel),
-                    modifier = Modifier
-                        .clickable { confirming = false }
-                        .padding(vertical = 4.dp),
-                    style = ShowCodeText.Action,
-                    color = InkMuted,
-                )
-            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.notify_cancel),
+                modifier = Modifier
+                    .clickable { confirming = false }
+                    .padding(vertical = 4.dp),
+                style = ShowCodeText.Action,
+                color = InkMuted,
+            )
         }
     }
 }

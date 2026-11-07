@@ -1,5 +1,11 @@
 package dev.showcode.ui.settings
 
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,19 +40,24 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.showcode.BuildConfig
 import dev.showcode.R
 import dev.showcode.core.HOUR_MS
 import dev.showcode.core.HealthIssue
@@ -56,6 +67,10 @@ import dev.showcode.core.Urgency
 import dev.showcode.core.UrgencyThresholds
 import dev.showcode.core.urgencyOf
 import dev.showcode.data.Prefs
+import dev.showcode.data.update.UpdateChecker
+import dev.showcode.data.update.UpdateInfo
+import dev.showcode.data.update.UpdateInstaller
+import dev.showcode.data.update.UpdateResult
 import androidx.compose.material3.Switch
 import dev.showcode.ui.navBarClearance
 import dev.showcode.ui.inbox.ScreenTopBar
@@ -64,6 +79,7 @@ import dev.showcode.ui.theme.Hairline
 import dev.showcode.ui.theme.Ink
 import dev.showcode.ui.theme.InkDisabled
 import dev.showcode.ui.theme.InkMuted
+import dev.showcode.ui.theme.InkSecondary
 import dev.showcode.ui.theme.environmentBackground
 import dev.showcode.ui.theme.ShowCodeShapes
 import dev.showcode.ui.theme.ShowCodeText
@@ -73,6 +89,12 @@ import dev.showcode.ui.theme.SurfaceSunken
 import dev.showcode.ui.theme.UrgencyAtRisk
 import dev.showcode.ui.theme.UrgencyDueSoon
 import dev.showcode.ui.theme.UrgencyDueSoonTint
+import androidx.core.content.ContextCompat
+import java.io.File
+import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import dev.showcode.ui.theme.UrgencySafe
 import kotlin.math.roundToInt
 
@@ -130,6 +152,95 @@ fun SettingsScreen(
     var familyLabelDraft by remember { mutableStateOf(familyLabel) }
     val dueSoon = parcels.filter { !it.picked && urgencyOf(it, now, thresholds) == Urgency.DUE_SOON }
 
+    /* ── 更新：只有用户按「检查更新」时才会访问网络 ─────────────────── */
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var updateState by remember { mutableStateOf<UpdateUi>(UpdateUi.Idle) }
+
+    fun checkUpdate() {
+        if (updateState is UpdateUi.Checking) return
+        updateState = UpdateUi.Checking
+        scope.launch {
+            updateState = when (val result = UpdateChecker.check(BuildConfig.VERSION_NAME)) {
+                UpdateResult.UpToDate -> UpdateUi.UpToDate
+                UpdateResult.NoRelease -> UpdateUi.NoRelease
+                is UpdateResult.Failed -> UpdateUi.Failed(result.reason)
+                is UpdateResult.Available -> UpdateUi.Available(result.info)
+            }
+        }
+    }
+
+    fun download(info: UpdateInfo) {
+        if (info.sha256.isNullOrBlank()) {
+            openUpdatePage(context, info.pageUrl)
+            return
+        }
+        val id = UpdateInstaller.enqueue(context, info)
+        updateState = if (id != null) {
+            UpdateUi.Available(info, downloading = id)
+        } else {
+            UpdateUi.Failed("下载没起来，稍后再试")
+        }
+    }
+
+    fun install(file: File) {
+        when (val result = UpdateInstaller.install(context, file)) {
+            UpdateInstaller.Install.Started -> Unit
+            UpdateInstaller.Install.NeedsPermission -> {
+                context.startActivity(UpdateInstaller.permissionSettings(context))
+                updateState = UpdateUi.Failed("允许「安装未知应用」后再点一次安装")
+            }
+            is UpdateInstaller.Install.Failed -> updateState = UpdateUi.Failed(result.reason)
+        }
+    }
+
+    /* 下载在系统里跑，回到这一屏时看结果；下载完成后也算一遍 SHA-256，不对就删。 */
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                if (intent?.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
+                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+                val current = updateState
+                if (current !is UpdateUi.Available || current.downloading != id) return
+                scope.launch {
+                    val file = UpdateInstaller.fileFor(context, current.info.versionName)
+                    val ok = withContext(Dispatchers.IO) {
+                        UpdateInstaller.verify(file, current.info.sha256)
+                    }
+                    updateState = if (ok) {
+                        current.copy(downloaded = file, downloading = null)
+                    } else {
+                        runCatching { file.delete() }
+                        UpdateUi.Failed("校验失败，已删除下载")
+                    }
+                }
+            }
+        }
+        ContextCompat.registerReceiver(
+            context,
+            receiver,
+            IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+            ContextCompat.RECEIVER_EXPORTED,
+        )
+        onDispose { runCatching { context.unregisterReceiver(receiver) } }
+    }
+
+    /* 上一次已经下好、用户这次才回来：不再重复下载。 */
+    LaunchedEffect(updateState) {
+        val current = updateState as? UpdateUi.Available ?: return@LaunchedEffect
+        if (current.downloaded != null || current.downloading != null) return@LaunchedEffect
+        val file = UpdateInstaller.fileFor(context, current.info.versionName)
+        if (!file.exists()) return@LaunchedEffect
+        val ok = withContext(Dispatchers.IO) {
+            UpdateInstaller.verify(file, current.info.sha256)
+        }
+        if (ok) {
+            updateState = current.copy(downloaded = file)
+        } else {
+            runCatching { file.delete() }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -174,47 +285,52 @@ fun SettingsScreen(
                     SectionTitle(stringResource(R.string.settings_accounts_section))
                 }
             }
+            /* 收件来源：四行是同一件事——「件从哪来」。以前是四张各自浮着的卡，
+               扫一眼要先数卡片；现在一张卡里四行，像一份设置，而不是一叠传单。 */
             item {
                 Box(modifier = Modifier.moduleEntrance(0)) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .settingsCard()
-                            .border(1.dp, Hairline, ShowCodeShapes.Md)
-                            .clickable(onClick = onOpenAccounts)
-                            .padding(16.dp),
+                            .border(1.dp, Hairline, ShowCodeShapes.Md),
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = stringResource(R.string.settings_accounts),
-                                modifier = Modifier.weight(1f),
-                                style = ShowCodeText.Body,
-                                color = Ink,
+                        SettingsNavRow(
+                            title = stringResource(R.string.settings_accounts),
+                            value = when {
+                                accountIssue -> stringResource(R.string.settings_accounts_issue)
+                                accountCount > 0 -> stringResource(R.string.settings_accounts_count, accountCount)
+                                else -> stringResource(R.string.settings_accounts_none)
+                            },
+                            emphasize = accountIssue || accountCount > 0,
+                            warning = accountIssue,
+                            onClick = onOpenAccounts,
+                        )
+                        /* 演示态只留平台账号：其余三行会引出真实数据或系统设置。 */
+                        if (!isDemo) {
+                            SettingsRowDivider()
+                            SettingsNavRow(
+                                title = stringResource(R.string.unrecognized_title),
+                                value = unrecognizedCount.toString(),
+                                emphasize = unrecognizedCount > 0,
+                                warning = unrecognizedCount > 0,
+                                onClick = onOpenUnrecognized,
                             )
-                            Text(
-                                text = when {
-                                    accountIssue -> stringResource(R.string.settings_accounts_issue)
-                                    accountCount > 0 -> stringResource(R.string.settings_accounts_count, accountCount)
-                                    else -> stringResource(R.string.settings_accounts_none)
-                                },
-                                /* 有异常时用浅橙底 + Ink 字：颜色做底、字不靠低对比度的橙来扛。 */
-                                modifier = if (accountIssue) {
-                                    Modifier
-                                        .background(UrgencyDueSoonTint, ShowCodeShapes.Sm)
-                                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                                } else {
-                                    Modifier
-                                },
-                                style = ShowCodeText.Item,
-                                color = if (accountIssue || accountCount > 0) Ink else InkMuted,
+                            SettingsRowDivider()
+                            SettingsNavRow(
+                                title = stringResource(R.string.settings_rules),
+                                value = stringResource(R.string.settings_rules_count, ruleCount),
+                                emphasize = ruleCount > 0,
+                                onClick = onOpenRules,
+                            )
+                            SettingsRowDivider()
+                            SettingsNavRow(
+                                title = stringResource(R.string.settings_notify),
+                                value = stringResource(R.string.settings_notify_count, notifyCount),
+                                emphasize = notifyCount > 0,
+                                onClick = onOpenNotify,
                             )
                         }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = stringResource(R.string.settings_accounts_hint),
-                            style = ShowCodeText.Caption,
-                            color = InkMuted,
-                        )
                     }
                 }
             }
@@ -294,117 +410,6 @@ fun SettingsScreen(
                                 tint = InkMuted,
                             )
                         }
-                        Text(
-                            text = stringResource(R.string.settings_family_label_hint, familyLabel),
-                            style = ShowCodeText.Caption,
-                            color = InkMuted,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
-                    }
-                }
-            }
-
-            // 收容页的空态是信任建立瞬间，所以 N=0 时也要有路可达（首页入口只在 N>0 时出现）
-            item {
-                Box(modifier = Modifier.moduleEntrance(1)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .settingsCard()
-                            .border(1.dp, Hairline, ShowCodeShapes.Md)
-                            .clickable(onClick = onOpenUnrecognized)
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.unrecognized_title),
-                            modifier = Modifier.weight(1f),
-                            style = ShowCodeText.Body,
-                            color = Ink,
-                        )
-                        Text(
-                            text = unrecognizedCount.toString(),
-                            modifier = if (unrecognizedCount > 0) {
-                                Modifier
-                                    .background(UrgencyDueSoonTint, ShowCodeShapes.Sm)
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
-                            } else {
-                                Modifier
-                            },
-                            style = ShowCodeText.Item,
-                            color = if (unrecognizedCount > 0) Ink else InkMuted,
-                        )
-                    }
-                }
-            }
-
-            /* 解析规则同理，0 条也要出现：这一格是给「知道自己漏过一件、却找不到地方处理」的人的，
-               把入口藏在计数后面等于他不漏的时候永远看不见。名字旁边带一句它对谁生效——
-               完全离线这件事必须在文案里说出来，不然用户会以为规则要上传。 */
-            item {
-                Box(modifier = Modifier.moduleEntrance(2)) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .settingsCard()
-                            .border(1.dp, Hairline, ShowCodeShapes.Md)
-                            .clickable(onClick = onOpenRules)
-                            .padding(16.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = stringResource(R.string.settings_rules),
-                                modifier = Modifier.weight(1f),
-                                style = ShowCodeText.Body,
-                                color = Ink,
-                            )
-                            Text(
-                                text = stringResource(R.string.settings_rules_count, ruleCount),
-                                style = ShowCodeText.Item,
-                                color = if (ruleCount > 0) Ink else InkMuted,
-                            )
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = stringResource(R.string.settings_rules_hint),
-                            style = ShowCodeText.Caption,
-                            color = InkMuted,
-                        )
-                    }
-                }
-            }
-
-            /* 通知来源同样 0 个也要出现：那一屏的空态本身就是诊断——它说的是
-               「监听还没见过任何通知」，而这正是权限没给或被 ROM 杀掉时唯一的可见线索。 */
-            item {
-                Box(modifier = Modifier.moduleEntrance(2)) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .settingsCard()
-                            .border(1.dp, Hairline, ShowCodeShapes.Md)
-                            .clickable(onClick = onOpenNotify)
-                            .padding(16.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = stringResource(R.string.settings_notify),
-                                modifier = Modifier.weight(1f),
-                                style = ShowCodeText.Body,
-                                color = Ink,
-                            )
-                            Text(
-                                text = stringResource(R.string.settings_notify_count, notifyCount),
-                                style = ShowCodeText.Item,
-                                color = if (notifyCount > 0) Ink else InkMuted,
-                            )
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = stringResource(R.string.settings_notify_hint),
-                            style = ShowCodeText.Caption,
-                            color = InkMuted,
-                        )
                     }
                 }
             }
@@ -429,22 +434,28 @@ fun SettingsScreen(
                             )
                             Switch(checked = reminderOn, onCheckedChange = onReminderOn)
                         }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = stringResource(R.string.settings_reminder_hint),
-                            style = ShowCodeText.Caption,
-                            color = InkMuted,
-                        )
-                        // 开着开关却永远等不到提醒，是最坏的一种坏——所以没权限要当场说。
-                        if (reminderOn && !notificationGranted) {
+                        /* 只在开关打开时说一句「它现在还不会响」的原因。
+                           关着的时候解释这些，是在给一个不问的人讲规则。 */
+                        if (reminderOn) {
                             Spacer(Modifier.height(4.dp))
+                            val needsPermission = !notificationGranted
                             Text(
-                                text = stringResource(R.string.settings_reminder_needs_permission),
-                                modifier = Modifier
-                                    .background(UrgencyDueSoonTint, ShowCodeShapes.Sm)
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                text = stringResource(
+                                    if (needsPermission) {
+                                        R.string.settings_reminder_needs_permission
+                                    } else {
+                                        R.string.settings_reminder_state
+                                    }
+                                ),
+                                modifier = if (needsPermission) {
+                                    Modifier
+                                        .background(UrgencyDueSoonTint, ShowCodeShapes.Sm)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                } else {
+                                    Modifier
+                                },
                                 style = ShowCodeText.Caption,
-                                color = Ink,
+                                color = if (needsPermission) Ink else InkMuted,
                             )
                         }
                     }
@@ -499,12 +510,7 @@ fun SettingsScreen(
                             )
                             Switch(checked = glassBarOn, onCheckedChange = onGlassBarOn)
                         }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = stringResource(R.string.settings_glass_hint),
-                            style = ShowCodeText.Caption,
-                            color = InkMuted,
-                        )
+                        /* 开着却没有玻璃时只说原因：这不是开关坏了，是这台设备做不到。 */
                         if (!glassBarAvailable) {
                             Spacer(Modifier.height(4.dp))
                             Text(
@@ -513,6 +519,27 @@ fun SettingsScreen(
                                 color = InkMuted,
                             )
                         }
+                    }
+                }
+            }
+
+            /* 关于：版本 + 手动检查更新。只有按下的那一下才会访问 Gitee / GitHub。 */
+            if (!isDemo) {
+                item {
+                    Box(modifier = Modifier.moduleEntrance(3)) {
+                        SectionTitle(stringResource(R.string.settings_about_section))
+                    }
+                }
+                item {
+                    Box(modifier = Modifier.moduleEntrance(3)) {
+                        AboutCard(
+                            state = updateState,
+                            onCheck = ::checkUpdate,
+                            onDownload = ::download,
+                            onInstall = ::install,
+                            onOpenPage = { openUpdatePage(context, it) },
+                            onDismiss = { updateState = UpdateUi.Idle },
+                        )
                     }
                 }
             }
@@ -534,14 +561,20 @@ fun SettingsScreen(
                                 style = ShowCodeText.Body,
                                 color = Ink,
                             )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = stringResource(R.string.demo_entry_hint),
-                                style = ShowCodeText.Caption,
-                                color = InkMuted,
-                            )
                         }
                     }
+                }
+            }
+
+            /* 隐私承诺只说一次，放在最末：不再复制到每张卡里。 */
+            item {
+                Box(modifier = Modifier.moduleEntrance(3)) {
+                    Text(
+                        text = stringResource(R.string.settings_privacy_note),
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                        style = ShowCodeText.Caption,
+                        color = InkMuted,
+                    )
                 }
             }
         }
@@ -555,6 +588,57 @@ private fun SectionTitle(text: String) {
         modifier = Modifier.padding(top = 8.dp),
         style = ShowCodeText.Action,
         color = InkMuted,
+    )
+}
+
+/**
+ * 一张组卡里的一行：左边是什么，右边是现在的值。
+ *
+ * 组卡取代了「一行一张浮卡」：四张圆角卡并排时，眼睛先看到的是四个轮廓，
+ * 而不是四行内容。值的那一列只用颜色表意——灰=没有，墨=有，浅橙=要处理。
+ */
+@Composable
+private fun SettingsNavRow(
+    title: String,
+    value: String,
+    onClick: () -> Unit,
+    emphasize: Boolean = false,
+    warning: Boolean = false,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier.weight(1f),
+            style = ShowCodeText.Body,
+            color = Ink,
+        )
+        Text(
+            text = value,
+            modifier = if (warning) {
+                Modifier
+                    .background(UrgencyDueSoonTint, ShowCodeShapes.Sm)
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            } else {
+                Modifier
+            },
+            style = ShowCodeText.Item,
+            color = if (emphasize) Ink else InkMuted,
+        )
+    }
+}
+
+@Composable
+private fun SettingsRowDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(horizontal = 16.dp),
+        thickness = 1.dp,
+        color = Hairline,
     )
 }
 
@@ -760,15 +844,12 @@ private fun HealthTable(
         }
 
         /* 短信是补充手段：未开启用中性灰，不用警示色，也不催「必须补上」。
-           平台那句（抖音等）常驻：它说明这条路覆盖到哪些平台，和开没开无关。 */
+           开着时不再解释它覆盖谁——那句话属于账号页，不该在体检表里常驻。 */
         HealthRow(
             title = stringResource(R.string.health_sms),
             ok = smsGranted,
             statusText = stringResource(if (smsGranted) R.string.health_on else R.string.health_off),
-            hint = buildString {
-                if (!smsGranted) append(stringResource(R.string.health_sms_hint)).append(' ')
-                append(stringResource(R.string.health_sms_platform))
-            },
+            hint = if (smsGranted) null else stringResource(R.string.health_sms_hint),
             fixLabel = stringResource(R.string.health_fix_sms),
             onFix = onRequestSms,
             showFix = !smsGranted,
@@ -860,3 +941,201 @@ private fun HealthRow(
         }
     }
 }
+
+/* ── 更新 ───────────────────────────────────────────────────────────── */
+
+private sealed interface UpdateUi {
+    data object Idle : UpdateUi
+    data object Checking : UpdateUi
+    data object UpToDate : UpdateUi
+    data object NoRelease : UpdateUi
+    data class Failed(val message: String) : UpdateUi
+    data class Available(
+        val info: UpdateInfo,
+        /** DownloadManager 的 id；非空 = 正在下载。 */
+        val downloading: Long? = null,
+        /** 已经下载并通过 SHA-256 校验的包。 */
+        val downloaded: File? = null,
+    ) : UpdateUi
+}
+
+@Composable
+private fun AboutCard(
+    state: UpdateUi,
+    onCheck: () -> Unit,
+    onDownload: (UpdateInfo) -> Unit,
+    onInstall: (File) -> Unit,
+    onOpenPage: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .settingsCard()
+            .border(1.dp, Hairline, ShowCodeShapes.Md)
+            .padding(16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.settings_version, BuildConfig.VERSION_NAME),
+                    style = ShowCodeText.Body,
+                    color = Ink,
+                )
+                Text(
+                    text = stringResource(R.string.settings_version_meta),
+                    style = ShowCodeText.Caption,
+                    color = InkMuted,
+                )
+            }
+            val busy = state is UpdateUi.Checking
+            Text(
+                text = stringResource(
+                    if (busy) R.string.settings_update_checking else R.string.settings_update_check
+                ),
+                modifier = Modifier
+                    .clickable(enabled = !busy, onClick = onCheck)
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                style = ShowCodeText.Action,
+                color = if (busy) InkMuted else AccentInk,
+            )
+        }
+        when (state) {
+            UpdateUi.Idle, UpdateUi.Checking -> Unit
+            UpdateUi.UpToDate -> UpdateLine(stringResource(R.string.settings_update_latest), InkMuted)
+            UpdateUi.NoRelease -> UpdateLine(stringResource(R.string.settings_update_none), InkMuted)
+            is UpdateUi.Failed -> UpdateLine(state.message, UrgencyDueSoon)
+            is UpdateUi.Available -> AvailableUpdate(
+                state = state,
+                onDownload = onDownload,
+                onInstall = onInstall,
+                onOpenPage = onOpenPage,
+                onDismiss = onDismiss,
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = stringResource(R.string.settings_update_note),
+            style = ShowCodeText.Caption,
+            color = InkMuted,
+        )
+        /* 只在「没查到 / 没发布」时给两条发布页兜底；正常态不摆链接。 */
+        if (state is UpdateUi.Failed || state is UpdateUi.NoRelease) {
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    text = "Gitee",
+                    modifier = Modifier
+                        .clickable { onOpenPage(UpdateChecker.GITEE_PAGE) }
+                        .padding(vertical = 4.dp),
+                    style = ShowCodeText.Caption,
+                    color = AccentInk,
+                )
+                Text(
+                    text = "GitHub",
+                    modifier = Modifier
+                        .clickable { onOpenPage(UpdateChecker.GITHUB_PAGE) }
+                        .padding(vertical = 4.dp),
+                    style = ShowCodeText.Caption,
+                    color = AccentInk,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpdateLine(text: String, color: Color) {
+    Spacer(Modifier.height(8.dp))
+    Text(text = text, style = ShowCodeText.Meta, color = color)
+}
+
+@Composable
+private fun AvailableUpdate(
+    state: UpdateUi.Available,
+    onDownload: (UpdateInfo) -> Unit,
+    onInstall: (File) -> Unit,
+    onOpenPage: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val info = state.info
+    Spacer(Modifier.height(10.dp))
+    Text(
+        text = stringResource(R.string.settings_update_available, info.versionName),
+        style = ShowCodeText.Item,
+        color = Ink,
+    )
+    Spacer(Modifier.height(4.dp))
+    Text(
+        text = info.notes,
+        style = ShowCodeText.Meta,
+        color = InkSecondary,
+        maxLines = 5,
+        overflow = TextOverflow.Ellipsis,
+    )
+    Spacer(Modifier.height(4.dp))
+    val meta = listOfNotNull(
+        info.source.label,
+        info.sizeBytes?.let(::sizeText),
+        if (info.sha256.isNullOrBlank()) stringResource(R.string.settings_update_no_hash) else null,
+    ).joinToString(" · ")
+    Text(text = meta, style = ShowCodeText.Caption, color = InkMuted)
+    Spacer(Modifier.height(6.dp))
+    when {
+        state.downloaded != null -> Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(
+                text = stringResource(R.string.settings_update_install),
+                modifier = Modifier
+                    .clickable { state.downloaded?.let(onInstall) }
+                    .padding(vertical = 4.dp),
+                style = ShowCodeText.Action,
+                color = AccentInk,
+            )
+            Text(
+                text = stringResource(R.string.settings_update_later),
+                modifier = Modifier.clickable { onDismiss() }.padding(vertical = 4.dp),
+                style = ShowCodeText.Action,
+                color = InkMuted,
+            )
+        }
+        state.downloading != null -> Text(
+            text = stringResource(R.string.settings_update_downloading),
+            style = ShowCodeText.Meta,
+            color = InkMuted,
+        )
+        else -> Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            val manual = info.sha256.isNullOrBlank()
+            Text(
+                text = stringResource(
+                    if (manual) R.string.settings_update_manual else R.string.settings_update_download
+                ),
+                modifier = Modifier
+                    .clickable { if (manual) onOpenPage(info.pageUrl) else onDownload(info) }
+                    .padding(vertical = 4.dp),
+                style = ShowCodeText.Action,
+                color = AccentInk,
+            )
+            Text(
+                text = stringResource(R.string.settings_update_later),
+                modifier = Modifier.clickable { onDismiss() }.padding(vertical = 4.dp),
+                style = ShowCodeText.Action,
+                color = InkMuted,
+            )
+        }
+    }
+}
+
+private fun openUpdatePage(context: Context, url: String) {
+    runCatching {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+}
+
+private fun sizeText(bytes: Long): String =
+    if (bytes >= 1024 * 1024) {
+        String.format(Locale.US, "%.1f MB", bytes / 1024f / 1024f)
+    } else {
+        String.format(Locale.US, "%d KB", (bytes / 1024).coerceAtLeast(1))
+    }

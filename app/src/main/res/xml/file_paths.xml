@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 只暴露 App 自己的 external-files/Download：更新包下载到那里，
+     安装器需要读它，不需要把任何用户数据交出去。 -->
+<paths>
+    <external-files-path
+        name="updates"
+        path="Download/" />
+</paths>

@@ -16,11 +16,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -35,10 +39,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.annotation.StringRes
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -95,7 +99,6 @@ fun IdentityListScreen(
     launch: LaunchOutcome?,
     onAdd: () -> Unit,
     onOpenEntry: (PlatformEntry) -> Unit,
-    onPinEntry: (PlatformEntry, String) -> Unit,
     onShow: (IdentityCode) -> Unit,
     onToggleDynamic: (Long, Boolean) -> Unit,
     onDelete: (Long) -> Unit,
@@ -112,145 +115,227 @@ fun IdentityListScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = navBarClearance()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            /* 预置的那几家：点一下直接打开它，不落库、不进出示屏。
-               存在的理由是把最常见的两条路压到一下——存一张「入口」再省也要四下，
-               而竞品那一格本来就只有跳转。名单是**固定全集**，不按装没装筛；
-               未装的点了走 core 里那条既有降级链。 */
-            if (entries.isNotEmpty()) {
-                item {
-                    Box(modifier = Modifier.moduleEntrance(0)) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(SurfaceCard, ShowCodeShapes.Md)
-                                .border(1.dp, Hairline, ShowCodeShapes.Md)
-                                .padding(bottom = 6.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.identity_entries_hint),
-                                modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp),
-                                style = ShowCodeText.Caption,
-                                color = InkMuted,
-                            )
-                            entries.forEach { entry ->
-                                val label = stringResource(presetLabel(entry.packageName))
-                                /* 钉到桌面的标签要带用途：只写「淘宝」会和淘宝 App 本身混在一起，
-                                   主屏上两颗「淘宝」谁也分不清哪颗是身份码。 */
-                                val pinLabel = stringResource(
-                                    if (entry.purpose == EntryPurpose.PENDING) {
-                                        R.string.shortcut_label_pending
-                                    } else {
-                                        R.string.shortcut_label_identity
-                                    },
-                                    label,
-                                )
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { onOpenEntry(entry) }
-                                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = label,
-                                        modifier = Modifier.weight(1f),
-                                        style = ShowCodeText.Item,
-                                        color = Ink,
-                                    )
-                                    /* 动作词自己说清那一行打开的是哪一页：淘宝/拼多多是身份码，
-                                       京东/小红书没有身份码，进的是待取栏。 */
-                                    Text(
-                                        text = stringResource(
-                                            if (entry.purpose == EntryPurpose.PENDING) {
-                                                R.string.identity_entry_open_pending
-                                            } else {
-                                                R.string.identity_entry_open
-                                            }
-                                        ),
-                                        style = ShowCodeText.Action,
-                                        color = AccentInk,
-                                    )
-                                    /* 钉到桌面：这一颗不打开对方 App，只把同一条 intent 交给系统。
-                                       它和长按图标的那六个静态入口走同一套目的地表。 */
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_pin),
-                                        contentDescription = stringResource(R.string.shortcut_pin),
-                                        tint = InkMuted,
-                                        modifier = Modifier
-                                            .clickable { onPinEntry(entry, pinLabel) }
-                                            .padding(start = 10.dp, top = 10.dp, bottom = 10.dp)
-                                            .size(18.dp),
-                                    )
-                                }
-                            }
-                            // 按下去的结局就住在同一张卡里：话要说在刚按的那一下旁边。
-                            LaunchOutcomeLine(launch, modifier = Modifier.padding(horizontal = 16.dp))
-                        }
-                    }
-                }
-            }
             item {
-                Box(modifier = Modifier.moduleEntrance(1)) {
+                Box(modifier = Modifier.moduleEntrance(0)) {
                     Text(
-                        text = stringResource(R.string.identity_hint),
+                        text = stringResource(R.string.identity_intro),
+                        modifier = Modifier.padding(horizontal = 4.dp),
                         style = ShowCodeText.Caption,
                         color = InkMuted,
                     )
                 }
             }
+
+            /* 自己存的码是这一屏的主内容，排在最前面；一个都没有时，
+               「官方入口」仍然是第一件能用的东西（它不用先存码），所以换它先出场。 */
             if (codes.isEmpty()) {
                 item {
                     Box(modifier = Modifier.moduleEntrance(1)) {
-                        Column(modifier = Modifier
-                            .fillMaxWidth()
-                            .background(SurfaceCard, ShowCodeShapes.Md)
-                            .border(1.dp, Hairline, ShowCodeShapes.Md)
-                            .padding(16.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.identity_empty),
-                                style = ShowCodeText.Meta,
-                                color = InkSecondary,
-                            )
-                            // 这句只在一家预置都没出现时才是路标；预置卡就在上面时它是废话。
-                            if (entries.isEmpty()) {
-                                Spacer(Modifier.height(6.dp))
-                                Text(
-                                    text = stringResource(R.string.identity_empty_no_presets),
-                                    style = ShowCodeText.Caption,
-                                    color = InkMuted,
-                                )
-                            }
-                        }
+                        EntriesSection(
+                            entries = entries,
+                            launch = launch,
+                            onOpenEntry = onOpenEntry,
+                        )
+                    }
+                }
+                item {
+                    Box(modifier = Modifier.moduleEntrance(2)) {
+                        CodesSection(
+                            codes = emptyList(),
+                            onAdd = onAdd,
+                            onShow = onShow,
+                            onToggleDynamic = onToggleDynamic,
+                            onDelete = onDelete,
+                        )
+                    }
+                }
+            } else {
+                item {
+                    Box(modifier = Modifier.moduleEntrance(1)) {
+                        CodesSection(
+                            codes = codes,
+                            onAdd = onAdd,
+                            onShow = onShow,
+                            onToggleDynamic = onToggleDynamic,
+                            onDelete = onDelete,
+                        )
+                    }
+                }
+                item {
+                    Box(modifier = Modifier.moduleEntrance(3)) {
+                        EntriesSection(
+                            entries = entries,
+                            launch = launch,
+                            onOpenEntry = onOpenEntry,
+                            topPadding = true,
+                        )
                     }
                 }
             }
-            items(codes, key = { it.id }) { code ->
-                Box(modifier = Modifier.moduleEntrance(2)) {
-                    IdentityRow(
-                        code = code,
-                        onShow = { onShow(code) },
-                        onToggleDynamic = { onToggleDynamic(code.id, !code.dynamic) },
-                        onDelete = onDelete,
-                    )
-                }
-            }
-            item {
-                Box(modifier = Modifier.moduleEntrance(3)) {
-                    Text(
-                        text = stringResource(R.string.identity_add),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(SurfaceCard, ShowCodeShapes.Md)
-                            .border(1.dp, AccentInk, ShowCodeShapes.Md)
-                            .clickable(onClick = onAdd)
-                            .padding(16.dp),
-                        style = ShowCodeText.Item,
-                        color = AccentInk,
-                    )
-                }
+        }
+    }
+}
+
+@Composable
+private fun CodesSection(
+    codes: List<IdentityCode>,
+    onAdd: () -> Unit,
+    onShow: (IdentityCode) -> Unit,
+    onToggleDynamic: (Long, Boolean) -> Unit,
+    onDelete: (Long) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SectionTitle(stringResource(R.string.identity_section_codes))
+        if (codes.isEmpty()) {
+            EmptyCodesCard()
+        } else {
+            codes.forEach { code ->
+                IdentityRow(
+                    code = code,
+                    onShow = { onShow(code) },
+                    onToggleDynamic = { onToggleDynamic(code.id, !code.dynamic) },
+                    onDelete = onDelete,
+                )
             }
         }
+        AddCodeCard(onAdd)
+    }
+}
+
+/**
+ * 官方入口。一行一个，右边只留「打开的是哪一页」和箭头：整行可点，
+ * 这里没有第二个动作，所以不该长第二颗按钮。
+ *
+ * 预置的那几家：点一下直接打开它，不落库、不进出示屏。存在的理由是把最常见的
+ * 两条路压到一下——存一张「入口」再省也要四下，而竞品那一格本来就只有跳转。
+ * 名单是**固定全集**，不按装没装筛；未装的点了走 core 里那条既有降级链。
+ */
+@Composable
+private fun EntriesSection(
+    entries: List<PlatformEntry>,
+    launch: LaunchOutcome?,
+    onOpenEntry: (PlatformEntry) -> Unit,
+    topPadding: Boolean = false,
+) {
+    if (entries.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SectionTitle(
+            text = stringResource(R.string.identity_section_entries),
+            modifier = if (topPadding) Modifier.padding(top = 8.dp) else Modifier,
+        )
+        EntryCard(entries = entries, launch = launch, onOpenEntry = onOpenEntry)
+        Text(
+            text = stringResource(R.string.identity_entries_hint),
+            modifier = Modifier.padding(horizontal = 4.dp),
+            style = ShowCodeText.Caption,
+            color = InkMuted,
+        )
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        modifier = modifier.padding(start = 4.dp),
+        style = ShowCodeText.Caption,
+        color = InkSecondary,
+    )
+}
+
+@Composable
+private fun EmptyCodesCard() {
+    Text(
+        text = stringResource(R.string.identity_empty),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceCard, ShowCodeShapes.Md)
+            .border(1.dp, Hairline, ShowCodeShapes.Md)
+            .padding(16.dp),
+        style = ShowCodeText.Meta,
+        color = InkSecondary,
+    )
+}
+
+@Composable
+private fun AddCodeCard(onAdd: () -> Unit) {
+    Text(
+        text = stringResource(R.string.identity_add),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceCard, ShowCodeShapes.Md)
+            .border(1.dp, AccentInk, ShowCodeShapes.Md)
+            .clickable(onClick = onAdd)
+            .padding(vertical = 14.dp),
+        style = ShowCodeText.Item,
+        color = AccentInk,
+        textAlign = TextAlign.Center,
+    )
+}
+
+/**
+ * 官方入口。一行一个，右边只留「打开的是哪一页」和箭头：整行可点，
+ * 这里没有第二个动作，所以不该长第二颗按钮。
+ */
+@Composable
+private fun EntryCard(
+    entries: List<PlatformEntry>,
+    launch: LaunchOutcome?,
+    onOpenEntry: (PlatformEntry) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceCard, ShowCodeShapes.Md)
+            .border(1.dp, Hairline, ShowCodeShapes.Md),
+    ) {
+        entries.forEachIndexed { index, entry ->
+            if (index > 0) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    thickness = 1.dp,
+                    color = Hairline,
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenEntry(entry) }
+                    .padding(horizontal = 16.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(presetLabel(entry.packageName)),
+                    modifier = Modifier.weight(1f),
+                    style = ShowCodeText.Item,
+                    color = Ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                /* 动作词自己说清那一行打开的是哪一页：淘宝/拼多多是身份码，
+                   京东/小红书没有身份码，进的是待取栏。 */
+                Text(
+                    text = stringResource(
+                        if (entry.purpose == EntryPurpose.PENDING) {
+                            R.string.identity_entry_open_pending
+                        } else {
+                            R.string.identity_entry_open
+                        }
+                    ),
+                    style = ShowCodeText.Action,
+                    color = AccentInk,
+                )
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    imageVector = Icons.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = InkMuted,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        // 按下去的结局就住在同一张卡里：话要说在刚按的那一下旁边。
+        LaunchOutcomeLine(launch, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
     }
 }
 
@@ -267,14 +352,15 @@ private fun IdentityRow(
             .fillMaxWidth()
             .background(SurfaceCard, ShowCodeShapes.Md)
             .border(1.dp, Hairline, ShowCodeShapes.Md)
+            /* 整张卡都能点开出示屏：想出示时手指落在哪一格都该算数。
+               卡片自己的动作（会变/删除）是内层 clickable，会先吃掉自己那一下。 */
+            .clickable(onClick = onShow)
             .padding(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = code.label,
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable(onClick = onShow),
+                modifier = Modifier.weight(1f),
                 style = ShowCodeText.Item,
                 color = Ink,
                 maxLines = 1,
@@ -305,9 +391,7 @@ private fun IdentityRow(
             Spacer(Modifier.height(4.dp))
             Text(
                 text = code.value,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onShow),
+                modifier = Modifier.fillMaxWidth(),
                 style = ShowCodeText.CodeSmall,
                 color = InkSecondary,
                 maxLines = 2,

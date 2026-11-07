@@ -55,6 +55,7 @@ import dev.showcode.core.parse.ParseOutcome
 import dev.showcode.core.parse.PickupCodeParser
 import dev.showcode.core.parse.UnrecognizedReason
 import dev.showcode.data.UnrecognizedMessage
+import dev.showcode.ui.Explain
 import dev.showcode.ui.readText
 import dev.showcode.ui.relativeTimeText
 import dev.showcode.ui.theme.AccentInk
@@ -147,10 +148,11 @@ fun UnrecognizedScreen(
                     }
                 } else if (parcel.isNotEmpty()) {
                     item {
-                        Text(
+                        /* 这几类认不出来是已知限制，但是「为什么」不该每天挂在列表顶上。
+                           默认只留一行问句，想知道的人点开。 */
+                        Explain(
+                            label = stringResource(R.string.unrecognized_why_label),
                             text = stringResource(R.string.home_unrecognized_hint),
-                            style = ShowCodeText.Caption,
-                            color = InkMuted,
                         )
                     }
                 }
@@ -174,10 +176,9 @@ fun UnrecognizedScreen(
                     }
                     if (foodOpen) {
                         item(key = "food-hint") {
-                            Text(
+                            Explain(
+                                label = stringResource(R.string.unrecognized_food_why_label),
                                 text = stringResource(R.string.unrecognized_food_hint),
-                                style = ShowCodeText.Caption,
-                                color = InkMuted,
                             )
                         }
                         items(food, key = { it.id }) { message ->

@@ -139,3 +139,44 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --title "$TITLE" \
               --generate-notes "$APK" SHA256SUMS.txt
           fi
+
+      # Gitee 镜像：国内下载更快。只在配了 GITEE_TOKEN 时跑；失败不阻断发布——
+      # GitHub Release 仍是权威源，Gitee 只是镜像。
+      - name: 同步到 Gitee Release
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_OWNER: sonder123i
+          GITEE_REPO: capybara-express
+        run: |
+          if [ -z "$GITEE_TOKEN" ]; then
+            echo "::notice::没配 GITEE_TOKEN，跳过 Gitee 镜像"
+            exit 0
+          fi
+          API="https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO"
+          TAG="${GITHUB_REF_NAME}"
+          CODE=$(grep -m1 'versionCode = ' app/build.gradle.kts | grep -o '[0-9]*' | head -1)
+          NOTES="fastlane/metadata/android/zh-CN/changelogs/$CODE.txt"
+          BODY=$(cat "$NOTES" 2>/dev/null || echo "")
+          TITLE="卡皮巴拉快递助手 ${TAG#v}"
+          # 已有同 tag 的发行版就复用，没有才创建。镜像仓库还没推 main 时创建会失败，
+          # 这里只告警、不把整次发布打红。
+          EXISTING=$(curl -s --max-time 20 "$API/releases/tags/$TAG?access_token=$GITEE_TOKEN")
+          ID=$(echo "$EXISTING" | jq -r 'if type=="object" then (.id // empty) else empty end' 2>/dev/null || true)
+          if [ -z "$ID" ]; then
+            CREATED=$(curl -s --max-time 20 -X POST "$API/releases"               -H "Content-Type: application/json"               -d "$(jq -n --arg token "$GITEE_TOKEN" --arg tag "$TAG" --arg name "$TITLE" --arg body "$BODY"                 '{access_token:$token, tag_name:$tag, name:$name, body:$body, target_commitish:"main"}')")
+            ID=$(echo "$CREATED" | jq -r '.id // empty' 2>/dev/null || true)
+          fi
+          if [ -z "$ID" ]; then
+            echo "::warning::Gitee 发行版创建失败（镜像是否已推送 main？），跳过附件上传"
+            exit 0
+          fi
+          # 附件已存在就不重复传（Gitee 不提供覆盖）。
+          ASSETS=$(curl -s --max-time 20 "$API/releases/$ID?access_token=$GITEE_TOKEN" | jq -r '.assets[]?.name' 2>/dev/null || true)
+          for f in "$APK" SHA256SUMS.txt; do
+            if echo "$ASSETS" | grep -Fxq "$f"; then
+              echo "skip existing $f"
+              continue
+            fi
+            curl -s --max-time 120 -X POST "$API/releases/$ID/attach_files"               -F "access_token=$GITEE_TOKEN"               -F "file=@$f" >/dev/null || echo "::warning::上传 $f 到 Gitee 失败"
+          done

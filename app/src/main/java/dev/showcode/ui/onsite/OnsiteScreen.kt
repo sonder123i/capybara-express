@@ -2,6 +2,8 @@ package dev.showcode.ui.onsite
 
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -33,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -251,6 +255,14 @@ fun OnsiteScreen(
             }
 
             if (groupItems.isEmpty()) {
+                val undoSlot: (@Composable () -> Unit)? = undoTarget?.let { target ->
+                    {
+                        UndoBar(isDemo = isDemo, onUndo = {
+                            onUndoPicked(target)
+                            undoTarget = null
+                        })
+                    }
+                }
                 OnsiteEmpty(
                     allPickedHere = allPickedHere,
                     lastPickupAt = lastPickupAt,
@@ -259,15 +271,9 @@ fun OnsiteScreen(
                     nextStop = nextStop,
                     onBack = onBack,
                     onOpenNextPoint = onOpenNextPoint,
+                    undo = undoSlot,
                     modifier = Modifier.weight(1f),
                 )
-                // 取完最后一件时也必须能撤销：撤销条不能只活在「还有件」的分支里
-                undoTarget?.let { target ->
-                    UndoBar(isDemo = isDemo, onUndo = {
-                        onUndoPicked(target)
-                        undoTarget = null
-                    })
-                }
             } else {
                 val page = pagerState.currentPage.coerceIn(0, groupItems.lastIndex)
                 val current = groupItems[page]
@@ -531,80 +537,119 @@ private fun OnsiteEmpty(
     nextStop: NextStop?,
     onBack: () -> Unit,
     onOpenNextPoint: (NextStop) -> Unit,
+    undo: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(24.dp),
+            .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        if (allPickedHere) {
-            Icon(
-                Icons.Filled.Check,
-                contentDescription = null,
-                modifier = Modifier.size(64.dp),
-                tint = UrgencySafe,
-            )
-        } else {
-            Text(text = "📭", fontSize = 56.sp)
-        }
-        Spacer(Modifier.height(12.dp))
+        FinishedMark(allPicked = allPickedHere)
+        Spacer(Modifier.height(16.dp))
         Text(
-            text = stringResource(if (allPickedHere) R.string.onsite_all_done_title else R.string.onsite_empty_title),
-            fontSize = 22.sp,
+            text = stringResource(
+                if (allPickedHere) R.string.onsite_all_done_title else R.string.onsite_empty_title
+            ),
+            fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
             color = OnsiteInk,
             textAlign = TextAlign.Center,
         )
-        // 用最近一次取件时间做锚定，把「是不是走错地方了」这个念头按住
         if (lastPickupAt != null) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = stringResource(R.string.onsite_empty_anchor, relativeTimeText(lastPickupAt, now)),
                 fontSize = 14.sp,
-                color = OnsiteInk.copy(alpha = 0.5f),
+                color = InkMuted,
                 textAlign = TextAlign.Center,
             )
         }
 
-        /* 演示态不提供跳转：enterDemo 会清空 demoPicked，跳过去会让上一个点刚取掉的件
-           全部复活——这是演示里最不能出的错。 */
-        if (allPickedHere && !isDemo) {
-            Spacer(Modifier.height(24.dp))
-            if (nextStop != null) {
-                NextStopCard(nextStop = nextStop, now = now)
-                Spacer(Modifier.height(16.dp))
-                OnsiteWideButton(
-                    text = stringResource(R.string.onsite_next_go),
-                    onClick = { onOpenNextPoint(nextStop) },
-                )
-                Spacer(Modifier.height(6.dp))
-                OnsiteTextButton(text = stringResource(R.string.onsite_back_home), onClick = onBack)
-            } else {
+        if (allPickedHere && !isDemo && nextStop != null) {
+            Spacer(Modifier.height(26.dp))
+            NextStopCard(
+                nextStop = nextStop,
+                now = now,
+                onClick = { onOpenNextPoint(nextStop) },
+            )
+            Spacer(Modifier.height(16.dp))
+            OnsiteWideButton(
+                text = stringResource(R.string.onsite_next_go),
+                onClick = { onOpenNextPoint(nextStop) },
+            )
+            Spacer(Modifier.height(4.dp))
+            OnsiteTextButton(text = stringResource(R.string.onsite_back_home), onClick = onBack)
+        } else {
+            if (allPickedHere) {
+                Spacer(Modifier.height(10.dp))
                 Text(
                     text = stringResource(R.string.onsite_next_none),
                     fontSize = 14.sp,
-                    color = OnsiteInk.copy(alpha = 0.6f),
+                    color = InkMuted,
                     textAlign = TextAlign.Center,
                 )
-                Spacer(Modifier.height(20.dp))
-                OnsiteWideButton(text = stringResource(R.string.onsite_back_home), onClick = onBack)
             }
-        } else {
             Spacer(Modifier.height(24.dp))
             OnsiteWideButton(text = stringResource(R.string.onsite_back_home), onClick = onBack)
+        }
+
+        /* 撤销条固定占一格高度：3 秒后它消失时，上面的按钮不该往上跳。 */
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            undo?.invoke()
+        }
+    }
+}
+
+/**
+ * 收工的样子：卡皮 + 一枚勾。不是通用的绿勾空态——这一下是用户刚做完的事，
+ * 角色出面比一个图标更像「有人替他说了句好」。
+ */
+@Composable
+private fun FinishedMark(allPicked: Boolean) {
+    val scale = remember { Animatable(0.86f) }
+    LaunchedEffect(Unit) {
+        scale.animateTo(1f, MotionProfile.iconSpring())
+    }
+    Box(modifier = Modifier.graphicsLayer { scaleX = scale.value; scaleY = scale.value }) {
+        Image(
+            painter = painterResource(R.drawable.ic_splash),
+            contentDescription = null,
+            modifier = Modifier.size(88.dp),
+        )
+        if (allPicked) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(28.dp)
+                    .background(UrgencySafe, CircleShape)
+                    .border(2.dp, OnsiteSurface, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = OnsiteSurface,
+                )
+            }
         }
     }
 }
 
 /**
  * 收工卡里的下一站。只用黑白灰——三态色是时效的语义，不借给导航。
- * 剩余时间只报到分钟：这一屏的 now 是 30 秒一跳，带秒会让数字每半分钟跳一次。
+ * 整张卡可点，和下面那颗「去下一个点」是同一个去处；箭头是提醒，不是第二个动作。
  */
 @Composable
-private fun NextStopCard(nextStop: NextStop, now: Long) {
+private fun NextStopCard(nextStop: NextStop, now: Long, onClick: () -> Unit) {
     val deadline = nextStop.deadlineAt
     val meta = when {
         deadline == null -> stringResource(R.string.onsite_next_count, nextStop.count)
@@ -619,26 +664,34 @@ private fun NextStopCard(nextStop: NextStop, now: Long) {
             stringResource(R.string.onsite_next_count_left, nextStop.count, left)
         }
     }
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(SurfaceInsetStrong, RoundedCornerShape(14.dp))
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = stringResource(R.string.onsite_next_stop, nextStop.name),
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = OnsiteInk,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = meta,
-            fontSize = 13.sp,
-            color = OnsiteInk.copy(alpha = 0.6f),
-            style = TabularNumbers,
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.onsite_next_stop, nextStop.name),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = OnsiteInk,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = meta,
+                fontSize = 13.sp,
+                color = InkMuted,
+                style = TabularNumbers,
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = InkMuted,
         )
     }
 }
@@ -685,6 +738,13 @@ private fun UndoBar(isDemo: Boolean, onUndo: () -> Unit) {
             .padding(horizontal = 18.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(
+            Icons.Filled.Check,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = OnsiteSurface,
+        )
+        Spacer(Modifier.width(8.dp))
         Text(
             text = stringResource(if (isDemo) R.string.onsite_demo_toast else R.string.onsite_marked_picked),
             modifier = Modifier.weight(1f),
@@ -709,6 +769,8 @@ private fun UndoBar(isDemo: Boolean, onUndo: () -> Unit) {
 
 @Composable
 private fun PositionRow(index: Int, total: Int, showTilesEntry: Boolean, onOpenTiles: () -> Unit) {
+    /* 只有一件时「第 1/1 件」是一句废话；多件或还有平铺入口时才占这一行。 */
+    if (total <= 1 && !showTilesEntry) return
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -716,12 +778,14 @@ private fun PositionRow(index: Int, total: Int, showTilesEntry: Boolean, onOpenT
         horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = stringResource(R.string.onsite_position, index + 1, total),
-            fontSize = 14.sp,
-            color = InkMuted,
-            style = TabularNumbers,
-        )
+        if (total > 1) {
+            Text(
+                text = stringResource(R.string.onsite_position, index + 1, total),
+                fontSize = 14.sp,
+                color = InkMuted,
+                style = TabularNumbers,
+            )
+        }
         if (showTilesEntry) {
             Row(
                 modifier = Modifier

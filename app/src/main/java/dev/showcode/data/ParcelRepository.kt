@@ -102,6 +102,8 @@ data class AppData(
     /** 推过通知的 App。设置页那张开关列表就是它，所以关掉的那些也要留在里面——看不见就没法反悔。 */
     val notifyApps: List<NotifyApp> = emptyList(),
     val lastSyncAt: Long? = null,
+    /** 短信通道自己的成功时间。轨道上「短信」那一格用它，不能拿 max 冒充。 */
+    val lastSmsSyncAt: Long? = null,
     val syncing: Boolean = false,
     /** null = 这次启动还没刷过。 */
     val lastSyncResult: SyncResult? = null,
@@ -1089,6 +1091,7 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
                 db.metaGet(KEY_LAST_SYNC)?.toLongOrNull() ?: 0L,
                 db.metaGet(KEY_LAST_ACCOUNT_SYNC)?.toLongOrNull() ?: 0L,
             ).takeIf { it > 0L },
+            lastSmsSyncAt = (db.metaGet(KEY_LAST_SYNC)?.toLongOrNull() ?: 0L).takeIf { it > 0L },
             syncing = false,
             lastSyncResult = previous.lastSyncResult,
             lastSyncFailed = previous.lastSyncFailed,

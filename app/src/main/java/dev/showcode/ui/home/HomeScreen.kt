@@ -2,13 +2,17 @@ package dev.showcode.ui.home
 
 import androidx.annotation.StringRes
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +33,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -42,6 +47,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -82,9 +88,12 @@ import dev.showcode.core.PickupPointGroup
 import dev.showcode.core.SuspectPair
 import dev.showcode.core.SearchWindow
 import dev.showcode.core.Urgency
+import dev.showcode.core.account.ChannelAction
+import dev.showcode.core.account.ChannelState
+import dev.showcode.core.account.SyncChannel
+import dev.showcode.core.account.SyncRailState
 import dev.showcode.core.searchParcels
 import dev.showcode.core.urgencyOf
-import dev.showcode.data.SyncResult
 import dev.showcode.ui.closingLabel
 import dev.showcode.ui.GoodsThumbnail
 import dev.showcode.ui.URGENCY_DUE_SOON_ICON
@@ -140,10 +149,8 @@ data class HomeUiState(
     val empty: HomeEmpty,
     val monthlyPicked: Int,
     val lastSyncAt: Long?,
-    /** 正在读收件箱。胶囊要当场说出来，否则用户以为没点上会连着点。 */
+    /** 正在读短信收件箱：轨道上「短信」那格会转起来，用户才知道这不是卡住了。 */
     val syncing: Boolean = false,
-    /** 最近一次刷新的结果。只在结束后的一小段时间里显示。 */
-    val lastSyncResult: SyncResult? = null,
     /** 读短信库失败。这时 lastSyncAt 故意不更新，所以红条必须立刻出现而不是等两小时。 */
     val lastSyncFailed: Boolean = false,
     /** 首页只放入口行与计数；完整列表住在未识别收容页（story-3 AC3）。 */
@@ -164,6 +171,25 @@ data class HomeUiState(
      * 历史已签收件永远不进这里。
      */
     val inTransit: List<Parcel> = emptyList(),
+    /** 最近一次账号同步的结果摘要；轨道那一行会短暂改说这句话。 */
+    val digest: SyncDigest? = null,
+    /**
+     * 四条同步通道的状态（短信 + 三家平台）。null = 演示态，顶栏不出现轨道。
+     */
+    val rail: SyncRailState? = null,
+)
+
+/**
+ * 一次同步的「变了什么」。只报数，不替用户解释成「到站」——
+ * 新增里可能包含在途件，把话说满就是另一种撒谎。
+ */
+data class SyncDigest(
+    val added: Int,
+    val updated: Int,
+    val skipped: Int,
+    /** 有账号这次没成功。摘要里要留一句，不然失败会被「新增 0」盖过去。 */
+    val failed: Boolean,
+    val at: Long,
 )
 
 /** 数据超过这个时长没同步过就算陈旧。陈旧的码比没有码更危险。 */
@@ -215,6 +241,10 @@ fun HomeScreen(
     /** 每次「真的抓取且失败」自增；刷新键据此晃两下。 */
     manualSyncFailedSignal: Int = 0,
     onManualSync: () -> Unit = {},
+    /** 长按刷新键：强制重抓，忽略「状态没变就跳过」。 */
+    onForceSync: () -> Unit = {},
+    /** 轨道上某一格的重试：只跑这一家。 */
+    onRetryChannel: (String) -> Unit = {},
     onManagePoint: ((PickupPointGroup) -> Unit)?,
     onSuspectYes: () -> Unit,
     onSuspectNo: () -> Unit,
@@ -226,6 +256,8 @@ fun HomeScreen(
     var searchOpen by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var window by remember { mutableStateOf(SearchWindow.ALL) }
+    /* 同步轨道的明细默认收起：日常它只占一行，点开才看每家平台。 */
+    var railExpanded by rememberSaveable { mutableStateOf(false) }
 
     // 只选了窗（没打字）也算在筛；光打开搜索框但什么都不选，列表保持原样。
     val filtering = searchOpen && (query.isNotBlank() || window != SearchWindow.ALL)
@@ -259,72 +291,110 @@ fun HomeScreen(
                 enter = ModuleMotion.expand(reducedMotion),
                 exit = ModuleMotion.collapse(reducedMotion),
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 20.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.home_title),
-                            style = ShowCodeText.Headline,
-                            color = Ink,
-                        )
-                        if (isDemo) {
-                            /* 录制态用一句固定的标识替代同步时间：那里放真实时间会每天不同，
-                               而且演示数据本来就不该被读成「刚同步过的真实件」。 */
-                            Text(
-                                text = manualSyncMessage ?: stringResource(R.string.demo_home_marker),
-                                style = ShowCodeText.Meta,
-                                color = AccentInk,
-                            )
-                        } else {
-                            // 胶囊搬到这里来了：底栏要占的是它那个位置，而这句话不能跟着一起没了。
-                            SyncLine(state = state, now = now, manualMessage = manualSyncMessage)
-                        }
-                    }
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 20.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        if (isDemo) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = stringResource(R.string.demo_exit),
-                                modifier = Modifier
-                                    .clickable(onClick = onExitDemo)
-                                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                                style = ShowCodeText.Action,
-                                color = AccentInk,
+                                text = stringResource(R.string.home_title),
+                                style = ShowCodeText.Headline,
+                                color = Ink,
                             )
+                            if (isDemo) {
+                                /* 录制态用一句固定的标识替代同步时间：那里放真实时间会每天不同，
+                                   而且演示数据本来就不该被读成「刚同步过的真实件」。 */
+                                Text(
+                                    text = manualSyncMessage ?: stringResource(R.string.demo_home_marker),
+                                    style = ShowCodeText.Meta,
+                                    color = AccentInk,
+                                )
+                            } else {
+                                /* 「更新于 X」升级成四格轨道：谁答了、谁没答、谁在跑，一眼看完。
+                                   点一下才展开明细——日常它仍然只占一行。
+                                   读库还没回来时不出声：那时说「还没同步过」是把一次正常的加载演成缺了什么。 */
+                                val rail = state.rail
+                                if (state.loaded && rail != null) {
+                                    SyncRailRow(
+                                        rail = rail,
+                                        now = now,
+                                        manualMessage = manualSyncMessage,
+                                        digest = state.digest,
+                                        expanded = railExpanded,
+                                        onToggle = { railExpanded = !railExpanded },
+                                    )
+                                }
+                            }
                         }
-                        /* 手动刷新：搜索左边、同一行。没有件、演示态也留着——
-                           「没有新件」恰恰是最需要手动问一次的时候，演示态则只回一句提示。 */
-                        RefreshAction(
-                            busy = accountsSyncing,
-                            enabled = !accountsSyncing,
-                            failedSignal = manualSyncFailedSignal,
-                            onClick = onManualSync,
-                        )
-                        /* 一件都没有时不给这颗按钮：那时候搜索框不是路，是一条死路。
-                           演示态也不给：打开搜索会弹软键盘，录制时不允许任何系统面板。 */
-                        if (state.groups.isNotEmpty() && !isDemo) {
-                            IconButton(
-                                onClick = { searchOpen = !searchOpen },
-                                modifier = Modifier.size(44.dp),
-                            ) {
-                                Icon(
-                                    imageVector = if (searchOpen) Icons.Filled.Close else Icons.Filled.Search,
-                                    contentDescription = stringResource(
-                                        if (searchOpen) R.string.home_search_close else R.string.home_search,
-                                    ),
-                                    tint = if (searchOpen) Ink else InkSecondary,
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (isDemo) {
+                                Text(
+                                    text = stringResource(R.string.demo_exit),
+                                    modifier = Modifier
+                                        .clickable(onClick = onExitDemo)
+                                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                                    style = ShowCodeText.Action,
+                                    color = AccentInk,
+                                )
+                            }
+                            /* 手动刷新：搜索左边、同一行。没有件、演示态也留着——
+                               「没有新件」恰恰是最需要手动问一次的时候，演示态则只回一句提示。
+                               长按 = 强制重抓（忽略「状态没变就跳过」）。 */
+                            RefreshAction(
+                                busy = accountsSyncing,
+                                enabled = !accountsSyncing,
+                                failedSignal = manualSyncFailedSignal,
+                                onClick = onManualSync,
+                                onLongClick = onForceSync,
+                            )
+                            /* 一件都没有时不给这颗按钮：那时候搜索框不是路，是一条死路。
+                               演示态也不给：打开搜索会弹软键盘，录制时不允许任何系统面板。 */
+                            if (state.groups.isNotEmpty() && !isDemo) {
+                                IconButton(
+                                    onClick = { searchOpen = !searchOpen },
+                                    modifier = Modifier.size(44.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = if (searchOpen) Icons.Filled.Close else Icons.Filled.Search,
+                                        contentDescription = stringResource(
+                                            if (searchOpen) R.string.home_search_close else R.string.home_search,
+                                        ),
+                                        tint = if (searchOpen) Ink else InkSecondary,
+                                    )
+                                }
+                            }
+                            // 顶栏不再有那颗设置图标：设置现在是底栏三颗键之一，
+                            // 同一屏上留两个入口会让人怀疑它们去的是不是同一个地方。
+                        }
+                    }
+                    val rail = state.rail
+                    if (!isDemo && rail != null) {
+                        AnimatedVisibility(
+                            visible = railExpanded,
+                            enter = ModuleMotion.expand(reducedMotion),
+                            exit = ModuleMotion.collapse(reducedMotion),
+                        ) {
+                            /* 面板和下面的取件点卡片同一条左边线（16dp）；
+                               标题与轨道行保持 20dp 的页边距。 */
+                            Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) {
+                                SyncRailPanel(
+                                    rail = rail,
+                                    busy = accountsSyncing || state.syncing,
+                                    onRefreshAll = onManualSync,
+                                    onRetry = onRetryChannel,
+                                    onOpenAccounts = onOpenAccounts,
                                 )
                             }
                         }
-                        // 顶栏不再有那颗设置图标：设置现在是底栏三颗键之一，
-                        // 同一屏上留两个入口会让人怀疑它们去的是不是同一个地方。
                     }
                 }
             }
@@ -365,44 +435,62 @@ fun HomeScreen(
                 )
             }
 
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = navBarClearance()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+            /* 下拉刷新是第二条入口（第一条是右上那颗键）。演示态关掉：
+               录制时不允许出现任何额外的系统表面。 */
+            RefreshableHomeList(
+                enabled = !isDemo,
+                /* 下拉那一圈只在手指拉的时候出现；松手就退场，进度交给轨道说。
+                   若让它跟 isRefreshing 一起常驻，它会在首张卡上盖一个转圈——
+                   那正是这次重设计要消灭的东西。 */
+                isRefreshing = false,
+                onRefresh = onRefresh,
             ) {
-                if (!state.loaded) return@LazyColumn
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = navBarClearance()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (!state.loaded) return@LazyColumn
 
-                if (state.empty == HomeEmpty.FIRST_TIME) {
-                    item {
-                        // CTA 进排序最靠前那个点：一进演示就该看到最大的那个码，
-                        // story-1 的风险写得很清楚——演示必须在 5 秒内让人看到它。
-                        FirstTimeHeader(
-                            onOpenAccounts = onOpenAccounts,
-                            onOpenDemo = onOpenDemo,
-                        )
-                    }
-                    items(sampleGroups, key = { "sample-${it.key}" }) { group ->
-                        Box(modifier = Modifier.moduleEntrance(0)) {
-                            SamplePointCard(group = group, now = now, onClick = onOpenDemo)
+                    if (state.empty == HomeEmpty.FIRST_TIME) {
+                        item {
+                            // CTA 进排序最靠前那个点：一进演示就该看到最大的那个码，
+                            // story-1 的风险写得很清楚——演示必须在 5 秒内让人看到它。
+                            FirstTimeHeader(
+                                onOpenAccounts = onOpenAccounts,
+                                onOpenDemo = onOpenDemo,
+                            )
                         }
-                    }
-                    item {
-                        Text(
-                            text = stringResource(R.string.home_empty_first_time_hint),
-                            style = ShowCodeText.Caption,
-                            color = InkMuted,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                } else {
-                    items(shownGroups, key = { it.key }) { group ->
-                        Box(modifier = Modifier.moduleEntrance(0)) {
-                            val hint = state.suspect
-                            /* 提示插在两张卡里更紧急那张的上方：它讲的是「这两张是同一件事」，
-                               放在其中任何一张上面都比放在列表尾巴上读得懂。 */
-                            if (hint != null && hint.first.key == group.key) {
-                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    SuspectHintCard(pair = hint, onYes = onSuspectYes, onNo = onSuspectNo)
+                        items(sampleGroups, key = { "sample-${it.key}" }) { group ->
+                            Box(modifier = Modifier.moduleEntrance(0)) {
+                                SamplePointCard(group = group, now = now, onClick = onOpenDemo)
+                            }
+                        }
+                        item {
+                            Text(
+                                text = stringResource(R.string.home_empty_first_time_hint),
+                                style = ShowCodeText.Caption,
+                                color = InkMuted,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    } else {
+                        items(shownGroups, key = { it.key }) { group ->
+                            Box(modifier = Modifier.moduleEntrance(0)) {
+                                val hint = state.suspect
+                                /* 提示插在两张卡里更紧急那张的上方：它讲的是「这两张是同一件事」，
+                                   放在其中任何一张上面都比放在列表尾巴上读得懂。 */
+                                if (hint != null && hint.first.key == group.key) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        SuspectHintCard(pair = hint, onYes = onSuspectYes, onNo = onSuspectNo)
+                                        PointCard(
+                                            group = group,
+                                            now = now,
+                                            onClick = { onOpenPoint(group.key) },
+                                            onManage = onManagePoint?.let { manage -> { manage(group) } },
+                                        )
+                                    }
+                                } else {
                                     PointCard(
                                         group = group,
                                         now = now,
@@ -410,107 +498,100 @@ fun HomeScreen(
                                         onManage = onManagePoint?.let { manage -> { manage(group) } },
                                     )
                                 }
-                            } else {
-                                PointCard(
-                                    group = group,
-                                    now = now,
-                                    onClick = { onOpenPoint(group.key) },
-                                    onManage = onManagePoint?.let { manage -> { manage(group) } },
+                            }
+                        }
+                        /* 待取清单下方：在途件单独一组，可折叠。它不参与待取计数。 */
+                        if (!filtering && state.inTransit.isNotEmpty()) {
+                            item {
+                                Box(modifier = Modifier.moduleEntrance(1)) {
+                                    InTransitSection(
+                                        parcels = state.inTransit,
+                                        onOpen = onOpenParcel,
+                                    )
+                                }
+                            }
+                        }
+                        // 空态与招揽横幅这些是「没人找东西时」的路；正在筛的时候它们是噪声。
+                        if (!filtering && state.empty == HomeEmpty.ALL_DONE) {
+                            item { AllDoneCard(monthlyPicked = state.monthlyPicked) }
+                        }
+
+                        if (filtering && shownGroups.isEmpty()) {
+                            item {
+                                val picked = result?.pickedMatches ?: 0
+                                Text(
+                                    text = when {
+                                        // 「那串你可能已经取过了」只在人真的打了字时才说：
+                                        // 判据那边空白查询就不报已取，这里反过来造一句也是空话。
+                                        picked > 0 -> stringResource(R.string.home_search_miss_picked, query.trim(), picked)
+                                        query.isBlank() -> stringResource(R.string.home_search_miss_window)
+                                        else -> stringResource(R.string.home_search_miss, query.trim())
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(SurfaceCard, ShowCodeShapes.Md)
+                                        .padding(16.dp),
+                                    style = ShowCodeText.Meta,
+                                    color = InkSecondary,
                                 )
                             }
                         }
                     }
-                    /* 待取清单下方：在途件单独一组，可折叠。它不参与待取计数。 */
-                    if (!filtering && state.inTransit.isNotEmpty()) {
+
+                    // 解析失败必须显性化（story-2 的 risk）：首页给入口行，完整列表在收容页。
+                    // 这一行**不跟着筛选让位**——「你没搜到」不等于「没有东西没认出来」。
+                    if (state.unrecognizedCount > 0) {
                         item {
                             Box(modifier = Modifier.moduleEntrance(1)) {
-                                InTransitSection(
-                                    parcels = state.inTransit,
-                                    onOpen = onOpenParcel,
-                                )
+                                UnrecognizedLinkRow(count = state.unrecognizedCount, onOpen = onOpenUnrecognized)
                             }
                         }
                     }
-                    // 空态与招揽横幅这些是「没人找东西时」的路；正在筛的时候它们是噪声。
-                    if (!filtering && state.empty == HomeEmpty.ALL_DONE) {
-                        item { AllDoneCard(monthlyPicked = state.monthlyPicked) }
+
+                    if (!filtering) {
+                        // story-3 AC5：收到第一个取件点后才提示反向绑定。落点在 App 内横幅而不是组件——
+                        // 组件是全产品空间最紧张的表面，它必须永远保住「点名」那一行
+                        // （stories.json ac_amendment 的回归教训）。
+                        if (state.showWidgetHint) {
+                            item {
+                                Box(modifier = Modifier.moduleEntrance(2)) {
+                                    WidgetHintBanner(onPin = onPinWidget, onDismiss = onDismissWidgetHint)
+                                }
+                            }
+                        }
+
+                        /* 短信导入不再占首页横幅位：它只是补充手段，入口在设置里。
+                           首页只保留「绑定平台账号」这条主路径与通知监听这类真正影响自动收件的提示。 */
+                        if (state.notificationAccessGranted.not()) {
+                            item {
+                                Box(modifier = Modifier.moduleEntrance(2)) {
+                                    EnableIngestCard(
+                                        title = stringResource(R.string.home_enable_notification),
+                                        body = stringResource(R.string.home_enable_notification_hint),
+                                        onClick = onOpenNotificationSettings,
+                                    )
+                                }
+                            }
+                        }
                     }
 
-                    if (filtering && shownGroups.isEmpty()) {
+                    // 手动导入是「拒绝短信权限也能用」的一等退路（edge s1 permission-sms-denied），
+                    // 引导结束之后也必须常驻在列表末尾，**检索时也不藏**：
+                    // 手上有条码而 App 认不出来的那一刻，正是它最值钱的时候。
+                    // 演示态不提供：它会弹出一屏输入框与软键盘，录制时不允许系统面板。
+                    if (!isDemo) {
                         item {
-                            val picked = result?.pickedMatches ?: 0
                             Text(
-                                text = when {
-                                    // 「那串你可能已经取过了」只在人真的打了字时才说：
-                                    // 判据那边空白查询就不报已取，这里反过来造一句也是空话。
-                                    picked > 0 -> stringResource(R.string.home_search_miss_picked, query.trim(), picked)
-                                    query.isBlank() -> stringResource(R.string.home_search_miss_window)
-                                    else -> stringResource(R.string.home_search_miss, query.trim())
-                                },
+                                text = stringResource(R.string.home_manual_entry),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(SurfaceCard, ShowCodeShapes.Md)
-                                    .padding(16.dp),
-                                style = ShowCodeText.Meta,
-                                color = InkSecondary,
+                                    .clickable(onClick = onManualImport)
+                                    .padding(vertical = 10.dp),
+                                style = ShowCodeText.Body,
+                                color = InkMuted,
+                                textAlign = TextAlign.Center,
                             )
                         }
-                    }
-                }
-
-                // 解析失败必须显性化（story-2 的 risk）：首页给入口行，完整列表在收容页。
-                // 这一行**不跟着筛选让位**——「你没搜到」不等于「没有东西没认出来」。
-                if (state.unrecognizedCount > 0) {
-                    item {
-                        Box(modifier = Modifier.moduleEntrance(1)) {
-                            UnrecognizedLinkRow(count = state.unrecognizedCount, onOpen = onOpenUnrecognized)
-                        }
-                    }
-                }
-
-                if (!filtering) {
-                    // story-3 AC5：收到第一个取件点后才提示反向绑定。落点在 App 内横幅而不是组件——
-                    // 组件是全产品空间最紧张的表面，它必须永远保住「点名」那一行
-                    // （stories.json ac_amendment 的回归教训）。
-                    if (state.showWidgetHint) {
-                        item {
-                            Box(modifier = Modifier.moduleEntrance(2)) {
-                                WidgetHintBanner(onPin = onPinWidget, onDismiss = onDismissWidgetHint)
-                            }
-                        }
-                    }
-
-                    /* 短信导入不再占首页横幅位：它只是补充手段，入口在设置里。
-                       首页只保留「绑定平台账号」这条主路径与通知监听这类真正影响自动收件的提示。 */
-                    if (state.notificationAccessGranted.not()) {
-                        item {
-                            Box(modifier = Modifier.moduleEntrance(2)) {
-                                EnableIngestCard(
-                                    title = stringResource(R.string.home_enable_notification),
-                                    body = stringResource(R.string.home_enable_notification_hint),
-                                    onClick = onOpenNotificationSettings,
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // 手动导入是「拒绝短信权限也能用」的一等退路（edge s1 permission-sms-denied），
-                // 引导结束之后也必须常驻在列表末尾，**检索时也不藏**：
-                // 手上有条码而 App 认不出来的那一刻，正是它最值钱的时候。
-                // 演示态不提供：它会弹出一屏输入框与软键盘，录制时不允许系统面板。
-                if (!isDemo) {
-                    item {
-                        Text(
-                            text = stringResource(R.string.home_manual_entry),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(onClick = onManualImport)
-                                .padding(vertical = 10.dp),
-                            style = ShowCodeText.Body,
-                            color = InkMuted,
-                            textAlign = TextAlign.Center,
-                        )
                     }
                 }
             }
@@ -519,14 +600,10 @@ fun HomeScreen(
 }
 
 /**
- * 顶栏那行小字：现在看到的是什么时候的数据。
+ * 一次同步的结果摘要露多久。
  *
- * 它以前住在底部那颗胶囊里，还兼作「立即刷新」的按钮。首页改成每次进入自动刷之后按钮
- * 没必要了，这句话必须留下——自动的东西失效方式是静默的（权限被 ROM 收回不会弹通知），
- * 用户得能一眼分清「这是三分钟前的数据」和「今天根本没刷成功」。
- *
- * 刚刷完那句只露 [SYNC_RESULT_MS]，且不拿页面那个 30 秒一跳的 `now` 比：那个刻度是给
- * 倒计时用的，用它这条会时准时不准——自动刷新之后这是首页唯一的「刷过了」的证据，不能飘。
+ * 它不是常驻数据：8 秒后轨道回到「刚刚 · N/M 通道」。不拿页面那个 30 秒一跳的 `now` 比——
+ * 那个刻度是给倒计时用的，用它这条会时准时不准；而摘要本身是「刷过了」的唯一证据，不能飘。
  */
 private const val SYNC_RESULT_MS = 8_000L
 
@@ -653,38 +730,304 @@ internal fun inTransitStatus(parcel: Parcel): String {
 private val IN_TRANSIT_ETA = Regex("预计[^，。；]{1,12}(送达|到达)")
 private val CARRIER_ONLY = Regex("[\\u4e00-\\u9fa5]{2,6}(快递|速运|物流|运输)")
 
+/* ── 同步轨道 ───────────────────────────────────────────────────────────
+ *
+ * 收起的形态只占原来那行小字的位置：四个点 + 一句话。点开才摊开四条通道，
+ * 每条给出「上次结果 / 失败原因 / 正在读第几件」和一个只针对它的动作。
+ *
+ * 为什么不是一个大按钮：一次刷新有四个互不相干的来源，一个全局转圈无法回答
+ * 「是哪一家没答」。这条轨道就是那个问题的常驻答案。
+ */
+
 @Composable
-private fun SyncLine(state: HomeUiState, now: Long, manualMessage: String? = null) {
-    // 没加载完不出声：那时「还没同步过」是把一次正常的读库演成一件缺了什么的事。
-    if (!state.loaded) return
-    val result = state.lastSyncResult
-    val resultAt = result?.at
-    var showResult by remember(resultAt) { mutableStateOf(result != null) }
-    LaunchedEffect(resultAt) {
-        if (resultAt != null) {
+private fun SyncRailRow(
+    rail: SyncRailState,
+    now: Long,
+    manualMessage: String?,
+    digest: SyncDigest?,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    /* 结果摘要只露 8 秒，和原来那行小字的节奏一致——它不是常驻数据。 */
+    var showDigest by remember(digest?.at) { mutableStateOf(digest != null) }
+    LaunchedEffect(digest?.at) {
+        if (digest != null) {
             delay(SYNC_RESULT_MS)
-            showResult = false
+            showDigest = false
         }
     }
+    val runningLabel = rail.channels.firstOrNull { it.state == ChannelState.RUNNING }?.label
     val text = when {
-        /* 手动平台的结局优先：它刚刚发生，比「更新于」更值得占这一行。 */
         manualMessage != null -> manualMessage
-        state.syncing -> stringResource(R.string.home_syncing)
-        state.lastSyncFailed -> stringResource(R.string.home_sync_failed)
-        showResult && result != null && result.added > 0 -> stringResource(R.string.home_sync_added, result.added)
-        showResult && result != null -> stringResource(R.string.home_sync_none)
-        else -> state.lastSyncAt?.let {
-            stringResource(R.string.home_synced_at, relativeTimeText(it, now))
-        } ?: stringResource(R.string.home_never_synced)
+        rail.running -> runningLabel
+            ?.let { stringResource(R.string.sync_rail_running, it) }
+            ?: stringResource(R.string.sync_rail_running_any)
+        showDigest && digest != null -> digestText(digest)
+        /* 登录失效要单独说：这时候「重试」按钮是死路，用户得知道该去重新登录。 */
+        rail.needsLoginLabels.isNotEmpty() -> stringResource(
+            R.string.sync_rail_needs_login,
+            rail.needsLoginLabels.joinToString("、"),
+        )
+        rail.failedLabels.isNotEmpty() -> stringResource(
+            R.string.sync_rail_failed,
+            rail.failedLabels.joinToString("、"),
+        )
+        rail.newestAt == null -> stringResource(R.string.sync_rail_never)
+        else -> stringResource(
+            R.string.sync_rail_channels,
+            relativeTimeText(rail.newestAt, now),
+            rail.answered,
+            rail.total,
+        )
     }
-    Text(
-        text = text,
-        style = ShowCodeText.Caption,
-        color = if (manualMessage == null && state.lastSyncFailed) UrgencyDueSoon else InkMuted,
-        /* 顶栏高度是定稿的：这一行永远只占一行，再长的原因也只截断，不许把 header 撑高。 */
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+    val warning = manualMessage == null && !rail.running && rail.failedLabels.isNotEmpty()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(vertical = 4.dp)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "同步状态：" +
+                    rail.channels.joinToString("，") { it.label + channelStateWord(it.state) } +
+                    "。点开查看每个通道"
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        rail.channels.forEach { channel ->
+            ChannelDot(channel.state)
+            Spacer(Modifier.width(4.dp))
+        }
+        Spacer(Modifier.width(2.dp))
+        Text(
+            text = text,
+            style = ShowCodeText.Caption,
+            color = if (warning) UrgencyDueSoon else InkMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Spacer(Modifier.width(2.dp))
+        Icon(
+            imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+            contentDescription = null,
+            tint = InkMuted,
+            modifier = Modifier.size(14.dp),
+        )
+    }
+}
+
+@Composable
+private fun digestText(digest: SyncDigest): String {
+    if (digest.added == 0 && digest.updated == 0 && digest.skipped == 0) {
+        return if (digest.failed) {
+            stringResource(R.string.home_refresh_failed)
+        } else {
+            stringResource(R.string.sync_rail_digest_none)
+        }
+    }
+    val base = stringResource(R.string.sync_rail_digest, digest.added, digest.updated)
+    val withSkipped = if (digest.skipped > 0) {
+        base + stringResource(R.string.sync_rail_digest_skipped, digest.skipped)
+    } else {
+        base
+    }
+    return if (digest.failed) withSkipped + stringResource(R.string.sync_rail_digest_partial) else withSkipped
+}
+
+@Composable
+private fun SyncRailPanel(
+    rail: SyncRailState,
+    busy: Boolean,
+    onRefreshAll: () -> Unit,
+    onRetry: (String) -> Unit,
+    onOpenAccounts: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .background(SurfaceCard, ShowCodeShapes.Md)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.sync_rail_title),
+                style = ShowCodeText.Meta,
+                color = InkSecondary,
+            )
+            Spacer(Modifier.weight(1f))
+            if (busy) {
+                /* 正在跑时不给第二个入口：按了也不会再开一条，只会让人以为坏了。 */
+                Text(
+                    text = stringResource(R.string.sync_rail_running_any),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                    style = ShowCodeText.Action,
+                    color = InkMuted,
+                )
+            } else {
+                Text(
+                    text = stringResource(R.string.sync_rail_refresh_all),
+                    modifier = Modifier
+                        .clickable(onClick = onRefreshAll)
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                    style = ShowCodeText.Action,
+                    color = AccentInk,
+                )
+            }
+        }
+        rail.channels.forEach { channel ->
+            SyncChannelRow(
+                channel = channel,
+                busy = busy,
+                onRetry = onRetry,
+                onOpenAccounts = onOpenAccounts,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SyncChannelRow(
+    channel: SyncChannel,
+    busy: Boolean,
+    onRetry: (String) -> Unit,
+    onOpenAccounts: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ChannelDot(channel.state)
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = channel.label,
+            style = ShowCodeText.Body,
+            color = Ink,
+            modifier = Modifier.width(52.dp),
+            maxLines = 1,
+        )
+        Text(
+            text = channel.detail,
+            style = ShowCodeText.Meta,
+            color = InkMuted,
+            /* 展开才有的明细允许两行：被截掉的「跳过 3（已签收）」正是用户要的答案。 */
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        val action = channel.action
+        if (action != ChannelAction.NONE) {
+            val label = stringResource(
+                when (action) {
+                    ChannelAction.RETRY -> R.string.sync_rail_retry
+                    ChannelAction.BIND -> R.string.sync_rail_bind
+                    ChannelAction.RELOGIN -> R.string.sync_rail_relogin
+                    ChannelAction.NONE -> R.string.sync_rail_bind
+                },
+            )
+            val enabled = !busy
+            Text(
+                text = label,
+                modifier = (if (enabled) {
+                    Modifier.clickable {
+                        when (action) {
+                            ChannelAction.RETRY -> channel.accountId?.let(onRetry)
+                            /* 去绑定和重新登录都落在账号列表：那一屏才有登录入口。 */
+                            ChannelAction.BIND, ChannelAction.RELOGIN -> onOpenAccounts()
+                            ChannelAction.NONE -> Unit
+                        }
+                    }
+                } else {
+                    Modifier
+                }).padding(start = 8.dp, top = 4.dp, bottom = 4.dp),
+                style = ShowCodeText.Action,
+                color = if (enabled) AccentInk else InkMuted,
+            )
+        }
+    }
+}
+
+/**
+ * 一个通道点。形状先于颜色：实心=有应答、空环=没启用/没成功过、缺口环=正在转。
+ * 失败是唯一带颜色的（琥珀），因为它必须能从一行灰字里跳出来。
+ */
+@Composable
+private fun ChannelDot(state: ChannelState) {
+    Box(modifier = Modifier.size(8.dp), contentAlignment = Alignment.Center) {
+        when (state) {
+            ChannelState.FRESH -> Box(Modifier.size(6.dp).background(Ink, CircleShape))
+            ChannelState.STALE -> Box(Modifier.size(6.dp).background(InkMuted, CircleShape))
+            ChannelState.FAILED -> Box(Modifier.size(6.dp).background(UrgencyDueSoon, CircleShape))
+            ChannelState.OFF, ChannelState.NEVER ->
+                Box(Modifier.size(6.dp).border(1.dp, InkMuted, CircleShape))
+            ChannelState.RUNNING -> RunningDot()
+        }
+    }
+}
+
+/** 正在跑的通道：一段 240° 的弧自己转，只有这个状态在动。 */
+@Composable
+private fun RunningDot() {
+    val transition = rememberInfiniteTransition(label = "sync-rail-running")
+    val angle by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(900, easing = MotionEasing.Linear)),
+        label = "sync-rail-angle",
     )
+    Canvas(modifier = Modifier.size(8.dp)) {
+        val stroke = 1.5.dp.toPx()
+        drawArc(
+            color = AccentInk,
+            startAngle = angle,
+            sweepAngle = 240f,
+            useCenter = false,
+            topLeft = Offset(stroke / 2f, stroke / 2f),
+            size = Size(size.width - stroke, size.height - stroke),
+            style = Stroke(width = stroke, cap = StrokeCap.Round),
+        )
+    }
+}
+
+private fun channelStateWord(state: ChannelState): String = when (state) {
+    ChannelState.FRESH -> "正常"
+    ChannelState.STALE -> "已过期"
+    ChannelState.RUNNING -> "同步中"
+    ChannelState.FAILED -> "失败"
+    ChannelState.NEVER -> "还没成功过"
+    ChannelState.OFF -> "未启用"
+}
+
+/**
+ * 下拉刷新：刷新键之外的第二条入口。
+ *
+ * 它不改变刷新的语义（仍然走同一条全量路径），只是把「我现在就想问一次」
+ * 放到手上最顺的位置。指示器用 Material 默认款——这条手势是顺手，
+ * 主角仍然是顶栏那条轨道。
+ */
+@Composable
+private fun RefreshableHomeList(
+    enabled: Boolean,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    if (!enabled) {
+        content()
+        return
+    }
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        content()
+    }
 }
 
 /**
@@ -1243,6 +1586,8 @@ private fun RefreshAction(
     enabled: Boolean,
     failedSignal: Int,
     onClick: () -> Unit,
+    /** 长按 = 强制重抓；不传就只有单击。 */
+    onLongClick: (() -> Unit)? = null,
 ) {
     val label = stringResource(R.string.home_refresh)
     val tint = InkMuted
@@ -1304,11 +1649,13 @@ private fun RefreshAction(
     Box(
         modifier = Modifier
             .size(44.dp)
-            .clickable(
+            .combinedClickable(
                 interactionSource = interaction,
                 indication = null,
                 enabled = enabled,
                 role = Role.Button,
+                onLongClickLabel = onLongClick?.let { "强制重抓" },
+                onLongClick = onLongClick,
                 onClick = onClick,
             )
             .semantics { contentDescription = label },

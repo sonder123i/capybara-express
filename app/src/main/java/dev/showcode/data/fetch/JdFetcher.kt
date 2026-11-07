@@ -12,20 +12,26 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import dev.showcode.core.Parcel
 import dev.showcode.core.Slog
+import dev.showcode.core.Stage
 import dev.showcode.core.account.FetchOutcome
 import dev.showcode.core.account.FailureKind
 import dev.showcode.core.account.FetchedParcel
 import dev.showcode.core.account.GoodsInfo
 import dev.showcode.core.account.Platform
 import dev.showcode.core.account.Session
+import dev.showcode.core.account.SyncPhase
+import dev.showcode.core.account.SyncProgress
 import dev.showcode.core.account.TraceParser
 import dev.showcode.core.account.allDetailsFailed
+import dev.showcode.core.account.detailNeeded
 import dev.showcode.core.account.goodsPriceText
 import dev.showcode.core.account.isBlockedOrderPrompt
 import dev.showcode.core.account.isFinishedOrderPrompt
 import dev.showcode.core.account.normalizeImageUrl
 import dev.showcode.core.account.orderTimeMs
+import dev.showcode.core.account.stageOfPrompt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -52,6 +58,9 @@ object JdFetcher {
         "https://trade.m.jd.com/order/orderlist_jdm.shtml?orderType=all&source=m_outer_jx_order"
     /** 每单详情要整页加载一次；上限保留，但只从真正待取/在途的单里按状态排序取。 */
     private const val MAX_DETAILS = 8
+    /* 和原来那两处固定睡眠对齐：上限不变，只是数据到了就提前返回。 */
+    private const val FIRST_SCREEN_WAIT_MS = 2_500L
+    private const val PAGE_WAIT_MS = 2_500L
     private val HOSTS = setOf(
         "https://trade.m.jd.com",
         "https://wqs.jd.com",
@@ -59,7 +68,15 @@ object JdFetcher {
         "https://api.m.jd.com",
     )
 
-    suspend fun fetch(activity: Activity, accountId: String, cookie: String): FetchOutcome =
+    suspend fun fetch(
+        activity: Activity,
+        accountId: String,
+        cookie: String,
+        /** 库里这个账号已有的件（键 = 订单号）。状态没变的单不再进详情页。 */
+        known: Map<String, Parcel> = emptyMap(),
+        /** 这一轮走到哪一步：顶栏的「读取详情 2/8」就是它。 */
+        onProgress: suspend (SyncProgress) -> Unit = {},
+    ): FetchOutcome =
         withContext(Dispatchers.Main) {
             val pages = Channel<String>(Channel.BUFFERED)
             val web = WebView(activity)
@@ -94,10 +111,16 @@ object JdFetcher {
 
                 val captures = mutableListOf<String>()
                 var nameReadable = false
-                repeat(6) { round ->
-                    if (round > 0) swipeUp(web)
-                    delay(2500)
-                    if (readsCaps(web, captures)) nameReadable = true
+                /* 首屏保留固定等待：虚拟列表要先渲染出来才吃得下滑动。
+                   从这里往后才是条件等待——每轮有响应就立刻进下一轮，没有就收工。 */
+                delay(FIRST_SCREEN_WAIT_MS)
+                if (readsCaps(web, captures)) nameReadable = true
+                var rounds = 0
+                while (rounds < 5) {
+                    swipeUp(web)
+                    rounds++
+                    /* 这一轮没有新响应就收工；再滑也不会凭空多出页来。 */
+                    if (awaitCaptures(web, captures, PAGE_WAIT_MS) <= 0) break
                 }
                 httpCode?.let {
                     return@withContext FetchOutcome.Failure(
@@ -118,13 +141,22 @@ object JdFetcher {
                    也是「这次见过哪些单」的一部分。历史单不再占用详情名额。 */
                 val orders = parseOrders(captures)
                 val history = orders.filter { closesOrder(it.status) }.map { it.id }
-                val candidates = orders.filter { needsDetail(it) }
-                    .sortedBy { detailRank(it.status) }
+                /* 先剔除「状态没变、运单号与码都在」的单再占详情名额：
+                   它们这次进详情拿回来的会和上次是同一段文字。判据见 core/account/DetailGate.kt。 */
+                val now = System.currentTimeMillis()
+                val pending = orders.filter { needsDetail(it) }.sortedBy { detailRank(it.status) }
+                val candidates = pending
+                    .filter { detailNeeded(it.id, it.stage, known, now) }
                     .take(MAX_DETAILS)
-                Slog.safe(TAG, "orders=${orders.size} candidates=${candidates.size} history=${history.size}")
+                Slog.safe(
+                    TAG,
+                    "orders=${orders.size} pending=${pending.size} candidates=${candidates.size} " +
+                        "skip=${pending.size - candidates.size} history=${history.size}",
+                )
                 val result = mutableListOf<FetchedParcel>()
                 var detailsFailed = 0
-                candidates.forEach { order ->
+                candidates.forEachIndexed { index, order ->
+                    onProgress(SyncProgress(SyncPhase.DETAILS, index + 1, candidates.size))
                     val item = try {
                         detail(web, pages, accountId, order)
                     } catch (t: Throwable) {
@@ -165,6 +197,8 @@ object JdFetcher {
         val status: String,
         val trackLink: String,
         val goods: GoodsInfo? = null,
+        /** 列表级阶段；null = 认不出，详情门控只能按时间判断。 */
+        val stage: Stage? = null,
     )
 
     private fun prepare(
@@ -247,7 +281,7 @@ object JdFetcher {
                             "&dealState=$dealState&dealId=$id&orderType=${o.optString("orderType")}" +
                             "&skuid=$skuId&shopid=$shopId&source=m_inner_orderList.track_orderTrack"
                     }
-                    out[id] = Order(id, status, track, goodsOf(o))
+                    out[id] = Order(id, status, track, goodsOf(o), stageOfPrompt(status))
                 }
             }
         }
@@ -302,7 +336,8 @@ object JdFetcher {
         web.loadUrl(order.trackLink)
         val loaded = withTimeoutOrNull(20_000) { pages.receive() } ?: return null
         if (!loaded.startsWith("http")) return null
-        delay(2200)
+        /* 等正文就绪而不是固定睡 2.2 秒；上限不变。 */
+        WebProbe.awaitBody(evaluate = { evaluate(web, it) })
         val text = evaluate(web, "document.body ? document.body.innerText : ''").orEmpty()
         val tracking = Regex("(?:运单号|快递单号|物流单号)[：:\\s]*([A-Za-z0-9\\-]{8,})")
             .find(text)?.groupValues?.getOrNull(1)
@@ -375,6 +410,35 @@ object JdFetcher {
             if (s.contains("orderList")) out.add(s)
         }
         return true
+    }
+
+    /**
+     * 轮询捕获缓冲区，直到「有新增且安静了」或到 [maxMs]。
+     *
+     * @return 新增条数；-1 = 页面脚本根本读不到（和「读到了但这次没数据」要分开）。
+     */
+    private suspend fun awaitCaptures(
+        web: WebView,
+        out: MutableList<String>,
+        maxMs: Long,
+        quietMs: Long = 650,
+    ): Int {
+        val start = SystemClock.uptimeMillis()
+        val before = out.size
+        var last = before
+        var lastGrowAt = start
+        var readable = false
+        while (true) {
+            if (readsCaps(web, out)) readable = true
+            val now = SystemClock.uptimeMillis()
+            if (out.size > last) {
+                last = out.size
+                lastGrowAt = now
+            }
+            if (out.size > before && now - lastGrowAt >= quietMs) return out.size - before
+            if (now - start >= maxMs) return if (readable) out.size - before else -1
+            delay(120)
+        }
     }
 
     private fun drain(pages: Channel<String>) {

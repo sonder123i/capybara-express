@@ -11,6 +11,9 @@
          （用户手动录过件）之后才响，而且拒了会退化成进 App 时的一条常驻提示，不损失功能。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 自更新：下载完成后由用户点「安装」拉起系统安装器。它不是后台静默安装；
+         Android 8+ 仍要求用户在系统设置里允许本 App「安装未知应用」。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- 身份码那屏要「从这台手机的 App 里选一个」并跳过去。targetSdk 30 起这是**包可见性**
          而不是权限问题：不声明就查不到别人的启动活动，症状是明明装了却说没装，而且不报错。
@@ -149,5 +152,16 @@
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
             </intent-filter>
         </activity>
+
+        <!-- 更新包只暴露 App 自己的 external-files/Download；安装器读它需要 content://。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

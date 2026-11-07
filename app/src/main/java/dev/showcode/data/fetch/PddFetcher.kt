@@ -14,7 +14,9 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import dev.showcode.core.Parcel
 import dev.showcode.core.Slog
+import dev.showcode.core.Stage
 import dev.showcode.core.account.FetchOutcome
 import dev.showcode.core.account.FailureKind
 import dev.showcode.core.account.FetchedParcel
@@ -22,9 +24,12 @@ import dev.showcode.core.account.GoodsImageCandidate
 import dev.showcode.core.account.GoodsInfo
 import dev.showcode.core.account.Platform
 import dev.showcode.core.account.Session
+import dev.showcode.core.account.SyncPhase
+import dev.showcode.core.account.SyncProgress
 import dev.showcode.core.account.TraceParser
 import dev.showcode.core.account.allDetailsFailed
 import dev.showcode.core.account.conflictsWithOrderStatus
+import dev.showcode.core.account.detailNeeded
 import dev.showcode.core.account.fallbackFetchedParcel
 import dev.showcode.core.account.isActiveOrderPrompt
 import dev.showcode.core.account.isBlockedOrderPrompt
@@ -34,7 +39,9 @@ import dev.showcode.core.account.normalizeImageUrl
 import dev.showcode.core.account.orderTimeMs
 import dev.showcode.core.account.pddPriceText
 import dev.showcode.core.account.pickGoodsImage
+import dev.showcode.core.account.stageOfPrompt
 import dev.showcode.core.account.trackStatusPrompt
+import dev.showcode.core.account.trackStatusStage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -57,6 +64,9 @@ import kotlin.coroutines.resume
 object PddFetcher {
 
     private const val TAG = "PddFetcher"
+    /* 和原来那两处固定睡眠对齐：上限不变，只是数据到了就提前返回。 */
+    private const val FIRST_SCREEN_WAIT_MS = 2_500L
+    private const val PAGE_WAIT_MS = 2_500L
     private const val HOST = "https://mobile.yangkeduo.com"
     private const val ORDERS = "$HOST/orders.html"
     private const val ORDER_DETAIL = "$HOST/order.html?order_sn="
@@ -69,7 +79,15 @@ object PddFetcher {
         "https://passport.pinduoduo.com",
     )
 
-    suspend fun fetch(activity: Activity, accountId: String, cookie: String): FetchOutcome =
+    suspend fun fetch(
+        activity: Activity,
+        accountId: String,
+        cookie: String,
+        /** 库里这个账号已有的件（键 = 订单号）。状态没变的单不再进详情页。 */
+        known: Map<String, Parcel> = emptyMap(),
+        /** 这一轮走到哪一步：顶栏的「读取详情 2/4」就是它。 */
+        onProgress: suspend (SyncProgress) -> Unit = {},
+    ): FetchOutcome =
         withContext(Dispatchers.Main) {
             val pages = Channel<String>(Channel.BUFFERED)
             val web = WebView(activity)
@@ -88,36 +106,49 @@ object PddFetcher {
                 }
                 WebViewCompat.addDocumentStartJavaScript(web, HOOK_JS, HOSTS)
                 web.loadUrl(ORDERS)
-                val first = withTimeoutOrNull(20_000) { pages.receive() }
+                var first = withTimeoutOrNull(20_000) { pages.receive() }
                     ?: return@withContext FetchOutcome.Failure("订单页加载超时")
                 httpCode?.let {
                     return@withContext FetchOutcome.Failure(
                         "订单页没打开：HTTP $it（$httpUrl）", httpFailureKind(it),
                     )
                 }
-                if (!first.contains("orders.html")) {
-                    Slog.w(TAG) { "订单页没打开: $first" }
-                    /* 跳到登录/通行证页才是会话失效；其它意外页面是瞬时问题。 */
-                    return@withContext FetchOutcome.Failure(
-                        "订单页跳到了登录页或其它页面",
-                        if (looksLikeLogin(first)) FailureKind.AUTH else FailureKind.TRANSIENT,
-                    )
+                if (!isPddOrdersPage(first)) {
+                    Slog.w(TAG) { "订单页没打开，重试一次: $first" }
+                    /* 拼多多偶尔把一次正常请求带去登录页（风控/会话刷新），紧接着重载又好了。
+                       一次重定向不足以判死会话：再要一次，仍不是订单页才认。 */
+                    drain(pages)
+                    delay(700)
+                    web.loadUrl(ORDERS)
+                    val again = withTimeoutOrNull(20_000) { pages.receive() }
+                        ?: return@withContext FetchOutcome.Failure("订单页加载超时")
+                    if (!isPddOrdersPage(again)) {
+                        Slog.w(TAG) { "订单页重试仍失败: $again" }
+                        val auth = looksLikeLogin(again)
+                        return@withContext FetchOutcome.Failure(
+                            if (auth) "登录已失效，需要重新登录" else "订单页跳到了其它页面",
+                            if (auth) FailureKind.AUTH else FailureKind.TRANSIENT,
+                        )
+                    }
+                    first = again
+                    Slog.i(TAG) { "订单页重试成功: $first" }
                 }
                 Slog.i(TAG) { "orders page=$first" }
-                delay(2500)
 
                 val captures = mutableListOf<JSONObject>()
                 var nameReadable = false
-                /* 首屏响应必须先读出来：最新一单在首屏那一页，
-                   以前的实现先滚动再读，首屏的 window.name 可能被后续请求挤掉。 */
+                /* 首屏保留固定等待：虚拟列表要先把首屏渲染出来才吃得下滑动。
+                   从这里往后才是条件等待——每轮有响应就立刻进下一轮，没有就收工。 */
+                delay(FIRST_SCREEN_WAIT_MS)
                 if (readsCaps(web, captures)) nameReadable = true
-                repeat(4) { round ->
-                    if (round > 0) {
-                        clickMore(web)
-                        swipeUp(web)
-                    }
-                    delay(2500)
-                    if (readsCaps(web, captures)) nameReadable = true
+                var rounds = 0
+                while (rounds < 4) {
+                    clickMore(web)
+                    swipeUp(web)
+                    rounds++
+                    /* 这一轮一个新响应都没有：更靠后的页不会自己出现，直接收工。
+                       上限仍是每轮 2.5s，所以最坏情况和原来的固定睡眠一样慢。 */
+                    if (awaitCaptures(web, captures, PAGE_WAIT_MS) <= 0) break
                 }
                 httpCode?.let {
                     return@withContext FetchOutcome.Failure(
@@ -175,13 +206,29 @@ object PddFetcher {
                 Slog.safe(TAG, "ordersEnded=$ordersEnded")
 
                 val candidates = buildList {
-                    activeTracks.forEach { t -> add(OrderHit(t.sn, trackStatusPrompt(t.status), null)) }
+                    activeTracks.forEach { t ->
+                        add(
+                            OrderHit(
+                                sn = t.sn,
+                                prompt = trackStatusPrompt(t.status),
+                                goods = null,
+                                /* 首屏这个接口的状态比订单文案更准，直接拿它和库里阶段比。 */
+                                stage = trackStatusStage(t.status),
+                            )
+                        )
+                    }
                     activeList.forEach { hit -> add(hit) }
                 }.distinctBy { it.sn }
 
                 val result = mutableListOf<FetchedParcel>()
                 var detailsFailed = 0
-                candidates.forEach { order ->
+                val now = System.currentTimeMillis()
+                /* 状态没变、运单号与码都在的件不再进详情页：那是这次刷新里最贵的一步，
+                   而它这次拿回来的会和上次是同一段文字。判据见 core/account/DetailGate.kt。 */
+                val toFetch = candidates.filter { detailNeeded(it.sn, it.stage, known, now) }
+                val unchanged = candidates.size - toFetch.size
+                toFetch.forEachIndexed { index, order ->
+                    onProgress(SyncProgress(SyncPhase.DETAILS, index + 1, toFetch.size))
                     /* 单条详情超时/改版不能把整批已拿到的件一起丢掉；
                        一条失败就继续下一条，最后把成功的那部分交出去。 */
                     val item = try {
@@ -199,8 +246,9 @@ object PddFetcher {
                     )
                     if (item != null) result.add(item) else detailsFailed++
                 }
+                Slog.safe(TAG, "skip unchanged=$unchanged")
                 /* 一条都没解析出来时不能说成「成功·没有新件」；这批算瞬时失败，可重试。 */
-                if (allDetailsFailed(candidates.size, detailsFailed)) {
+                if (allDetailsFailed(toFetch.size, detailsFailed)) {
                     return@withContext FetchOutcome.Failure(
                         "${detailsFailed} 件详情都没抓到，稍后再试",
                     )
@@ -319,7 +367,13 @@ object PddFetcher {
         return out.distinctBy { it.sn }
     }
 
-    private data class OrderHit(val sn: String, val prompt: String, val goods: GoodsInfo?)
+    private data class OrderHit(
+        val sn: String,
+        val prompt: String,
+        val goods: GoodsInfo?,
+        /** 列表级阶段；null = 这次没有可用状态，详情门控只能按时间判断。 */
+        val stage: Stage? = null,
+    )
 
     private fun parseOrders(captures: List<JSONObject>): List<OrderHit> {
         val hits = mutableListOf<OrderHit>()
@@ -344,7 +398,8 @@ object PddFetcher {
             is JSONObject -> {
                 val sn = node.optString("order_sn")
                 if (sn.isNotBlank() && sn.length >= 8) {
-                    out.add(OrderHit(sn, node.optString("order_status_prompt"), goodsOf(node)))
+                    val prompt = node.optString("order_status_prompt")
+                    out.add(OrderHit(sn, prompt, goodsOf(node), stageOfPrompt(prompt)))
                 }
                 val keys = node.keys()
                 while (keys.hasNext()) collect(node.opt(keys.next()), out)
@@ -385,8 +440,9 @@ object PddFetcher {
             Slog.w(TAG) { "detail miss ${Slog.mask(order.sn)}: $loaded" }
             return null
         }
-        /* 商品图是懒加载的，1200ms 常常还停在占位图；多给一点时间，图到了再读。 */
-        delay(2200)
+        /* 商品图是懒加载的：等正文与首图就绪，而不是固定睡 2.2 秒。
+           上限仍是 2.2 秒，所以慢页不会比以前更慢。 */
+        WebProbe.awaitBody(evaluate = { evaluate(web, it) })
         val detailNode = parseJsJson(evaluate(web, DETAIL_EXTRACT_JS).orEmpty())
         val detailLines = detailNode?.optJSONArray("lines")
         val lead = detailLines?.optString(0).orEmpty()
@@ -428,7 +484,7 @@ object PddFetcher {
             if (clicked) return@repeat
             val r = evaluate(web, CLICK_LOGISTICS_JS).orEmpty()
             Slog.i(TAG) { "click[$it]=$r" }
-            if (r.startsWith("clicked")) clicked = true else delay(1200)
+            if (r.startsWith("clicked")) clicked = true else delay(400)
         }
 
         val traceUrl = if (clicked) {
@@ -443,7 +499,7 @@ object PddFetcher {
         }
 
         val parsed = if (traceUrl != null) {
-            delay(2200)
+            WebProbe.awaitBody(evaluate = { evaluate(web, it) })
             val text = evaluate(web, "document.body ? document.body.innerText : ''").orEmpty()
             val tracking = Uri.parse(traceUrl).getQueryParameter("tracking_number").orEmpty()
             Slog.i(TAG) { "trace tracking=${Slog.mask(tracking)} len=${text.length}" }
@@ -593,6 +649,36 @@ object PddFetcher {
             array.optJSONObject(i)?.let { out.add(it) }
         }
         return true
+    }
+
+    /**
+     * 轮询 `window.name`，直到「有新增捕获且安静了」或到 [maxMs]。
+     *
+     * @return 新增条数；-1 = 页面脚本根本读不到（和「读到了但这次没数据」要分开）。
+     */
+    private suspend fun awaitCaptures(
+        web: WebView,
+        out: MutableList<JSONObject>,
+        maxMs: Long,
+        quietMs: Long = 650,
+    ): Int {
+        val start = SystemClock.uptimeMillis()
+        val before = out.size
+        var last = before
+        var lastGrowAt = start
+        var readable = false
+        while (true) {
+            if (readsCaps(web, out)) readable = true
+            val now = SystemClock.uptimeMillis()
+            if (out.size > last) {
+                last = out.size
+                lastGrowAt = now
+            }
+            /* 已经有新数据，并且安静了 quietMs：这一页读完了。 */
+            if (out.size > before && now - lastGrowAt >= quietMs) return out.size - before
+            if (now - start >= maxMs) return if (readable) out.size - before else -1
+            delay(120)
+        }
     }
 
     private fun drain(pages: Channel<String>) {

@@ -17,8 +17,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -88,7 +90,7 @@ fun OnsiteCodeBody(
     urgency: Urgency,
     lockerLabel: String,
     deadlineText: String?,
-    /** 静默态的控件透明度。只作用于「长按可复制」这一行——码、格口、倒计时永远不许淡。 */
+    /** 静默态的控件透明度。只作用于复制提示与次级动作——码、格口、倒计时永远不许淡。 */
     chromeAlpha: Float,
     onCopyCode: () -> Unit,
     /** 空码件的「复制快递单号」。为空时那一行不出现。 */
@@ -115,9 +117,11 @@ fun OnsiteCodeBody(
         return
     }
 
+    val tracking = trackingLookupText(parcel)
+    val hasLookupActions = parcel.codeKind == CodeKind.SUFFIX && tracking != null
+
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        // vw 是视口宽度而不是内容宽度，所以必须在 padding 之前量：
-        // 140 这个常数已经把两侧各 20 的内边距算进去了，再量一次内容宽就等于扣两遍边距。
+        // vw 是视口宽度而不是内容宽度，所以必须在 padding 之前量。
         val viewportWidthDp = maxWidth.value
         val codeSize = codeFontSizeSp(parcel.code, hasLocker, viewportWidthDp, fontScale).sp
 
@@ -126,29 +130,14 @@ fun OnsiteCodeBody(
                 .fillMaxSize()
                 .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
         ) {
-            /* 上区：商品信息。和下面的码区用一条 hairline + 16dp 呼吸隔开，
-               不再把商品文字塞进码块。 */
-            if (showsGoodsCard(parcel)) {
-                GoodsHeader(parcel)
-                Spacer(Modifier.height(16.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.9f)
-                        .height(1.dp)
-                        .background(Hairline),
-                )
-                Spacer(Modifier.height(16.dp))
-            }
+            /* 顶部只回答「这是哪个包裹」。整行可点进详情——省掉一颗漂在码下面的「查看详情」，
+               也把商品信息从散落的注脚变成这一屏的身份抬头。 */
+            ParcelIdentityHeader(parcel = parcel, onOpenDetail = onOpenDetail)
 
-            // 中区：承运商 + 码/后五位。快递公司只是让人确认「是这个包裹」
-            Text(text = parcel.carrier, style = ShowCodeText.Caption, color = InkMuted)
+            /* 码在中间，上下两段空白对称：举起来时视线落在屏幕中线，不用低头找码。 */
+            Spacer(Modifier.weight(1f))
 
-            Spacer(Modifier.height(16.dp))
-
-            /* 单号后五位不是取件码：先给一行说明，再让数字自己说话。
-               字的几何契约一点不改——码仍然是纯黑、等宽、按 len 防溢出。 */
             if (parcel.codeKind == CodeKind.SUFFIX) {
                 Text(
                     text = stringResource(R.string.suffix_label),
@@ -158,11 +147,14 @@ fun OnsiteCodeBody(
                 Spacer(Modifier.height(8.dp))
             }
 
-            // 取件码：等宽 + 超大 + 纯黑，连字符降墨。长按复制（在位者 issue #52 的诉求）。
+            /* 取件码：等宽 + 超大 + 纯黑，连字符降墨。点一下复制，长按仍然可以。 */
             Text(
                 text = dimmedSeparators(parcel.code),
                 modifier = Modifier.pointerInput(parcel.code) {
-                    detectTapGestures(onLongPress = { onCopyCode() })
+                    detectTapGestures(
+                        onTap = { onCopyCode() },
+                        onLongPress = { onCopyCode() },
+                    )
                 },
                 fontSize = codeSize,
                 lineHeight = codeSize * 1.05f,
@@ -174,13 +166,39 @@ fun OnsiteCodeBody(
                 textAlign = TextAlign.Center,
             )
 
-            /* 后五位也只是一串数字；真正能查到取件码的地方在淘宝。
-               大字仍然是主角，这一组动作放在码下方、字阶降一档，横排压住高度。 */
-            val tracking = trackingLookupText(parcel)
-            val hasLookupActions = parcel.codeKind == CodeKind.SUFFIX && tracking != null
+            Spacer(Modifier.height(4.dp))
+            CopyHint(chromeAlpha = chromeAlpha, onCopy = onCopyCode)
+
+            if (hasLocker) {
+                Spacer(Modifier.height(if (hasLookupActions) 12.dp else 18.dp))
+                LockerPill(
+                    label = lockerLabel,
+                    value = parcel.lockerNo.orEmpty(),
+                    compact = hasLookupActions,
+                )
+            }
+
+            if (deadlineText != null) {
+                val tint = if (urgency == Urgency.SAFE) InkMuted else urgencyColor(urgency)
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    ClockIcon(color = tint, size = 16.dp)
+                    Text(
+                        text = deadlineText,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = tint,
+                        style = TabularNumbers,
+                    )
+                }
+            }
+
+            /* 单号后五位只是数字；真正能查到取件码的地方在淘宝。
+               大字仍然是主角，这一组动作放在码下方、字阶降一档。 */
             if (hasLookupActions) {
-                /* 后五位这一屏天然比普通码多三行（说明、两个动作、详情）。
-                   间距收紧一档，保证格口与倒计时都在首屏内，不需要滚动。 */
                 Spacer(Modifier.height(16.dp))
                 Text(
                     text = stringResource(R.string.onsite_no_code_taobao_hint),
@@ -190,8 +208,7 @@ fun OnsiteCodeBody(
                     textAlign = TextAlign.Center,
                 )
                 if (onCopyTracking != null && onQueryTaobao != null) {
-                    Spacer(Modifier.height(12.dp))
-                    /* 收纳成一行图标 + 短词，不再和码抢版面；码仍是全屏最重的一块。 */
+                    Spacer(Modifier.height(10.dp))
                     Row(
                         modifier = Modifier.graphicsLayer { alpha = chromeAlpha },
                         verticalAlignment = Alignment.CenterVertically,
@@ -221,112 +238,137 @@ fun OnsiteCodeBody(
                         }
                     }
                 }
-                if (onOpenDetail != null && !parcel.accountId.isNullOrBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = stringResource(R.string.detail_view),
-                        modifier = Modifier
-                            .graphicsLayer { alpha = chromeAlpha }
-                            .clickable(onClick = onOpenDetail)
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        style = ShowCodeText.Action,
-                        color = InkMuted,
-                    )
-                }
-            } else {
-                Spacer(Modifier.height(8.dp))
+            }
+
+            Spacer(Modifier.weight(1f))
+        }
+    }
+}
+
+/**
+ * 这一屏的身份抬头：商品图 + 标题 + 「店铺 · 承运商 · 价格」。
+ * 有详情时整行可点，右侧给一个箭头——这是「看一眼它是哪件」的入口，不是第二颗按钮。
+ */
+@Composable
+private fun ParcelIdentityHeader(parcel: Parcel, onOpenDetail: (() -> Unit)?) {
+    val canOpen = onOpenDetail != null && !parcel.accountId.isNullOrBlank()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (canOpen) Modifier.clickable(onClick = onOpenDetail) else Modifier)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        dev.showcode.ui.parcels.goodsThumbnailUrl(parcel)?.let {
+            GoodsThumbnail(url = it, size = 48.dp)
+            Spacer(Modifier.width(12.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            val title = parcel.goodsTitle?.takeIf { it.isNotBlank() }
+                ?: parcel.shopName?.takeIf { it.isNotBlank() }
+                ?: parcel.carrier
+            Text(
+                text = title,
+                style = ShowCodeText.Meta,
+                color = OnsiteInk,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val brief = listOfNotNull(
+                parcel.shopName?.takeIf { it.isNotBlank() && it != title },
+                parcel.carrier.takeIf { it.isNotBlank() && it != title },
+                parcel.goodsPrice?.takeIf { it.isNotBlank() },
+            ).joinToString(" · ")
+            if (brief.isNotEmpty()) {
                 Text(
-                    text = stringResource(R.string.onsite_copy_hint),
-                    modifier = Modifier.graphicsLayer { alpha = chromeAlpha },
-                    fontSize = 12.sp,
-                    color = InkFaint,
+                    text = brief,
+                    style = ShowCodeText.Caption,
+                    color = InkMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+        if (canOpen) {
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = InkMuted,
+            )
+        }
+    }
+}
 
-            /* 格口紧贴码下方。缺失时整块消失、码变大——不留空位、不显示 "--"。
-               后五位这一屏已经有动作区和详情入口，格口改用一行紧凑文字，
-               避免整块大胶囊把倒计时挤出首屏（录制时会出现半截白条）。 */
-            if (hasLocker) {
-                if (hasLookupActions) {
-                    Spacer(Modifier.height(12.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(text = lockerLabel, fontSize = 13.sp, color = InkMuted)
-                        Text(
-                            text = parcel.lockerNo.orEmpty(),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            style = TabularNumbers,
-                            color = OnsiteInk,
-                        )
-                    }
-                } else {
-                    Spacer(Modifier.height(24.dp))
-                    Row(
-                        modifier = Modifier
-                            .background(SurfaceCard, RoundedCornerShape(14.dp))
-                            .border(1.dp, Hairline, RoundedCornerShape(14.dp))
-                            .padding(horizontal = 24.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = lockerLabel,
-                            modifier = Modifier.alignByBaseline(),
-                            fontSize = 14.sp,
-                            color = InkMuted,
-                        )
-                        Text(
-                            text = parcel.lockerNo.orEmpty(),
-                            modifier = Modifier.alignByBaseline(),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 34.sp,
-                            lineHeight = 34.sp,
-                            fontWeight = FontWeight.Bold,
-                            style = TabularNumbers,
-                            color = OnsiteInk,
-                        )
-                    }
-                }
-            }
+/** 复制不是长按里的秘密：码下面一行明说「轻触复制」，点提示也能复制。 */
+@Composable
+private fun CopyHint(chromeAlpha: Float, onCopy: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .graphicsLayer { alpha = chromeAlpha }
+            .clickable(onClick = onCopy)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_action_copy),
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = InkFaint,
+        )
+        Text(
+            text = stringResource(R.string.onsite_copy_hint),
+            fontSize = 12.sp,
+            color = InkFaint,
+        )
+    }
+}
 
-            /* 账号件才有详情页入口：详情里的商品卡只属于账号渠道，
-               短信/手动件给同一颗按钮只会通向一张空商品区。
-               后五位的详情入口挪进上面那组动作里，避免一屏出现两个「查看详情」。 */
-            if (!hasLookupActions && onOpenDetail != null && !parcel.accountId.isNullOrBlank()) {
-                Spacer(Modifier.height(18.dp))
-                Text(
-                    text = stringResource(R.string.detail_view),
-                    modifier = Modifier
-                        .graphicsLayer { alpha = chromeAlpha }
-                        .clickable(onClick = onOpenDetail)
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    style = ShowCodeText.Action,
-                    color = AccentInk,
-                )
-            }
-
-            // 时效：三态下唯一的颜色。小字、低位，不抢码的注意力
-            if (deadlineText != null) {
-                val tint = if (urgency == Urgency.SAFE) InkMuted else urgencyColor(urgency)
-                Spacer(Modifier.height(24.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    ClockIcon(color = tint, size = 16.dp)
-                    Text(
-                        text = deadlineText,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = tint,
-                        style = TabularNumbers,
-                    )
-                }
-            }
+/** 格口：有柜号时是一块和码同一视觉层级的读数，不显示 "--" 或空位。 */
+@Composable
+private fun LockerPill(label: String, value: String, compact: Boolean) {
+    if (compact) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text = label, fontSize = 13.sp, color = InkMuted)
+            Text(
+                text = value,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                style = TabularNumbers,
+                color = OnsiteInk,
+            )
+        }
+    } else {
+        Row(
+            modifier = Modifier
+                .background(SurfaceCard, RoundedCornerShape(14.dp))
+                .border(1.dp, Hairline, RoundedCornerShape(14.dp))
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                modifier = Modifier.alignByBaseline(),
+                fontSize = 13.sp,
+                color = InkMuted,
+            )
+            Text(
+                text = value,
+                modifier = Modifier.alignByBaseline(),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 28.sp,
+                lineHeight = 28.sp,
+                fontWeight = FontWeight.Bold,
+                style = TabularNumbers,
+                color = OnsiteInk,
+            )
         }
     }
 }

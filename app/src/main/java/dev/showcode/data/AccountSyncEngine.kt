@@ -7,6 +7,8 @@ import dev.showcode.core.account.BoundAccount
 import dev.showcode.core.account.FetchOutcome
 import dev.showcode.core.account.FailureKind
 import dev.showcode.core.account.Platform
+import dev.showcode.core.account.SYNC_OK_PREFIX
+import dev.showcode.core.account.SyncProgress
 import dev.showcode.core.account.planAccountSync
 import dev.showcode.data.fetch.JdFetcher
 import dev.showcode.data.fetch.PddFetcher
@@ -33,14 +35,20 @@ object AccountSyncEngine {
         activity: Activity?,
         repository: ParcelRepository,
         account: BoundAccount,
+        /** true = 忽略「状态没变就跳过详情」，把这一次当全量重抓。 */
+        force: Boolean = false,
+        /** 同步走到哪一步；调用方负责切回主线程再改 UI 状态。 */
+        onProgress: suspend (SyncProgress) -> Unit = {},
     ): AccountSyncResult? = withContext(Dispatchers.IO) {
-        syncOnIo(activity, repository, account)
+        syncOnIo(activity, repository, account, force, onProgress)
     }
 
     private suspend fun syncOnIo(
         activity: Activity?,
         repository: ParcelRepository,
         account: BoundAccount,
+        force: Boolean,
+        onProgress: suspend (SyncProgress) -> Unit,
     ): AccountSyncResult? {
         if (!account.enabled) return null
         if (activity == null) {
@@ -52,10 +60,22 @@ object AccountSyncEngine {
             repository.accounts.mark(account, AccountState.BROKEN, "凭据解不开，需要重新登录")
             return null
         }
+        /* 详情门控的数据面：这个账号库里已有的件，按订单号索引。
+           读一次给抓取器，状态没变的单就不再进详情页（见 core/account/DetailGate.kt）。
+           强制重抓时传空表：门控认为「什么都没有」，于是每一单都会重新读。 */
+        val known = if (force) {
+            emptyMap()
+        } else {
+            repository.parcelsForAccountSync()
+                .filter { it.accountId == account.id && !it.orderSn.isNullOrBlank() }
+                .associateBy { it.orderSn.orEmpty() }
+        }
+        /* 列表阶段先报出去：用户至少知道这 20 秒不是在等一个死界面。 */
+        onProgress(SyncProgress.Orders)
         val outcome = when (account.platform) {
-            Platform.PDD -> PddFetcher.fetch(activity, account.id, cookie)
-            Platform.TB -> TbFetcher.fetch(account.id, cookie)
-            Platform.JD -> JdFetcher.fetch(activity, account.id, cookie)
+            Platform.PDD -> PddFetcher.fetch(activity, account.id, cookie, known, onProgress)
+            Platform.TB -> TbFetcher.fetch(account.id, cookie, known, onProgress)
+            Platform.JD -> JdFetcher.fetch(activity, account.id, cookie, known, onProgress)
         }
         val at = System.currentTimeMillis()
         when (val decision = decideSync(outcome)) {
@@ -171,15 +191,19 @@ internal fun decideSync(outcome: FetchOutcome): SyncDecision = when (outcome) {
 /**
  * 成功但零新增也必须说成「成功·没有新件」，不能和失败共用一句话。
  * 跳过要带原因：不然平台说有 3 件、首页只多 1 张卡时，用户无从判断是哪一步漏了。
+ *
+ * ⚠️ 成功的结果**一定**以 [SYNC_OK_PREFIX] 开头：`last_sync_result` 这一列没有单独的
+ * 布尔位，同步轨道就是靠这个前缀区分「上次是成功」还是「上次是失败」。改文案时别丢它。
  */
 internal fun syncSuccessMessage(result: AccountSyncResult): String {
     val skipped = result.skippedHistory +
         result.skippedNoTracking + result.skippedNoPoint + result.skippedNoCode
     if (result.added == 0 && result.updated == 0 && skipped == 0 && result.detailsFailed == 0) {
-        return "同步成功 · 没有新件"
+        return "$SYNC_OK_PREFIX · 没有新件"
     }
     return buildString {
-        append("新增 ${result.added} · 更新 ${result.updated}")
+        append(SYNC_OK_PREFIX)
+        append(" · 新增 ${result.added} · 更新 ${result.updated}")
         if (skipped > 0) {
             append(" · 跳过 $skipped（")
             val reasons = buildList {
