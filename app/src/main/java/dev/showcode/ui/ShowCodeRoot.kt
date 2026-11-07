@@ -98,6 +98,7 @@ import dev.showcode.ui.settings.NotifyAppsScreen
 import dev.showcode.ui.settings.SettingsScreen
 import dev.showcode.ui.theme.LocalNavigationMotion
 import dev.showcode.ui.theme.MotionProfile
+import dev.showcode.ui.theme.ThemeController
 import dev.showcode.ui.theme.StartupChoreography
 import dev.showcode.ui.theme.StartupLogoAnimation
 import dev.showcode.ui.theme.MotionTokens
@@ -848,6 +849,8 @@ fun ShowCodeRoot() {
     /* 底栏那层玻璃的输入。判决在 ui/glass/GlassCompat，这里只把它收齐——
        prefs 不是可观察的，所以用户刚在设置里改完的那一下必须由本地状态接住。 */
     var glassBarOn by remember { mutableStateOf(repository.prefs.glassBarOn) }
+    /* 外观模式：真值在 ThemeController 里（Activity 也要读它），这里只镜像一份给设置页显示。 */
+    var themeMode by remember { mutableStateOf(repository.prefs.themeMode) }
     val glassTier = GlassCompat.tier(
         enabledByUser = glassBarOn,
         sdkInt = Build.VERSION.SDK_INT,
@@ -1091,6 +1094,14 @@ fun ShowCodeRoot() {
                             },
                             /* 开关显示的**就是**存下来的偏好：熔断那一档已经按家族的做法去掉了
                                （只取证不动作），所以不再有"开关写着开、其实没玻璃"这种状态。 */
+                            themeMode = themeMode,
+                            onThemeToggle = {
+                                if (!demo) {
+                                    ThemeController.toggle()
+                                    themeMode = ThemeController.mode
+                                    repository.prefs.themeMode = themeMode
+                                }
+                            },
                             glassBarOn = glassBarOn,
                             glassBarAvailable = Build.VERSION.SDK_INT >= GlassCompat.MIN_BACKDROP_SDK,
                             onGlassBarOn = { on ->

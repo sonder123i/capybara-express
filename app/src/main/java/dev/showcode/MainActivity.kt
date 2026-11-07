@@ -6,12 +6,13 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.LaunchedEffect
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.WindowCompat
 import dev.showcode.core.LaunchOutcome
 import dev.showcode.data.OfficialAppLauncher
 import dev.showcode.ui.ShowCodeRoot
-import dev.showcode.ui.theme.ShowCodePaletteState
+import dev.showcode.ui.theme.ThemeController
 import dev.showcode.ui.theme.ShowCodeTheme
 import dev.showcode.ui.theme.StartupLogoAnimation
 import dev.showcode.widget.WidgetNav
@@ -31,18 +32,27 @@ class MainActivity : ComponentActivity() {
         // 直接塞给 StateFlow 的话 routeOf 是 null，App 会安静地停在首页。
         WidgetNav.request.value = WidgetNav.intakeOf(intent)
         /* 在 setContent 之前把主题快照定下来：否则暗色首帧会先按亮色画一遍，
-           正是「换主题闪一下」的来源。 */
-        val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+           正是「换主题闪一下」的来源。
+           来源是「用户偏好」而不是系统——用户在设置里固定亮/暗时，系统怎么变都不该跟。 */
+        val systemNight = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
-        ShowCodePaletteState.applyDark(night)
+        ThemeController.install(
+            mode = (application as ShowCodeApp).repository.prefs.themeMode,
+            systemDark = systemNight,
+        )
         setContent {
-            ShowCodeTheme(darkTheme = night) { ShowCodeRoot() }
-        }
-        /* 系统栏图标颜色跟着主题走：暗色下还留深灰图标，时间/电池会消失在深底里。
-           跟系统明暗走，所以只在这里按当前 night 定一次；切换明暗会重建 Activity。 */
-        WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = !night
-            isAppearanceLightNavigationBars = !night
+            ShowCodeTheme(darkTheme = ThemeController.isDark) {
+                /* 系统栏图标跟着**实际**明暗走，而不是跟系统：用户在亮底上强制暗色时，
+                   状态栏图标也必须变白。所以它挂在主题里面，主题一变就跟着变。 */
+                val dark = ThemeController.isDark
+                LaunchedEffect(dark) {
+                    WindowCompat.getInsetsController(window, window.decorView).apply {
+                        isAppearanceLightStatusBars = !dark
+                        isAppearanceLightNavigationBars = !dark
+                    }
+                }
+                ShowCodeRoot()
+            }
         }
     }
 

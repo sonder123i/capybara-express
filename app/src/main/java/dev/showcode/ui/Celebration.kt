@@ -37,7 +37,9 @@ fun ConfettiBurst(
     val reduced = rememberReducedMotion()
     if (reduced) return
 
-    val colors = remember { listOf(UrgencySafe, Accent, UrgencyDueSoon, Ink) }
+    /* 颜色**不能** remember：主题一换，纸屑还留着上一套的墨色和绿。
+       这几条是 getter，每次重组都读当前色板。 */
+    val colors = listOf(UrgencySafe, Accent, UrgencyDueSoon, Ink)
     val specs = remember(trigger) {
         val random = Random(trigger.hashCode().toLong())
         List(count) {

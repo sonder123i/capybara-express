@@ -77,9 +77,11 @@ import dev.showcode.ui.inbox.ScreenTopBar
 import dev.showcode.ui.theme.AccentInk
 import dev.showcode.ui.theme.Hairline
 import dev.showcode.ui.theme.Ink
-import dev.showcode.ui.theme.InkDisabled
 import dev.showcode.ui.theme.InkMuted
 import dev.showcode.ui.theme.InkSecondary
+import dev.showcode.ui.theme.InkDisabled
+import dev.showcode.ui.theme.ShowCodePaletteState
+import dev.showcode.ui.theme.ThemeToggle
 import dev.showcode.ui.theme.environmentBackground
 import dev.showcode.ui.theme.ShowCodeShapes
 import dev.showcode.ui.theme.ShowCodeText
@@ -138,6 +140,9 @@ fun SettingsScreen(
     onRequestSms: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
     onOpenAppDetails: () -> Unit,
+    /** 外观模式（跟随系统 / 亮 / 暗）。开关是二元的，三档偏好留给以后。 */
+    themeMode: dev.showcode.core.ThemeMode = dev.showcode.core.ThemeMode.SYSTEM,
+    onThemeToggle: () -> Unit = {},
     /** 底栏玻璃效果的开关。 */
     glassBarOn: Boolean,
     /** 这台设备的平台能不能出模糊（API 31+）。不能就当场说清楚，别让那颗开关看起来是坏的。 */
@@ -492,6 +497,46 @@ fun SettingsScreen(
             /* 开关一直显示，和上面那条提醒同一个理由：想关掉它的人必须找得到。
                但「开着却没有玻璃」要当场说明白——那不是开关坏了，是这台设备、
                或者上一次崩溃留下的结论（GlassRuntimeGuard）。 */
+            /* 亮暗开关排在外观第一格：它是这一屏唯一「一眼看得出效果」的设置。 */
+            item {
+                Box(modifier = Modifier.moduleEntrance(3)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .settingsCard()
+                            .border(1.dp, Hairline, ShowCodeShapes.Md)
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.settings_theme),
+                                style = ShowCodeText.Body,
+                                color = Ink,
+                            )
+                            Text(
+                                text = stringResource(
+                                    when (themeMode) {
+                                        dev.showcode.core.ThemeMode.SYSTEM ->
+                                            R.string.settings_theme_system
+                                        dev.showcode.core.ThemeMode.LIGHT ->
+                                            R.string.settings_theme_light
+                                        dev.showcode.core.ThemeMode.DARK ->
+                                            R.string.settings_theme_dark
+                                    }
+                                ),
+                                style = ShowCodeText.Caption,
+                                color = InkMuted,
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        ThemeToggle(
+                            dark = ShowCodePaletteState.isDark,
+                            onToggle = onThemeToggle,
+                        )
+                    }
+                }
+            }
             item {
                 Box(modifier = Modifier.moduleEntrance(3)) {
                     Column(

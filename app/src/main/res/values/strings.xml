@@ -522,6 +522,10 @@
     <string name="login_save_retry">重试保存</string>
     <string name="login_switch_account">换个账号</string>
     <string name="settings_appearance_section">外观</string>
+    <string name="settings_theme">亮暗模式</string>
+    <string name="settings_theme_system">跟随系统</string>
+    <string name="settings_theme_light">固定亮色</string>
+    <string name="settings_theme_dark">固定暗色</string>
     <string name="settings_glass">底栏玻璃效果</string>
     <string name="settings_glass_needs_os">系统低于 Android 12，只能用不透明底栏。</string>
     <string name="settings_privacy_note">数据只存在这台手机上，不联网、不上传。</string>

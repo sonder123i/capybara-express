@@ -94,6 +94,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_REMINDER_ASKED, false)
         set(value) = sp.edit().putBoolean(KEY_REMINDER_ASKED, value).apply()
 
+    /** 外观模式：跟系统 / 固定亮 / 固定暗。默认跟系统。 */
+    var themeMode: dev.showcode.core.ThemeMode
+        get() = dev.showcode.core.ThemeMode.of(sp.getString(KEY_THEME_MODE, null))
+        set(value) = sp.edit().putString(KEY_THEME_MODE, value.key).apply()
+
     /**
      * 底栏要不要玻璃。默认开——但「开」离「真的有玻璃」还差一件：平台能力（API 31+，blur 要
      * RenderEffect）。见 `ui/glass/GlassCompat` 那条梯子。
@@ -140,6 +145,7 @@ class Prefs(context: Context) {
         private const val KEY_REMINDER_ON = "pickup_reminder_on"
         private const val KEY_REMINDED_DAY = "pickup_reminded_day"
         private const val KEY_REMINDER_ASKED = "pickup_reminder_asked"
+        private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_GLASS_BAR_ON = "glass_bar_on"
         private const val KEY_GLASS_SESSION_USED = "glass_session_used"
         private const val KEY_LAST_TRANSIENT_FAILURE = "last_transient_failure_at"
