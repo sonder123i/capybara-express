@@ -141,16 +141,21 @@ private val NightBand2 = Color(0xFF2D333D)
 private val NightBand3 = Color(0xFF3E4250)
 private val NightBand4 = Color(0xFF4C505C)
 private val Star = Color(0xFFFFFFFF)
-/* 太阳的三个色阶：亮面 / 本色 / 暗面。幅度 ±6%，哑光球的分寸。 */
-private val SunLit = Color(0xFFF9D451)
+/* 太阳的三个色阶：亮面 / 本色 / 暗面。
+   参考图的太阳几乎是平色 #F1C428（逐像素量过，整片球面没有明暗变化），
+   所以这里只留一点点体积感：亮面比本色浅 6%、暗面深 6%。
+   再深就变成塑料球了。
+   ⚠️ 两轮踩过的坑：暗面压到 #C99910 时整颗球都被拉暗（径向渐变里暗面
+   覆盖球的一大半）；线性渐变则把球切成平行色带，像一张饼。 */
+private val SunLit = Color(0xFFF9D13A)
 private val SunFace = Color(0xFFF1C428)
-private val SunShade = Color(0xFFDDAE1C)
+private val SunShade = Color(0xFFE5B722)
 /* 月亮的三个色阶，取参考图实测的 #C3C9D1 做中间值。
    ⚠️ 曾经把中间值提到 #D6DBE4，渲染成 216——在深色槽里跳成一块「白饼」。
    立体感靠**球内**的斜向渐变和边缘压暗，不靠提亮。 */
-private val MoonLit = Color(0xFFCFD5DF)
+private val MoonLit = Color(0xFFC9CFDA)
 private val MoonFace = Color(0xFFC3C9D3)
-private val MoonShade = Color(0xFFAEB6C4)
+private val MoonShade = Color(0xFFB9C0CC)
 private val CraterInk = Color(0xFF949DB0)
 
 /**
@@ -448,39 +453,31 @@ private fun DrawScope.drawThumb(progress: Float) {
      * 球和槽的层次已经由**槽本身**承担（上缘压暗 + 内高光），
      * 球只需要是一块干净的实心色。 */
 
-    /* 太阳：**球内**一层斜向渐变 + 一圈极淡的边缘压暗。
+    /* 太阳：**球内**一层偏心径向渐变。
      *
-     * 参考图的太阳其实是一块平色 `#F1C428`（逐像素量过，整片球面没有明暗变化），
-     * 但平色在 28dp 上读起来像贴纸。立体感全部做在**球内**：
-     * - 主渐变：光从左上来，右上略亮、左下略深，幅度只有 ±6%，
-     *   再多就变成塑料球；
-     * - 边缘压暗：贴着球缘一圈 8% 的黑，模拟球面朝外弯下去，
-     *   这是「球」和「圆片」的差别所在。
+     * ⚠️ 这里踩过一个大坑：先用的是 `linearGradient`（左上亮、右下暗）。
+     * 线性渐变横切一个圆，出来的是**平行的色带**，球面读成一张摊开的饼。
+     * 球的立体感只能来自**径向**渐变——亮度从一个偏心的高光点向外衰减，
+     * 才有「面朝光、背面暗」的弧。
+     *
+     * 参数：高光点偏到左上（-0.34r, -0.36r），半径 1.15r（比球略大，
+     * 让最暗处落在球缘之外，球缘因此不是最黑的），
+     * 亮度从亮面走到本色再走到暗面，全程只差 ±7%——哑光球，不是玻璃球。
      *
      * 三条铁律（前几轮显脏全是违反它们）：
      * ① 一切渐变都在 `clipPath(球)` 里，绝不出球；
      * ② 不画投影、不画外发光——那会在球外留一圈灰；
-     * ③ 幅度小：球是哑光的，不是玻璃球。 */
+     * ③ 幅度小。
+     */
+    val hi = Offset(c.x - r * 0.34f, c.y - r * 0.36f)
     clipPath(Path().apply { addOval(Rect(center = c, radius = r)) }) {
         drawCircle(
-            brush = Brush.linearGradient(
-                0f to SunLit,
-                0.55f to SunFace,
-                1f to SunShade,
-                start = Offset(c.x - r * 0.72f, c.y - r * 0.78f),
-                end = Offset(c.x + r * 0.68f, c.y + r * 0.82f),
-            ),
-            radius = r,
-            center = c,
-        )
-        /* 边缘压暗：径向渐变只在外圈 22% 里从透明走到 8% 黑。 */
-        drawCircle(
             brush = Brush.radialGradient(
-                0f to Color.Transparent,
-                0.78f to Color.Transparent,
-                1f to Color.Black.copy(alpha = 0.10f),
-                center = c,
-                radius = r,
+                0.00f to SunLit,
+                0.34f to SunFace,
+                1.00f to SunShade,
+                center = hi,
+                radius = r * 1.10f,
             ),
             radius = r,
             center = c,
@@ -498,25 +495,15 @@ private fun DrawScope.drawThumb(progress: Float) {
         }
         clipPath(moonMask) {
             /* 多画 1px：遮罩边缘抗锯齿会漏出底下那道黄，缩在 r 上会留一圈金边。 */
-            drawCircle(
-                brush = Brush.linearGradient(
-                    0f to MoonLit,
-                    0.55f to MoonFace,
-                    1f to MoonShade,
-                    start = Offset(c.x - r * 0.70f, c.y - r * 0.78f),
-                    end = Offset(c.x + r * 0.66f, c.y + r * 0.84f),
-                ),
-                radius = r + 1f,
-                center = c,
-            )
-            /* 边缘压暗：和太阳同一套，让月亮也「弯下去」而不是一张圆片。 */
+            /* 和太阳同一套：偏心径向渐变，光从左上打过来。
+               线性渐变在这里同样会把球压成一张饼。 */
             drawCircle(
                 brush = Brush.radialGradient(
-                    0f to Color.Transparent,
-                    0.80f to Color.Transparent,
-                    1f to Color.Black.copy(alpha = 0.09f),
-                    center = c,
-                    radius = r,
+                    0.00f to MoonLit,
+                    0.36f to MoonFace,
+                    1.00f to MoonShade,
+                    center = Offset(c.x - r * 0.30f, c.y - r * 0.32f),
+                    radius = r * 1.08f,
                 ),
                 radius = r + 1f,
                 center = c,
