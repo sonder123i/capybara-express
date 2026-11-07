@@ -8,18 +8,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import dev.showcode.R
-import dev.showcode.ui.parcels.ThumbnailLoader
 import dev.showcode.ui.theme.InkFaint
 import dev.showcode.ui.theme.ShowCodeShapes
 import dev.showcode.ui.theme.ShowCodeText
@@ -37,6 +40,7 @@ fun GoodsThumbnail(
     size: Dp,
     modifier: Modifier = Modifier,
 ) {
+    var failed by remember(url) { mutableStateOf(false) }
     /* 演示模式专用：`demo:` 指向打包进 APK 的本地图，同步取图、零加载态，
        录制时任何一帧都不会出现「无图」或闪一下灰底。 */
     demoDrawableOf(url)?.let { res ->
@@ -56,10 +60,9 @@ fun GoodsThumbnail(
         }
         return
     }
-    val state by produceState<ThumbState>(initialValue = ThumbState.Loading, key1 = url) {
-        val bitmap = ThumbnailLoader.load(url)
-        value = if (bitmap != null) ThumbState.Ready(bitmap) else ThumbState.Failed
-    }
+    /* 交给 Coil 管：它自带内存 + 磁盘两级缓存、同一 URL 的请求去重、
+       以及「滚出屏幕就取消」。这三件事自写的 ThumbnailLoader 都没做——
+       同一张图每次冷启动都要重下，列表快滚时旧请求还在跑。 */
     Box(
         modifier = modifier
             .size(size)
@@ -67,15 +70,21 @@ fun GoodsThumbnail(
             .background(SurfaceInset),
         contentAlignment = Alignment.Center,
     ) {
-        when (val current = state) {
-            is ThumbState.Ready -> Image(
-                bitmap = current.bitmap.asImageBitmap(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-            ThumbState.Loading -> Unit
-            ThumbState.Failed -> Text(
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(url)
+                .build(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+            /* 失败时不画破图标——破图标会让人以为是加载坏了。占位文字单独挂一层，
+               所以这里只记状态、不画东西。 */
+            onState = { state ->
+                failed = state is coil3.compose.AsyncImagePainter.State.Error
+            },
+        )
+        if (failed) {
+            Text(
                 text = stringResource(R.string.goods_no_image),
                 style = ShowCodeText.Caption,
                 color = InkFaint,
@@ -94,10 +103,4 @@ private fun demoDrawableOf(url: String): Int? = when (url) {
     "demo:snack" -> R.drawable.demo_goods_snack
     "demo:shampoo" -> R.drawable.demo_goods_shampoo
     else -> null
-}
-
-private sealed interface ThumbState {
-    data object Loading : ThumbState
-    data object Failed : ThumbState
-    data class Ready(val bitmap: android.graphics.Bitmap) : ThumbState
 }

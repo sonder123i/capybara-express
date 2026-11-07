@@ -41,11 +41,24 @@ jobs:
       - name: 库结构与迁移棘轮
         run: python3 tools/migration-check.py --ci
 
+      # 截图回归：visual-audit 只查得动**代码**，查不动**画面**。
+      # 大字号下底栏标签被裁那种问题，只有截图能抓到。
+      # verify 与 record 的区别是：前者发现差异就红，后者会把基准图改成当前画面——
+      # CI 里只能用 verify，否则「测出问题」和「接受问题」变成同一个动作。
+      - name: 截图回归
+        # 截图测试就在 testDebugUnitTest 里，默认走 verify 模式
+        # （见 app/build.gradle.kts 的 roborazzi.test.verify）。
+        # 上面那条「单元测试与调试包」已经跑过它了；这里显式再列一次是为了
+        # 让失败原因在 CI 日志里能一眼认出是哪一类回归。
+        run: ./gradlew --no-daemon :app:testDebugUnitTest --tests "dev.showcode.ui.theme.ScreenshotRegressionTest"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-reports
-          path: app/build/reports/tests/**
+          path: |
+            app/build/reports/tests/**
+            app/build/outputs/roborazzi/**
           retention-days: 14
 
   release:

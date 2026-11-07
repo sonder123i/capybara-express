@@ -37,3 +37,6 @@ docs/screenshots/ref-nav-motion.*
 # 本机签名产物 / 发布附件
 /SHA256SUMS.txt
 showcode-*.apk
+
+# 截图回归的中间产物；基准图在 app/src/test/screenshots/ 里，要进版本库。
+app/build/outputs/roborazzi/

@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("io.github.takahirom.roborazzi") version "1.77.0"
 }
 
 /* 签名材料两条来源：环境变量（CI 用），或仓库外的一个 keystore.properties（本机用）。
@@ -34,6 +35,39 @@ android {
         versionCode = 4
         versionName = "0.3.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    /* Roborazzi 需要 JVM 上的 Android 资源与 Compose 运行时（Robolectric 提供）。
+       `unitTests.isIncludeAndroidResources` 必须开：不开的话截图里没有字体、
+       没有主题色，测出来的是空白色块。 */
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all {
+                it.systemProperty("robolectric.graphicsMode", "NATIVE")
+                /* Roborazzi 的行为由这两个开关决定，**必须显式写**：
+                   - record：把当前画面写成基准图；
+                   - verify：和基准图逐像素比，有差异就红。
+                   不写的话 `verifyRoborazziDebug` 只是「跑一遍测试」，
+                   截图有差异也不会失败——那这条回归就形同虚设（实测过）。 */
+                /* 默认 **verify**：本地跑单测时也希望「画面变了就红」。
+                   要更新基准图时显式传 -Proborazzi.record=true，
+                   也就是 `./gradlew :app:testDebugUnitTest -Proborazzi.record=true`。 */
+                val recording = (project.findProperty("roborazzi.record") as String?) == "true"
+                it.systemProperty("roborazzi.test.record", recording.toString())
+                it.systemProperty("roborazzi.test.verify", (!recording).toString())
+                /* 基准图放仓库里（`app/src/test/screenshots`）而不是 build/：
+                   build/ 会被清掉、也不进版本库，CI 上没有可比的对象。
+                   这一条是截图回归能不能成立的关键。 */
+                /* ⚠️ 必须是**绝对路径**，而且不能靠 file() 的相对解析：
+                   它相对的是模块目录，`file("../app/...")` 会绕回同一个地方。
+                   实测落到了 `app/` 根下，基准图就散在工作区里。 */
+                it.systemProperty(
+                    "roborazzi.output.dir",
+                    project.projectDir.resolve("src/test/screenshots").absolutePath,
+                )
+            }
+        }
     }
 
     signingConfigs {
@@ -86,6 +120,13 @@ dependencies {
     /* 形状变形：底栏指示胶囊在滑动中从「胶囊」连续变形到「略鼓的胶囊」，
        顶点一一对应，不是两个形状交叉淡入。Google 官方库，Apache 2.0。 */
     implementation("androidx.graphics:graphics-shapes:1.1.0")
+    /* 商品缩略图。替掉自写的 ThumbnailLoader——那个只有内存缓存，
+       没有磁盘缓存、没有请求去重、没有取消。
+       ⚠️ 版本钉在 3.3.0：3.6.x 的 kotlin-stdlib 是 2.4.10，而本工程 Kotlin 是 2.2.10，
+       升上去会报「Module was compiled with an incompatible version of Kotlin」。
+       要升 Coil 必须先升 Kotlin。 */
+    implementation("io.coil-kt.coil3:coil-compose:3.3.0")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.activity:activity-compose:1.13.0")
@@ -107,4 +148,13 @@ dependencies {
     /* JVM 单测里的 android.jar 只是空桩（org.json 一调就抛「not mocked」）。
        更新检查要解析 Release JSON，单测必须拿真实现。 */
     testImplementation("org.json:json:20240303")
+
+    /* 截图回归：JVM 上跑 Compose 截图，不用模拟器。
+       存在的理由：visual-audit 只查得动**代码**（裸字号、裸圆角、透明度），
+       查不动**画面**——大字号下底栏被裁那种问题，只有截图能抓到。 */
+    testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.77.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.77.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

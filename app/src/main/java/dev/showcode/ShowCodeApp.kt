@@ -9,10 +9,24 @@ import dev.showcode.data.ShowCodeDb
 import dev.showcode.ui.glass.GlassRuntimeGuard
 import dev.showcode.widget.PickupWidgetProvider
 
-class ShowCodeApp : Application() {
+class ShowCodeApp : Application(), coil3.SingletonImageLoader.Factory {
 
     lateinit var repository: ParcelRepository
         private set
+
+    /**
+     * Coil 的全局配置。用 `SingletonImageLoader.Factory` 而不是每次请求传 ImageLoader：
+     * 单例才能共享磁盘缓存——每个请求各建一个的话，磁盘缓存等于没有。
+     *
+     * 磁盘缓存**开着**（默认 2% 可用空间，上限 250MB）：商品图同一件货会反复看到，
+     * 而自写的 ThumbnailLoader 只有内存缓存，冷启动后全部要重下。
+     */
+    override fun newImageLoader(context: android.content.Context): coil3.ImageLoader =
+        coil3.ImageLoader.Builder(context)
+            .components {
+                add(coil3.network.okhttp.OkHttpNetworkFetcherFactory())
+            }
+            .build()
 
     override fun onCreate() {
         super.onCreate()
