@@ -41,12 +41,34 @@ data class ScreenMetrics(
     val squeeze: Float,
     /** 横向紧凑度。宽 411 → 0，360 → 0.5。 */
     val narrow: Float,
+    /**
+     * 用户字号缩放（系统设置里的「字体大小」）。1 = 标准，最大 2.0。
+     *
+     * 为什么需要：上面的两个系数只管**屏幕尺寸**，管不了**字号**。
+     * 把系统字号调到 1.5×/2× 之后，底栏标签要更高的行高，而轨道高度还是 56dp——
+     * 标签被裁掉一截、文字从底栏里溢出去压住页面内容。
+     * 那不是「不好看」，是这一档用户根本读不全。
+     */
+    val fontScale: Float,
 ) {
     /** 按纵向紧凑度插值。[loose] 是 20:9 的尺寸，短屏收到 [tight]。 */
     fun tall(loose: Dp, tight: Dp): Dp = lerpDp(loose, tight, squeeze)
 
     /** 按横向紧凑度插值。 */
     fun wide(loose: Dp, tight: Dp): Dp = lerpDp(loose, tight, narrow)
+
+    /**
+     * 含字号的纵向尺寸：先按屏幕插值，再按字号放大。
+     *
+     * 只放大**超出 1.0 的那部分**，而且打折到 [textGrowth]——
+     * 字阶放大 1.5× 时容器不需要也长 1.5×（内边距不该跟着涨），
+     * 0.6 是让 2× 字号下标签仍有两行余量的最低值。
+     */
+    fun tallWithText(loose: Dp, tight: Dp, textGrowth: Float = 0.6f): Dp {
+        val base = lerpDp(loose, tight, squeeze)
+        val extra = (fontScale - 1f).coerceAtLeast(0f) * textGrowth
+        return base * (1f + extra)
+    }
 }
 
 private fun lerpDp(loose: Dp, tight: Dp, t: Float): Dp = loose + (tight - loose) * t
@@ -64,13 +86,17 @@ fun rememberScreenMetrics(): ScreenMetrics {
             WindowInsets.navigationBars.getBottom(density)
         ) / density.density
     val usableDp = windowHeightDp - barsDp
-    return remember(windowWidthDp, usableDp) {
+    /* 系统字号。`LocalDensity.fontScale` 会跟着「字体大小」设置变，
+       而 `density` 本身不会——所以必须单独读它。 */
+    val fontScale = density.fontScale
+    return remember(windowWidthDp, usableDp, fontScale) {
         ScreenMetrics(
             widthDp = windowWidthDp.dp,
             heightDp = windowHeightDp.dp,
             usableHeightDp = usableDp.dp,
             squeeze = ((SqueezeCeilDp - usableDp) / SqueezeRangeDp).coerceIn(0f, 1f),
             narrow = ((NarrowCeilDp - windowWidthDp) / NarrowRangeDp).coerceIn(0f, 1f),
+            fontScale = fontScale,
         )
     }
 }

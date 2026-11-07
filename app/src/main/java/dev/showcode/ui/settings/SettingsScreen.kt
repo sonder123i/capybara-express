@@ -806,8 +806,13 @@ private fun StepRow(
     onSelect: (Int) -> Unit,
 ) {
     val index = options.indexOf(current).coerceAtLeast(0)
+    /* ⚠️ 高度不写死 48dp、标题不写死 maxLines = 1：
+       字号调到 1.5×/2× 之后，「丰巢柜·剩余免费」这种七字标题在一行里放不下，
+       硬截断会变成「丰巢柜·剩…」——那正是用户看不懂设置项的场合。
+       现在最小高度仍是 48dp（触控标准不变），但可以长高；
+       标题最多两行，再长才省略。 */
     Row(
-        modifier = Modifier.fillMaxWidth().height(48.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -815,7 +820,7 @@ private fun StepRow(
             modifier = Modifier.weight(1f),
             style = ShowCodeText.Action,
             color = InkMuted,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         StepButton(

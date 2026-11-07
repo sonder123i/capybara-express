@@ -158,7 +158,9 @@ fun navBarClearance(): Dp {
     val metrics = rememberScreenMetrics()
     // 永远按较高的折射外观档算：净空宁多勿少。教务的教训是两者脱钩过一次、末项被底栏压住；
     // 反方向（多 8dp 底距）没有任何可见代价。
-    return metrics.tall(NAV_TRACK_HEIGHT_LENS, NAV_TRACK_HEIGHT_LENS_TIGHT) +
+    /* 必须和轨道用同一个函数算：脱钩过一次，末项就被底栏压住。
+       字号放大时轨道变高，净空也要跟着变，否则最后一张卡又被挡住。 */
+    return metrics.tallWithText(NAV_TRACK_HEIGHT_LENS, NAV_TRACK_HEIGHT_LENS_TIGHT) +
         metrics.tall(NAV_BLOCK_PADDING, NAV_BLOCK_PADDING_TIGHT) +
         NAV_BAR_CARD_GAP
 }
@@ -190,11 +192,14 @@ fun ShowCodeNavBar(
     val lensLook = GlassCompat.lensLook(tier, Build.VERSION.SDK_INT)
     val glassBackdrop = backdrop?.takeIf { tier == GlassTier.BACKDROP }
 
-    val trackHeight = metrics.tall(
+    /* 轨道与胶囊高度跟着**字号**一起长（`tallWithText`），不只是屏幕尺寸。
+       字号调到 1.5×/2× 时，标签行高从 16sp 涨到 24/32sp，56dp 的轨道装不下——
+       标签会被裁掉、文字溢出压住页面。这不是审美问题，是这一档用户读不全。 */
+    val trackHeight = metrics.tallWithText(
         if (lensLook) NAV_TRACK_HEIGHT_LENS else NAV_TRACK_HEIGHT,
         if (lensLook) NAV_TRACK_HEIGHT_LENS_TIGHT else NAV_TRACK_HEIGHT_TIGHT,
     )
-    val indicatorHeight = metrics.tall(NAV_INDICATOR_HEIGHT, NAV_INDICATOR_HEIGHT_TIGHT)
+    val indicatorHeight = metrics.tallWithText(NAV_INDICATOR_HEIGHT, NAV_INDICATOR_HEIGHT_TIGHT)
     val blockPadding = metrics.tall(NAV_BLOCK_PADDING, NAV_BLOCK_PADDING_TIGHT)
     val horizontalPadding = metrics.wide(NAV_HORIZONTAL_PADDING, NAV_HORIZONTAL_PADDING_TIGHT)
     val barPadding = if (lensLook) NAV_BAR_PADDING else NAV_BAR_PADDING_LEGACY
