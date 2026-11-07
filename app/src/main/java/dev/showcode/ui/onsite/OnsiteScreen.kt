@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
@@ -36,7 +37,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -71,6 +77,7 @@ import dev.showcode.core.Urgency
 import dev.showcode.core.countdownOf
 import dev.showcode.core.staleDaysOf
 import dev.showcode.core.urgencyOf
+import dev.showcode.ui.ConfettiBurst
 import dev.showcode.ui.copyCode
 import dev.showcode.ui.performTrackingLookup
 import dev.showcode.ui.pointIconOf
@@ -82,6 +89,8 @@ import dev.showcode.ui.theme.AccentInk
 import dev.showcode.ui.theme.Hairline
 import dev.showcode.ui.theme.Ink
 import dev.showcode.ui.theme.InkFaint
+import dev.showcode.ui.theme.MotionDuration
+import dev.showcode.ui.theme.MotionEasing
 import dev.showcode.ui.theme.MotionProfile
 import dev.showcode.ui.theme.InkMuted
 import dev.showcode.ui.theme.InkSecondary
@@ -96,6 +105,8 @@ import dev.showcode.ui.theme.UrgencyDueSoon
 import dev.showcode.ui.theme.UrgencyDueSoonTint
 import dev.showcode.ui.theme.environmentBackground
 import dev.showcode.ui.theme.UrgencySafe
+import dev.showcode.ui.theme.UrgencySafeTint
+import dev.showcode.ui.theme.rememberReducedMotion
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 
@@ -540,50 +551,56 @@ private fun OnsiteEmpty(
     undo: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        FinishedMark(allPicked = allPickedHere)
-        Spacer(Modifier.height(16.dp))
-        Text(
-            text = stringResource(
-                if (allPickedHere) R.string.onsite_all_done_title else R.string.onsite_empty_title
-            ),
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold,
-            color = OnsiteInk,
-            textAlign = TextAlign.Center,
-        )
-        if (lastPickupAt != null) {
-            Spacer(Modifier.height(8.dp))
+    val reduced = rememberReducedMotion()
+    /* 收工卡整块淡入 + 上浮 10dp：它是「这一趟结束了」的一次入场，不是常驻布局。 */
+    val enter = remember { Animatable(if (reduced) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        if (!reduced) enter.animateTo(1f, tween(MotionDuration.Slow, easing = MotionEasing.FastOutSlowIn))
+    }
+    Box(modifier = modifier.fillMaxWidth()) {
+        if (allPickedHere) {
+            ConfettiBurst(trigger = "point-finished", modifier = Modifier.matchParentSize())
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = enter.value
+                    translationY = (1f - enter.value) * 10.dp.toPx()
+                }
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            FinishedMark(allPicked = allPickedHere)
+            Spacer(Modifier.height(16.dp))
             Text(
-                text = stringResource(R.string.onsite_empty_anchor, relativeTimeText(lastPickupAt, now)),
-                fontSize = 14.sp,
-                color = InkMuted,
+                text = stringResource(
+                    if (allPickedHere) R.string.onsite_all_done_title else R.string.onsite_empty_title
+                ),
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Bold,
+                color = OnsiteInk,
                 textAlign = TextAlign.Center,
             )
-        }
+            if (lastPickupAt != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = stringResource(R.string.onsite_empty_anchor, relativeTimeText(lastPickupAt, now)),
+                    fontSize = 14.sp,
+                    color = InkMuted,
+                    textAlign = TextAlign.Center,
+                )
+            }
 
-        if (allPickedHere && !isDemo && nextStop != null) {
-            Spacer(Modifier.height(26.dp))
-            NextStopCard(
-                nextStop = nextStop,
-                now = now,
-                onClick = { onOpenNextPoint(nextStop) },
-            )
-            Spacer(Modifier.height(16.dp))
-            OnsiteWideButton(
-                text = stringResource(R.string.onsite_next_go),
-                onClick = { onOpenNextPoint(nextStop) },
-            )
-            Spacer(Modifier.height(4.dp))
-            OnsiteTextButton(text = stringResource(R.string.onsite_back_home), onClick = onBack)
-        } else {
-            if (allPickedHere) {
+            if (allPickedHere && !isDemo && nextStop != null) {
+                Spacer(Modifier.height(26.dp))
+                NextStopCard(
+                    nextStop = nextStop,
+                    now = now,
+                    onClick = { onOpenNextPoint(nextStop) },
+                )
+            } else if (allPickedHere) {
                 Spacer(Modifier.height(10.dp))
                 Text(
                     text = stringResource(R.string.onsite_next_none),
@@ -592,18 +609,27 @@ private fun OnsiteEmpty(
                     textAlign = TextAlign.Center,
                 )
             }
-            Spacer(Modifier.height(24.dp))
-            OnsiteWideButton(text = stringResource(R.string.onsite_back_home), onClick = onBack)
-        }
 
-        /* 撤销条固定占一格高度：3 秒后它消失时，上面的按钮不该往上跳。 */
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(64.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            undo?.invoke()
+            /* 成功带固定在按钮上方占一格：3 秒后它消失时，下面的按钮不该往上跳。 */
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                undo?.invoke()
+            }
+
+            if (allPickedHere && !isDemo && nextStop != null) {
+                OnsiteWideButton(
+                    text = stringResource(R.string.onsite_next_go),
+                    onClick = { onOpenNextPoint(nextStop) },
+                )
+                Spacer(Modifier.height(4.dp))
+                OnsiteTextButton(text = stringResource(R.string.onsite_back_home), onClick = onBack)
+            } else {
+                OnsiteWideButton(text = stringResource(R.string.onsite_back_home), onClick = onBack)
+            }
         }
     }
 }
@@ -615,8 +641,18 @@ private fun OnsiteEmpty(
 @Composable
 private fun FinishedMark(allPicked: Boolean) {
     val scale = remember { Animatable(0.86f) }
+    val badge = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         scale.animateTo(1f, MotionProfile.iconSpring())
+    }
+    LaunchedEffect(allPicked) {
+        if (allPicked) {
+            /* 勾晚半拍落下来：先看见卡皮，再看见「成了」。 */
+            delay(120)
+            badge.animateTo(1f, MotionProfile.iconSpring())
+        } else {
+            badge.snapTo(0f)
+        }
     }
     Box(modifier = Modifier.graphicsLayer { scaleX = scale.value; scaleY = scale.value }) {
         Image(
@@ -629,6 +665,7 @@ private fun FinishedMark(allPicked: Boolean) {
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .size(28.dp)
+                    .graphicsLayer { scaleX = badge.value; scaleY = badge.value }
                     .background(UrgencySafe, CircleShape)
                     .border(2.dp, OnsiteSurface, CircleShape),
                 contentAlignment = Alignment.Center,
@@ -727,42 +764,63 @@ private fun OnsiteTextButton(text: String, onClick: () -> Unit) {
  * loading-submit 红线：点「已取」后立即有视觉反馈，不等任何异步。
  * 现场用户马上要放下手机去拿包裹，任何 spinner 都是失败。
  * 位置在「已取」按钮之上而不是盖住它——3 秒里挡住按钮，用户就没法连着取下一件。
+ *
+ * 多邻国那种「答对就有一条浅绿带从下面滑上来」的形状：绿底 + 勾 + 一句短话，
+ * 撤销仍然是带下划线的文字。它只是把「你做成了」说出口，不抢下一件的操作。
  */
 @Composable
 private fun UndoBar(isDemo: Boolean, onUndo: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp)
-            .background(OnsiteInk, RoundedCornerShape(14.dp))
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    val appear = remember { MutableTransitionState(false).apply { targetState = true } }
+    AnimatedVisibility(
+        visibleState = appear,
+        enter = slideInVertically(
+            animationSpec = tween(MotionDuration.Medium, easing = MotionEasing.FastOutSlowIn),
+        ) { height -> height / 2 } + fadeIn(tween(MotionDuration.Fast)),
     ) {
-        Icon(
-            Icons.Filled.Check,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = OnsiteSurface,
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = stringResource(if (isDemo) R.string.onsite_demo_toast else R.string.onsite_marked_picked),
-            modifier = Modifier.weight(1f),
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = OnsiteSurface,
-        )
-        if (!isDemo) {
-            Text(
-                text = stringResource(R.string.onsite_undo),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp)
+                .background(UrgencySafeTint, RoundedCornerShape(14.dp))
+                .border(1.dp, UrgencySafe.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
                 modifier = Modifier
-                    .clickable(onClick = onUndo)
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .size(22.dp)
+                    .background(UrgencySafe, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = OnsiteSurface,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = stringResource(
+                    if (isDemo) R.string.onsite_demo_toast else R.string.onsite_marked_picked
+                ),
+                modifier = Modifier.weight(1f),
                 fontSize = 15.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = OnsiteSurface,
-                textDecoration = TextDecoration.Underline,
+                fontWeight = FontWeight.SemiBold,
+                color = Ink,
             )
+            if (!isDemo) {
+                Text(
+                    text = stringResource(R.string.onsite_undo),
+                    modifier = Modifier
+                        .clickable(onClick = onUndo)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Ink,
+                    textDecoration = TextDecoration.Underline,
+                )
+            }
         }
     }
 }
@@ -811,34 +869,55 @@ private fun PositionRow(index: Int, total: Int, showTilesEntry: Boolean, onOpenT
 }
 
 /** 「已取」：底部安全区之上、单手拇指可达、64dp 高（≥56dp 硬标准，手套 + 水屏容错）。
- *  按压微缩（0.97，全局按压语言的按钮层），落指一次轻触觉——黑底上灰罩看不见，形变就是反馈。 */
+ *  多邻国那种实体键：下面垫一条 4dp 的边，按下去时整颗键沉进去；落指一次轻触觉。 */
 @Composable
 private fun PickedButton(onClick: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.97f else 1f,
+        targetValue = if (pressed) 0.98f else 1f,
         animationSpec = MotionProfile.iconSpring(),
         label = "picked-press",
     )
-    Row(
+    val sink by animateFloatAsState(
+        targetValue = if (pressed) 3f else 0f,
+        animationSpec = MotionProfile.iconSpring(),
+        label = "picked-sink",
+    )
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 4.dp)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .height(64.dp)
-            .background(OnsiteInk, RoundedCornerShape(16.dp))
-            .clickable(interactionSource = interaction, indication = null) {
-                haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
-                onClick()
-            },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
+            .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
     ) {
-        Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(22.dp), tint = OnsiteSurface)
-        Spacer(Modifier.width(8.dp))
-        Text(text = stringResource(R.string.onsite_picked), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = OnsiteSurface)
+        /* 底边：按下时按钮沉进来，松手时弹回；这是「按到了实体键」的全部来源。 */
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .offset(y = 4.dp)
+                .background(InkMuted, RoundedCornerShape(16.dp)),
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp)
+                .graphicsLayer {
+                    translationY = sink.dp.toPx()
+                    scaleX = scale
+                    scaleY = scale
+                }
+                .background(OnsiteInk, RoundedCornerShape(16.dp))
+                .clickable(interactionSource = interaction, indication = null) {
+                    haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                    onClick()
+                },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(22.dp), tint = OnsiteSurface)
+            Spacer(Modifier.width(8.dp))
+            Text(text = stringResource(R.string.onsite_picked), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = OnsiteSurface)
+        }
     }
 }
 

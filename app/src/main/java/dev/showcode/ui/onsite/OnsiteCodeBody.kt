@@ -21,10 +21,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -32,7 +38,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -63,7 +71,9 @@ import dev.showcode.ui.theme.ShowCodeShapes
 import dev.showcode.ui.theme.ShowCodeText
 import dev.showcode.ui.theme.SurfaceCard
 import dev.showcode.ui.theme.TabularNumbers
+import dev.showcode.ui.theme.UrgencySafe
 import dev.showcode.ui.urgencyColor
+import kotlinx.coroutines.delay
 
 /**
  * 现场模式的核心渲染体。整个产品的灵魂就是这一块。
@@ -120,6 +130,21 @@ fun OnsiteCodeBody(
     val tracking = trackingLookupText(parcel)
     val hasLookupActions = parcel.codeKind == CodeKind.SUFFIX && tracking != null
 
+    /* 复制成功的那 1.2 秒：提示变成「已复制 ✓」，并给一次轻震。 */
+    var copied by remember(parcel.code) { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
+    fun copy() {
+        onCopyCode()
+        haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+        copied = true
+    }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(1_200)
+            copied = false
+        }
+    }
+
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         // vw 是视口宽度而不是内容宽度，所以必须在 padding 之前量。
         val viewportWidthDp = maxWidth.value
@@ -152,8 +177,8 @@ fun OnsiteCodeBody(
                 text = dimmedSeparators(parcel.code),
                 modifier = Modifier.pointerInput(parcel.code) {
                     detectTapGestures(
-                        onTap = { onCopyCode() },
-                        onLongPress = { onCopyCode() },
+                        onTap = { copy() },
+                        onLongPress = { copy() },
                     )
                 },
                 fontSize = codeSize,
@@ -167,7 +192,7 @@ fun OnsiteCodeBody(
             )
 
             Spacer(Modifier.height(4.dp))
-            CopyHint(chromeAlpha = chromeAlpha, onCopy = onCopyCode)
+            CopyHint(chromeAlpha = chromeAlpha, copied = copied, onCopy = ::copy)
 
             if (hasLocker) {
                 Spacer(Modifier.height(if (hasLookupActions) 12.dp else 18.dp))
@@ -303,7 +328,7 @@ private fun ParcelIdentityHeader(parcel: Parcel, onOpenDetail: (() -> Unit)?) {
 
 /** 复制不是长按里的秘密：码下面一行明说「轻触复制」，点提示也能复制。 */
 @Composable
-private fun CopyHint(chromeAlpha: Float, onCopy: () -> Unit) {
+private fun CopyHint(chromeAlpha: Float, copied: Boolean, onCopy: () -> Unit) {
     Row(
         modifier = Modifier
             .graphicsLayer { alpha = chromeAlpha }
@@ -312,16 +337,25 @@ private fun CopyHint(chromeAlpha: Float, onCopy: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_action_copy),
-            contentDescription = null,
-            modifier = Modifier.size(14.dp),
-            tint = InkFaint,
-        )
+        if (copied) {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = UrgencySafe,
+            )
+        } else {
+            Icon(
+                painter = painterResource(R.drawable.ic_action_copy),
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = InkFaint,
+            )
+        }
         Text(
-            text = stringResource(R.string.onsite_copy_hint),
+            text = if (copied) "已复制" else stringResource(R.string.onsite_copy_hint),
             fontSize = 12.sp,
-            color = InkFaint,
+            color = if (copied) UrgencySafe else InkFaint,
         )
     }
 }
