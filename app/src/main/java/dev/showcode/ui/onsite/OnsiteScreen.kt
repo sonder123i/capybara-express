@@ -971,8 +971,12 @@ private fun PickedButton(onClick: () -> Unit) {
                 tint = label,
             )
             Spacer(Modifier.width(8.dp))
+            /* 静止说动作（拿走了），变绿的那 220ms 才说结果（已拿走）——
+               淡灰底上的「已取」会被读成「已经取过了」，那是这颗键唯一会骗人的地方。 */
             Text(
-                text = stringResource(R.string.onsite_picked),
+                text = stringResource(
+                    if (p > 0.5f) R.string.onsite_picked_done else R.string.onsite_picked
+                ),
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 color = label,

@@ -69,7 +69,11 @@
     <!-- 现场模式 -->
     <string name="onsite_back">返回</string>
     <string name="onsite_position">第 %1$d/%2$d 件</string>
-    <string name="onsite_picked">已取</string>
+    <!-- 现场那颗大键。静止时是淡灰，所以文案不能写「已取」——那读起来像「已经取过了」，
+         而它其实是要按的动作。写成动作本身：拿走了。 -->
+    <string name="onsite_picked">拿走了</string>
+    <!-- 按下后那 220ms 的绿：这时它才说「完成了」。 -->
+    <string name="onsite_picked_done">已拿走</string>
     <string name="onsite_tiles_entry">平铺看全部</string>
     <string name="onsite_tiles_title">%1$s · 共 %2$d 件</string>
     <string name="onsite_copy_hint">轻触复制</string>
