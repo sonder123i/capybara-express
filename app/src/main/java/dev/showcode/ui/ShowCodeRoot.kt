@@ -10,6 +10,9 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.SharedTransitionLayout
+import dev.showcode.ui.theme.LocalSharedTransition
+import dev.showcode.ui.theme.SharedTransitionBridge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -174,6 +177,7 @@ private const val MERGE_UNDO_MS = 5_000L
  * 不引 navigation-compose：缓存里只有 2.7.7，与 Compose 1.12 不兼容，
  * 而这个规模的状态机比一张导航图更好读。
  */
+@OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 @Composable
 fun ShowCodeRoot() {
     val context = LocalContext.current
@@ -922,6 +926,10 @@ fun ShowCodeRoot() {
            AnimatedContent 的 key 取「层」而不是 route：主屏互切不换层，任何子屏才真正换层。 */
         val hierarchyEnterPx = with(scrollDensity) { MotionProfile.HierarchyEnterDp.dp.roundToPx() }
         val hierarchyBehindPx = with(scrollDensity) { MotionProfile.HierarchyBehindDp.dp.roundToPx() }
+        /* 共享元素转场（卡片商品图 → 详情页商品图）。
+           SharedTransitionLayout 必须包住**整棵会换屏的树**：共享元素的两端都要在它的
+           管辖范围内，少包一层，飞的那张图就会在到达时消失。 */
+        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
         AnimatedContent(
             modifier = Modifier
                 .fillMaxSize()
@@ -962,6 +970,13 @@ fun ShowCodeRoot() {
             },
             label = "route",
         ) { currentRoute ->
+            CompositionLocalProvider(
+                LocalSharedTransition provides SharedTransitionBridge(
+                    scope = this@SharedTransitionLayout,
+                    visibility = this@AnimatedContent,
+                    enabled = !reducedMotion,
+                ),
+            ) {
             if (currentRoute == null) {
                 NavigationPages(state = navMotion) { page ->
                     when (page) {
@@ -1483,6 +1498,7 @@ fun ShowCodeRoot() {
                     else -> Unit
                 }
             }
+            }
         }
 
         /* 三个主屏共用的底栏。子屏不画它：现场模式那一屏只该有那张码和那颗按钮，一排键摆在那儿
@@ -1522,6 +1538,7 @@ fun ShowCodeRoot() {
            它画的是切换**之前**截下来的那张图，所以必须压在所有内容之上——
            少盖一层，那一层就会提前变成新主题，扩散看上去像是漏了一块。 */
         ThemeRevealOverlay(modifier = Modifier.fillMaxSize())
+        }
     }
 
 }

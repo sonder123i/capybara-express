@@ -49,6 +49,7 @@ import dev.showcode.ui.stageLabel
 import dev.showcode.ui.theme.AccentInk
 import dev.showcode.ui.theme.Hairline
 import dev.showcode.ui.theme.Ink
+import dev.showcode.ui.theme.sharedParcelThumb
 import dev.showcode.ui.theme.InkFaint
 import dev.showcode.ui.theme.InkMuted
 import dev.showcode.ui.theme.ShowCodeShapes
@@ -251,7 +252,13 @@ private fun GoodsCard(parcel: Parcel) {
     ) {
         val image = goodsThumbnailUrl(parcel)
         if (image != null) {
-            dev.showcode.ui.GoodsThumbnail(url = image, size = 76.dp)
+            /* 另一端：从首页卡片飞过来的那张图在这里落位。
+               key 必须和卡片那边完全一致（`parcelThumbKey(id)`）。 */
+            dev.showcode.ui.GoodsThumbnail(
+                url = image,
+                size = 76.dp,
+                modifier = Modifier.sharedParcelThumb(parcel.id),
+            )
         }
         Column(
             modifier = Modifier.weight(1f),

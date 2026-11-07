@@ -111,6 +111,7 @@ import dev.showcode.ui.theme.AccentTint
 import dev.showcode.ui.theme.BorderDueSoon
 import dev.showcode.ui.theme.Hairline
 import dev.showcode.ui.theme.Ink
+import dev.showcode.ui.theme.sharedParcelThumb
 import dev.showcode.ui.theme.InkMuted
 import dev.showcode.ui.theme.InkWatermark
 import dev.showcode.ui.theme.InkSecondary
@@ -678,7 +679,12 @@ private fun InTransitRow(parcel: Parcel, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         goodsThumbnailUrl(parcel)?.let {
-            GoodsThumbnail(url = it, size = 46.dp)
+            /* 和详情页那张图共享：点开时它从这里飞到那里，而不是整页滑过去。 */
+            GoodsThumbnail(
+                url = it,
+                size = 46.dp,
+                modifier = Modifier.sharedParcelThumb(parcel.id),
+            )
             Spacer(modifier = Modifier.width(12.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
@@ -1408,7 +1414,13 @@ private fun CardParcelRow(parcel: Parcel, now: Long) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (hasGoods) {
-            goodsThumbnailUrl(parcel)?.let { GoodsThumbnail(url = it, size = 44.dp) }
+            goodsThumbnailUrl(parcel)?.let {
+                GoodsThumbnail(
+                    url = it,
+                    size = 44.dp,
+                    modifier = Modifier.sharedParcelThumb(parcel.id),
+                )
+            }
             Spacer(Modifier.width(8.dp))
         }
         if (parcel.code.isBlank()) {
