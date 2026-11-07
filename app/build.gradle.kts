@@ -85,7 +85,7 @@ dependencies {
     implementation("io.github.kyant0:backdrop:2.0.0")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-core")
-    implementation("androidx.activity:activity-compose:1.10.1")
+    implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.core:core-ktx:1.16.0")
     /* 系统 splash 只负责首帧；启动动画靠 setOnExitAnimationListener 接住图标 bounds。
        版本与只读参考工程一致。 */

@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.SharedTransitionLayout
@@ -727,10 +728,27 @@ fun ShowCodeRoot() {
         }
     }
 
-    /* 系统返回键。批 1 起每个子屏都只画了自己的左上角箭头，没接 BackHandler，
-       于是按返回 = 直接退出 App。站在柜机前被退到桌面，是比少显示一个码更让人恼火的事。
-       引导的第一步例外：那时没有「来路」可回，返回就该退出。 */
-    BackHandler(enabled = route != Route.HOME && !(route == Route.ONBOARDING && onboardStep == OnboardStep.WELCOME)) {
+    /* 返回手势：用 **PredictiveBackHandler** 而不是 BackHandler。
+     *
+     * 区别在「预演」：开了 predictive back（manifest 的 enableOnBackInvokedCallback）之后，
+     * 安卓 14+ 用户从屏幕边缘往回划时，手指一动系统就会把进度喂进来，
+     * 我们可以让详情页**跟着手指缩小**、露出下面的首页；松手才真的退。
+     * 旧 BackHandler 只有「已经退了」这一种时机，手势全程没有反馈。
+     *
+     * 进度落在 `backProgress` 上，由下面的页面层读它做缩放——
+     * 手势取消（`CancellationException`）时把它归零，页面弹回原位。
+     * 注意这里**不在流结束时才做事**：`collect` 收到第一个 BackEvent 就把进度写进去，
+     * 结束时才执行真正的 route 跳转。
+     *
+     * 引导的第一步例外：那时没有「来路」可回，返回就该退出。
+     *
+     * ⚠️ 验证方式：`adb shell input swipe` / `input motionevent` **测不出**这条路径——
+     * 注入的事件不经过 SystemUI 的手势检测层，系统根本不会把它识别成返回手势。
+     * 真机上要从屏幕边缘往回划才能看到预演。这里只验证了返回键（三键导航）没回归。 */
+    /* 退一级。原来这段是 BackHandler 的 lambda 体，抽成函数是为了让
+       predictive back 的「手势完成」和旧系统的「按下返回键」走同一条路——
+       两套各写一遍迟早会分叉。 */
+    fun navigateBack() {
         when (route) {
             // 演示从首页开场，返回就回演示首页；退出演示只走那条常驻的「退出」。
             Route.ONSITE -> route = Route.HOME
@@ -764,6 +782,37 @@ fun ShowCodeRoot() {
             }
             Route.HOME -> Unit
         }
+    }
+
+    /* predictive back 只在 API 33+ 有。旧系统上 PredictiveBackHandler 收不到事件，
+       返回键必须由 BackHandler 接住，否则那一档设备上「按返回直接退出 App」。 */
+    val predictiveBackSupported = Build.VERSION.SDK_INT >= 33
+
+    val backEnabled = route != Route.HOME &&
+        !(route == Route.ONBOARDING && onboardStep == OnboardStep.WELCOME)
+    val backProgress = remember { androidx.compose.animation.core.Animatable(0f) }
+    PredictiveBackHandler(enabled = backEnabled) { events ->
+        try {
+            events.collect { event ->
+                /* progress 是 0→1 的手势进度；0.22 是「手指刚动就有反馈」的起步幅度，
+                   留 78% 给真正退出的那一段，否则划一点点页面就快没了。 */
+                backProgress.snapTo(event.progress * 0.22f)
+            }
+            /* 流正常结束 = 用户松手且手势完成 → 真的退一级。 */
+            backProgress.snapTo(0f)
+            navigateBack()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            /* 手势取消：页面弹回原位。这里不能吞掉异常，要重新抛出去让协程正常结束。 */
+            backProgress.animateTo(0f, androidx.compose.animation.core.spring(0.8f, 420f))
+            throw cancelled
+        }
+    }
+
+    /* 旧 BackHandler 保留给「predictive back 不可用」的旧系统（API < 33）：
+       那些设备上 PredictiveBackHandler 不会收到事件，返回键还得有人接。
+       两套同时存在不冲突——系统只会在其中一条路上回调。 */
+    BackHandler(enabled = backEnabled && !predictiveBackSupported) {
+        navigateBack()
     }
 
     val healthReport = remember(appData.lastSyncAt, smsGranted, notificationGranted, now) {
@@ -942,6 +991,16 @@ fun ShowCodeRoot() {
                     val entry = StartupLogoAnimation.contentProgress
                     alpha = entry
                     translationY = (1f - entry) * 16.dp.toPx()
+                    /* predictive back：手指往右划多少，当前页就往右退多少、缩多少。
+                       和系统手势同向同量，用户看到的不是「退完之后换屏」，
+                       而是「这一页正被手指拖走」。 */
+                    val back = backProgress.value
+                    if (back > 0f) {
+                        translationX = back * size.width
+                        val shrink = 1f - back * 0.06f
+                        scaleX = shrink
+                        scaleY = shrink
+                    }
                 },
             targetState = if (tabRoute != null) null else route,
             transitionSpec = {
