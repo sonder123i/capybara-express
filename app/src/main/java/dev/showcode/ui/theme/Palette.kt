@@ -45,6 +45,15 @@ data class ShowCodePalette(
     val urgencySafeInk: Color,
     /** 成功色按钮的「键程」底边：同一色相压深一档。 */
     val urgencySafeEdge: Color,
+    /**
+     * 「已取」这类主行动键的静止底色。
+     *
+     * 暗色下不能直接用 `surfaceSunken`（#252B35）：它和画布 #0F1218 只差一档，
+     * 那颗键会沉进背景里，读不出「这里有个东西可以按」。所以单独提一档。
+     */
+    val actionRest: Color,
+    /** 主行动键的键程底边：永远比 [actionRest] 深一档（暗色下也是更深，不是更亮）。 */
+    val actionEdge: Color,
     val urgencyDueSoonInk: Color,
     val urgencyAtRiskInk: Color,
     val surfaceInset: Color,
@@ -83,6 +92,8 @@ val ShowCodeLightPalette = ShowCodePalette(
     urgencyAtRiskTint = Color(0xFFFFEAEC),
     urgencySafeInk = Color(0xFF00734C),
     urgencySafeEdge = Color(0xFF00A16B),
+    actionRest = Color(0xFFE8ECF3),
+    actionEdge = Color(0xFFD5DCE7),
     urgencyDueSoonInk = Color(0xFFA85A00),
     urgencyAtRiskInk = Color(0xFFB0121D),
     surfaceInset = Color(0x09000000),
@@ -127,6 +138,8 @@ val ShowCodeDarkPalette = ShowCodePalette(
     urgencyAtRiskTint = Color(0xFF3A1D22),
     urgencySafeInk = Color(0xFF6FE3B4),
     urgencySafeEdge = Color(0xFF2FB37B),
+    actionRest = Color(0xFF39434F),
+    actionEdge = Color(0xFF272E38),
     urgencyDueSoonInk = Color(0xFFFFC46B),
     urgencyAtRiskInk = Color(0xFFFF9A9A),
     surfaceInset = Color(0x0AFFFFFF),

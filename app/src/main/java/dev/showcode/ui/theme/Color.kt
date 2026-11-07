@@ -31,6 +31,12 @@ val UrgencySafeInk: Color get() = ShowCodePaletteState.current.urgencySafeInk
 
 /** 成功色按钮的键程底边（同色相压深一档，暗色下压亮）。 */
 val UrgencySafeEdge: Color get() = ShowCodePaletteState.current.urgencySafeEdge
+
+/** 主行动键的静止底色：暗色下单独提一档，否则它和画布只差一档、读不出「可以按」。 */
+val ActionRest: Color get() = ShowCodePaletteState.current.actionRest
+
+/** 主行动键的键程底边：永远比 ActionRest 深一档。 */
+val ActionEdge: Color get() = ShowCodePaletteState.current.actionEdge
 val UrgencyDueSoonInk: Color get() = ShowCodePaletteState.current.urgencyDueSoonInk
 val UrgencyAtRiskInk: Color get() = ShowCodePaletteState.current.urgencyAtRiskInk
 

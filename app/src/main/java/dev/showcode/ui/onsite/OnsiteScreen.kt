@@ -104,6 +104,8 @@ import dev.showcode.ui.theme.ShowCodeText
 import dev.showcode.ui.theme.SurfaceFloating
 import dev.showcode.ui.theme.SurfaceDeep
 import dev.showcode.ui.theme.SurfaceInsetStrong
+import dev.showcode.ui.theme.ActionEdge
+import dev.showcode.ui.theme.ActionRest
 import dev.showcode.ui.theme.HairlineStrong
 import dev.showcode.ui.theme.SurfaceSunken
 import dev.showcode.ui.theme.TabularNumbers
@@ -923,8 +925,10 @@ private fun PickedButton(onClick: () -> Unit) {
     }
 
     val p = success.value
-    val face = lerp(SurfaceSunken, UrgencySafe, p)
-    val edge = lerp(SurfaceDeep, UrgencySafeEdge, p)
+    /* 静止底色走 ActionRest：暗色下它比 surfaceSunken 高一档，键不会沉进背景。
+       底边在暗色下反而要比面**更深**，所以暗色档给的是比 actionRest 深的 SurfaceSunken。 */
+    val face = lerp(ActionRest, UrgencySafe, p)
+    val edge = lerp(ActionEdge, UrgencySafeEdge, p)
     /* 静止态的文字用 InkSecondary 而不是 InkMuted：淡灰底 + 浅灰字会被读成「禁用」，
        而它其实是这一屏唯一要按的键。 */
     val label = lerp(InkSecondary, OnsiteSurface, p)
