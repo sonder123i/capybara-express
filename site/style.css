@@ -1,0 +1,765 @@
+/* ─────────────────────────────────────────────────────────────
+   卡皮巴拉快递助手 · 落地页
+   设计约束（写在这里是为了以后改的人别破坏它）：
+   1. 不用玻璃、不用渐变球、不用装饰性动画。高级感来自排版、留白、发丝线。
+   2. 三态色（绿/橙/红）只做语义，不做装饰。别的地方一律墨与灰。
+   3. 取件码是主角。它用等宽数字、最大字号，其余一切让位。
+   4. 颜色取自 App 自己的调色板（Palette.kt），不另起一套。
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  /* 取自 app/src/main/java/dev/showcode/ui/theme/Palette.kt */
+  --canvas: #ffffff;
+  --card: #f9fafd;
+  --sunken: #f2f4f8;
+  --ink: #101828;
+  --ink-2: #475467;
+  --ink-3: #667085;
+  /* ink-4 是元数据/标签用的最浅一档，但它被用在 11–12px 的小字上，
+     所以必须过 AA（≥4.5:1）。#98a2b3 在白底只有 2.58:1，读不清——
+     这里换成 #6b7480（4.74:1）。暗色下另给一个值，见下面的块。 */
+  --ink-4: #6b7480;
+  --line: #e4e7ec;
+  --line-2: #d0d5dd;
+  --accent: #0a84ff;
+  --accent-ink: #0057d9;
+
+  --safe: #00b578;
+  --due: #ff8f1f;
+  --risk: #ff3141;
+
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+
+  --maxw: 1080px;
+  --gut: 32px;
+
+  /* 动效只用两档，且都短。多了就是装饰。 */
+  --t: 140ms cubic-bezier(.2, 0, .38, .9);
+}
+
+/* 主题：默认跟随系统，但允许显式覆盖（data-theme 由页面上的开关写）。
+   显式覆盖这一档是必要的——截图、打印、以及用户就是想在暗色系统下看亮色页面时都用得上。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --canvas: #0f1218;
+    --card: #1d222b;
+    --sunken: #171b22;
+    --ink: #f8f9fc;
+    --ink-2: #c3c9d4;
+    --ink-3: #98a2b3;
+    --ink-4: #8b95a5;
+    --line: #262c37;
+    --line-2: #333a47;
+    --accent: #0a84ff;
+    --accent-ink: #6cb0ff;
+    --safe: #3ddc97;
+  }
+}
+
+:root[data-theme="dark"] {
+  --canvas: #0f1218;
+  --card: #1d222b;
+  --sunken: #171b22;
+  --ink: #f8f9fc;
+  --ink-2: #c3c9d4;
+  --ink-3: #98a2b3;
+  --ink-4: #8b95a5;
+  --line: #262c37;
+  --line-2: #333a47;
+  --accent: #0a84ff;
+  --accent-ink: #6cb0ff;
+  --safe: #3ddc97;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a { color: inherit; text-decoration: none; }
+a:hover { color: var(--accent-ink); }
+
+code, .mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: .92em;
+}
+
+code {
+  background: var(--sunken);
+  padding: .12em .38em;
+  border-radius: 3px;
+  color: var(--ink-2);
+}
+
+/* ── 顶栏 ──────────────────────────────────────────────────── */
+
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 var(--gut);
+  height: 60px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--line);
+}
+
+.mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 14.5px;
+  letter-spacing: -.01em;
+  flex-shrink: 0;
+}
+.mark img { border-radius: 5px; }
+
+.bar nav {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  font-size: 14px;
+  color: var(--ink-3);
+}
+.bar nav a { transition: color var(--t); }
+.bar nav a.ext { color: var(--ink-2); }
+
+.theme {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color var(--t), border-color var(--t);
+}
+.theme:hover { color: var(--ink); border-color: var(--ink-4); }
+
+/* ── 主视觉 ────────────────────────────────────────────────── */
+
+.plate {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 88px var(--gut) 96px;
+}
+
+.plate-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+  margin-bottom: 56px;
+}
+.plate-meta .k {
+  padding-right: 16px;
+  margin-right: 16px;
+  border-right: 1px solid var(--line);
+}
+.plate-meta .k:last-child { border-right: 0; }
+.plate-meta .live { color: var(--safe); display: flex; align-items: center; gap: 6px; }
+.plate-meta .live i {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--safe);
+}
+
+h1 {
+  margin: 0 0 24px;
+  font-size: clamp(40px, 6.4vw, 76px);
+  line-height: 1.02;
+  letter-spacing: -.035em;
+  font-weight: 680;
+}
+
+.lede {
+  margin: 0 0 56px;
+  max-width: 42ch;
+  font-size: 17px;
+  line-height: 1.72;
+  color: var(--ink-2);
+}
+
+/* ── 发车牌：这一页的主角 ──────────────────────────────────── */
+
+.board {
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: var(--card);
+  overflow: hidden;
+  margin-bottom: 44px;
+}
+
+.board-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(200px, 34%);
+  align-items: end;
+  gap: 32px;
+  padding: 40px 36px;
+}
+.board-row + .board-row { border-top: 1px solid var(--line-2); }
+.board-row.tight { padding: 22px 36px; align-items: center; }
+
+/* 数字用等宽 + 收紧字距 + 表格数字，让它读起来像站台显示屏 */
+.board-code {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(52px, 11vw, 132px);
+  line-height: .88;
+  letter-spacing: -.045em;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.side-label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-bottom: 5px;
+}
+
+.side-value {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  line-height: 1.35;
+}
+.side-value span {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 400;
+  color: var(--ink-3);
+  letter-spacing: 0;
+}
+
+.board-locker {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+.board-locker .side-label { margin: 0; }
+.board-locker b {
+  font-family: var(--mono);
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -.02em;
+}
+
+.board-left { text-align: right; }
+.board-left .side-label { margin-bottom: 2px; }
+.board-left b {
+  font-family: var(--mono);
+  font-size: 30px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+  color: var(--due);
+}
+
+/* ── 按钮 ──────────────────────────────────────────────────── */
+
+.actions, .dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.btn {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 13px 22px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: var(--canvas);
+  transition: border-color var(--t), background var(--t);
+}
+.btn span:first-child {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+.btn .sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-4);
+  letter-spacing: .02em;
+}
+.btn:hover { border-color: var(--ink-4); background: var(--card); }
+
+/* 主按钮不跟随 --ink 反相：暗色下反相成白底白字会糊掉。
+   单独一对常量，两种主题下都是深底浅字。 */
+.btn.primary {
+  background: #101828;
+  border-color: #101828;
+  color: #ffffff;
+}
+:root[data-theme="dark"] .btn.primary {
+  background: #f8f9fc;
+  border-color: #f8f9fc;
+  color: #0f1218;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .btn.primary {
+    background: #f8f9fc;
+    border-color: #f8f9fc;
+    color: #0f1218;
+  }
+}
+.btn.primary .sub { opacity: .62; }
+/* 暗色主按钮是白底深字，sub 得用深色——用 opacity 叠在白底上等于看不见。 */
+:root[data-theme="dark"] .btn.primary .sub { color: #475467; opacity: 1; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .btn.primary .sub { color: #475467; opacity: 1; }
+}
+.btn.primary:hover {
+  background: var(--accent-ink);
+  border-color: var(--accent-ink);
+  color: #ffffff;
+}
+.btn.primary:hover .sub { color: rgba(255, 255, 255, .82); opacity: 1; }
+
+.fine {
+  font-size: 13px;
+  color: var(--ink-3);
+  line-height: 1.7;
+}
+.plate .fine { margin: 20px 0 0; max-width: 60ch; }
+
+/* ── 通用分节 ──────────────────────────────────────────────── */
+
+.sec {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 80px var(--gut);
+  border-top: 1px solid var(--line);
+}
+
+.sec-head {
+  display: flex;
+  align-items: baseline;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+.sec-head .num {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: .08em;
+  color: var(--ink-4);
+  flex-shrink: 0;
+  padding-top: 6px;
+}
+h2 {
+  margin: 0;
+  font-size: clamp(26px, 3.4vw, 38px);
+  line-height: 1.14;
+  letter-spacing: -.028em;
+  font-weight: 650;
+}
+
+.body {
+  max-width: 62ch;
+  margin: 0 0 44px;
+  font-size: 16.5px;
+  line-height: 1.75;
+  color: var(--ink-2);
+}
+.body.fine { font-size: 14px; margin-top: 28px; margin-bottom: 0; }
+
+/* ── 字号试样 ──────────────────────────────────────────────── */
+
+.specimens {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 40px;
+}
+.specimens figure {
+  margin: 0;
+  padding: 32px 26px;
+  border-right: 1px solid var(--line);
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 28px;
+  min-height: 168px;
+}
+.specimens figure:last-child { border-right: 0; }
+
+.specimen {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  letter-spacing: -.04em;
+  line-height: 1;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+}
+/* 三种长度对应的相对大小，正是页面要讲的那条规则。
+   差距要拉开——30/38/46 那种差看不出「码越长字越小」，等于没讲。 */
+.s-long  { font-size: 26px; }
+.s-mid   { font-size: 34px; }
+.s-short { font-size: 52px; }
+
+.specimens figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.specimens figcaption b {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.specimens figcaption span {
+  font-size: 12px;
+  color: var(--ink-4);
+}
+
+/* ── 8 秒注释 ──────────────────────────────────────────────── */
+
+.note {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 28px;
+  padding: 26px 0 0;
+  border-top: 1px solid var(--line);
+}
+.note-k {
+  font-family: var(--mono);
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -.03em;
+  color: var(--ink);
+  line-height: 1.1;
+}
+.note p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  max-width: 58ch;
+}
+
+/* ── 三态表 ────────────────────────────────────────────────── */
+
+.states {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14.5px;
+}
+.states th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  font-weight: 400;
+  padding: 0 16px 12px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.states td {
+  padding: 18px 16px 18px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+  vertical-align: middle;
+}
+.states td:first-child { width: 34px; padding-right: 0; }
+.states td b { color: var(--ink); font-weight: 600; }
+.states td code { background: transparent; padding: 0; font-size: 13px; }
+
+.dot {
+  display: block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--c);
+}
+
+/* ── 截图 ──────────────────────────────────────────────────── */
+
+.shots {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+.shots figure { margin: 0; }
+.shots img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: var(--sunken);
+}
+.shots figcaption {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-3);
+}
+
+/* ── 不做清单 ──────────────────────────────────────────────── */
+
+.cols {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+.col {
+  padding: 28px 40px 28px 0;
+  border-bottom: 1px solid var(--line);
+}
+.col:nth-child(even) {
+  padding-left: 40px;
+  padding-right: 0;
+  border-left: 1px solid var(--line);
+}
+.col h3 {
+  margin: 0 0 8px;
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -.012em;
+}
+.col p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
+/* ── 隐私核对表 ────────────────────────────────────────────── */
+
+.audit { border-top: 1px solid var(--line-2); }
+.audit-row {
+  display: grid;
+  grid-template-columns: 168px 1fr;
+  gap: 32px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+.audit-k {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: .06em;
+  color: var(--ink-4);
+}
+.audit-v {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
+/* ── 安装步骤 ──────────────────────────────────────────────── */
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 40px;
+}
+.step {
+  padding: 32px;
+  border-right: 1px solid var(--line);
+  background: var(--card);
+}
+.step:last-child { border-right: 0; }
+.step-n {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: .08em;
+  color: var(--ink-4);
+  display: block;
+  margin-bottom: 12px;
+}
+.step h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -.015em;
+}
+.step pre {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  background: var(--sunken);
+  border-radius: 3px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+}
+.step pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-2);
+  white-space: pre;
+}
+.step p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.68;
+  color: var(--ink-3);
+}
+.step p b { color: var(--ink); }
+
+/* ── 页脚 ──────────────────────────────────────────────────── */
+
+.foot {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 40px var(--gut) 72px;
+  border-top: 1px solid var(--line);
+}
+.foot-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  color: var(--ink-3);
+}
+.foot-main a { color: var(--ink-2); }
+.foot-main .sep { color: var(--ink-4); }
+.foot-fine {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink-4);
+  max-width: 68ch;
+}
+
+/* ── 响应式 ────────────────────────────────────────────────── */
+
+@media (max-width: 860px) {
+  :root { --gut: 20px; }
+
+  /* 窄屏导航：竖排一列是因为默认的 flex 换行把每个字挤成了单独一行。
+     这里直接不换行，并且只留「安装」与主题开关——其余锚点在小屏上
+     靠滚动本来就够用，塞进顶栏只会挤。 */
+  .bar {
+    height: 54px;
+    gap: 12px;
+  }
+  .bar nav {
+    gap: 14px;
+    font-size: 13px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  /* 窄屏只留「安装」一个锚点 + 源码 + 主题开关。
+     用 :not(.ext) 排除源码，再把除最后一个锚点外的都藏掉。 */
+  .bar nav a:not(.ext) { display: none; }
+  .bar nav a[href="#install"] { display: inline; }
+  .mark { font-size: 13.5px; }
+  .mark span { display: none; }
+  .theme { width: 26px; height: 26px; }
+
+  .plate { padding: 48px var(--gut) 56px; }
+  .plate-meta { margin-bottom: 32px; gap: 0; font-size: 10.5px; }
+  .plate-meta .k { padding-right: 10px; margin-right: 10px; }
+  .lede { margin-bottom: 36px; font-size: 16px; }
+
+  .board-row {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    padding: 24px 18px;
+  }
+  .board-row.tight {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    align-items: baseline;
+    padding: 18px;
+  }
+  .board-left { text-align: left; }
+  .board-code { font-size: clamp(40px, 12.5vw, 64px); }
+  .board-locker b, .board-left b { font-size: 24px; }
+
+  .actions, .dl { flex-direction: column; align-items: stretch; }
+  .btn { text-align: left; }
+
+  .sec { padding: 48px var(--gut); }
+  .sec-head { gap: 14px; margin-bottom: 22px; }
+  .body { font-size: 15.5px; margin-bottom: 32px; }
+
+  .specimens { grid-template-columns: 1fr; }
+  .specimens figure {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    min-height: 0;
+    gap: 16px;
+    padding: 24px 20px;
+  }
+  .specimens figure:last-child { border-bottom: 0; }
+  .s-long { font-size: 26px; }
+  .s-mid { font-size: 32px; }
+  .s-short { font-size: 44px; }
+
+  .note { grid-template-columns: 1fr; gap: 8px; }
+  .note-k { font-size: 24px; }
+
+  .states { font-size: 13.5px; }
+  .states th, .states td { padding-right: 10px; }
+
+  .shots { grid-template-columns: 1fr; gap: 32px; }
+  .shots img { max-width: 300px; margin: 0 auto; }
+  .shots figcaption { max-width: 300px; margin: 10px auto 0; }
+
+  .cols { grid-template-columns: 1fr; }
+  .col { padding: 22px 0; }
+  .col:nth-child(even) { padding-left: 0; border-left: 0; }
+
+  .audit-row { grid-template-columns: 1fr; gap: 4px; }
+  .audit-k { font-size: 11px; }
+
+  .steps { grid-template-columns: 1fr; }
+  .step { padding: 24px 20px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .step:last-child { border-bottom: 0; }
+  .step pre { padding: 12px; }
+  .step pre code { font-size: 11.5px; }
+
+  .foot { padding: 32px var(--gut) 56px; }
+  .foot-main { font-size: 12.5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
