@@ -1,0 +1,2 @@
+· Startup optimisation is now complete. The previous hot-path list only covered the onboarding screen that fresh installs land on; Home and the bottom bar were missing, so upgrades never got the benefit. Re-collected: both are covered now.
+· Also fixed the collection script itself — it used to "succeed" on the onboarding screen and produce a profile that looked valid but was empty.
