@@ -1,0 +1,9 @@
+· Theme switch ripples out from the sun/moon instead of cutting.
+· Sun and moon are shaded as spheres now, not flat stickers.
+· The bottom-bar pill deforms as you swipe between tabs.
+· Back gestures preview on Android 14+.
+· Bottom-bar labels no longer clip at 2× font size.
+· Thumbnails moved to Coil: disk cache and de-duplication.
+· Parse rules can be reordered by long-press drag.
+· Cold start: 623 ms → 326 ms.
+· Fixed a crash on rotation when picking an app.

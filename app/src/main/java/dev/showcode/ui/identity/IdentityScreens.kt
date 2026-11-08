@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -436,6 +437,23 @@ private fun IdentityRow(
 }
 
 /**
+ * `InstalledApp` 的保存器：只存两个字符串。
+ *
+ * 为什么需要它：`rememberSaveable` 在保存那一刻会对值做 `requireCanBeSaved`，
+ * 而 `InstalledApp` 既不是 `Parcelable` 也不是 `Serializable`。
+ * 首帧值是 null 所以注册时能过，等用户选了 App 再转屏就抛 `IllegalStateException`。
+ *
+ * `listSaver` 的 `save` 签名要求非空返回，所以「没选」存成空表；
+ * `restore` 见到长度不是 2 就还原成 null——否则编辑屏会在转屏后显示「已选：」，而其实什么都没选。
+ */
+internal val InstalledAppSaver = listSaver<InstalledApp?, String>(
+    save = { value -> value?.let { listOf(it.packageName, it.label) } ?: emptyList() },
+    restore = { saved ->
+        if (saved.size == 2) InstalledApp(packageName = saved[0], label = saved[1]) else null
+    },
+)
+
+/**
  * 存一张身份码。
  *
  * 必填的其实只有两格，而**「会不会变」是这一屏最重要的一格**：静态码存下来是资产，
@@ -454,7 +472,12 @@ fun IdentityEditScreen(
     var note by rememberSaveable { mutableStateOf("") }
     var kind by rememberSaveable { mutableStateOf(IdentityKind.CODE) }
     var dynamic by rememberSaveable { mutableStateOf<Boolean?>(null) }
-    var app by rememberSaveable { mutableStateOf<InstalledApp?>(null) }
+    /* `InstalledApp` 既不是 Parcelable 也不是 Serializable，直接丢进 rememberSaveable
+       会在**保存那一刻**崩：Compose 注册时用 `requireCanBeSaved(valueProvider())`，
+       首帧值是 null 所以注册能过，等用户选了一个 App 再转屏/切后台，
+       `performSave` 里那句 `check(...)` 就抛 IllegalStateException。
+       所以存成两个字符串——它本来就只用到这两个字段。 */
+    var app by rememberSaveable(stateSaver = InstalledAppSaver) { mutableStateOf<InstalledApp?>(null) }
     var picking by rememberSaveable { mutableStateOf(false) }
     var savedFlag by rememberSaveable { mutableStateOf(false) }
     /** 只装一句「按下了但那一下没结果」的话（剪贴板读不到）。校验失败走 reject，两条不混。 */

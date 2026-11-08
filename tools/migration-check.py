@@ -96,7 +96,52 @@ def main():
         db.execute("CREATE TABLE %s (%s)" % (name, body))
     for ddl in re.findall(r'"(CREATE (?:UNIQUE )?INDEX [^"]+)"', create_zone):
         db.execute(ddl.replace("IF NOT EXISTS ", ""))
-    def migrate():
+    db.commit()
+
+    # ⚠️ 分两段执行，**先建表、再灌数据、最后跑改数据的语句**。
+    # 顺序错了会让迁移里那些改用户已有行的语句全部空转——v3 的两条 DELETE、
+    # v11 的 UPDATE 是整条链里唯一会动用户数据的语句，在空表上执行等于没测。
+    # 实测过：把 v11 的 `AND picked_at IS NULL` 守卫删掉，先迁移后灌数据的探针仍然全绿。
+    #
+    # 为什么不能简单地把整段迁移推到灌数据之后：`message_seen` / `sender_mute` 等表
+    # 本身就是迁移建的，灌数据要用到它们。所以按语句种类分两段，而不是按时间点分。
+    REWRITE = re.compile(
+        r'"((?:DELETE FROM|UPDATE) [^"]*)"',
+        re.S,
+    )
+    version_of_db = version
+
+    # 迁移链必须**按版本号顺序**回放，不能按源码出现顺序。
+    # 这个文件里的 `upgradeToV*` 函数是倒着定义的（V11 在 317 行、V8 在 374 行），
+    # 而 `onUpgrade` 里的调用是升序的（`if (oldVersion < 8)` … `< 12`）。
+    # 按文本顺序回放等于把迁移链跑反：实测会得到「v8 那条谓词最终生效」的假结论，
+    # 而真实的库跑完是 v11 那条——一个会把产品判成错的检查器比没有检查器更糟。
+    def chunks_in_order():
+        """按 onUpgrade 的调用顺序，把每个版本对应的源码片段切出来。"""
+        # 先把每个 upgradeToV* 的函数体切出来（按定义位置）。
+        bodies = {}
+        for m in re.finditer(r"private fun upgradeToV(\d+)\(db: SQLiteDatabase\) \{", text):
+            version = int(m.group(1))
+            start = m.end()
+            depth, i = 1, start
+            while i < len(text) and depth:
+                if text[i] == "{":
+                    depth += 1
+                elif text[i] == "}":
+                    depth -= 1
+                i += 1
+            bodies[version] = text[start:i - 1]
+        # onUpgrade 里内联写的那几档（v2..v7 没有独立函数）按 `if (oldVersion < N)` 切。
+        ladder = {}
+        up = text[text.index("fun onUpgrade"):]
+        marks = [(int(m.group(1)), m.start()) for m in LADDER.finditer(up)]
+        for idx, (version, pos) in enumerate(marks):
+            end = marks[idx + 1][1] if idx + 1 < len(marks) else len(up)
+            ladder[version] = up[pos:end]
+        return [bodies.get(v) or ladder.get(v, "") for v in range(2, version_of_db + 1)]
+
+    def structural():
+        """只建表、加列、建索引——不碰任何已有行。"""
         for name, body in migrated.items():
             db.execute("CREATE TABLE IF NOT EXISTS %s (%s)" % (name, body))
         # v7 那一档不是建表，是给 identity_code **加一列**（走 Kotlin 侧的 addColumnIfMissing）。
@@ -108,8 +153,37 @@ def main():
             have = [r[1] for r in db.execute("PRAGMA table_info(%s)" % table)]
             if column not in have:
                 db.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, ddl))
+        # 迁移区的索引也要真跑。原来只回放 onCreate 区的索引，于是 v8/v10/v11 三次
+        # 索引重建从未被执行过——而索引谓词**就是去重语义本身**：写错会静默丢件
+        # （insert 撞唯一约束返回 -1，界面照跳首页，用户看不到任何错）。
+        # 实测过：把 v11 谓词里的 `retired = 0 AND` 删掉，只回放 onCreate 的探针仍然全绿。
+        #
+        # ⚠️ 按版本顺序、保留 `IF NOT EXISTS`：`parcel_dedupe` 被重建三次（v8/v10/v11），
+        # 每次前面先 DROP——剥掉 IF NOT EXISTS 会撞「already exists」，那报的是探针自己。
+        for chunk in chunks_in_order():
+            for ddl in re.findall(r'"(DROP INDEX[^"]*|CREATE (?:UNIQUE )?INDEX[^"]*)"',
+                                  joined_literals(chunk)):
+                db.execute(ddl)
 
-    migrate()
+    def rewrites():
+        """只跑会改已有行的迁移语句：DELETE FROM / UPDATE，且不带占位符。
+
+        迁移链里真正的改写语句只有三条（v3 的两条 DELETE、v11 的一条 UPDATE），
+        它们都是完整字面量。带 `?` 或 `${...}` 的是 DAO 的运行期语句，
+        拼不出可执行文本，也不是迁移的一部分——跳过。
+        """
+        for chunk in chunks_in_order():
+            for statement in REWRITE.findall(joined_literals(chunk)):
+                if "?" in statement or "${" in statement:
+                    continue
+                db.execute(norm(statement))
+
+    def migrate():
+        structural()
+        rewrites()
+
+    # 第一步：把老库升到「表齐全」的状态，好让下面灌数据有地方放。
+    structural()
     db.commit()
     check("v1 形状起手，一路建到 v%d 没报错" % version, True)
 
@@ -120,10 +194,63 @@ def main():
     db.execute(
         "INSERT INTO parcel (code,carrier,point_key,point_name,point_kind,owner,source,received_at,picked,raw)"
         " VALUES ('8-9-0765','兔喜','pk2','示例精品超市','STATION','SELF','SMS',3,0,'原文二')")
+    # v11 那一档会把「账号来源 + picked=1 + picked_at IS NULL」的退休行改成 picked=0。
+    # 这四条就是为它准备的三类样本，缺一条那条 UPDATE 的 WHERE 就测不到边界：
+    #   a) 用户真点过的已取（picked_at 有值）—— **绝不能被碰**
+    #   b) 账号来源、已取但 picked_at 为空 —— 该被退休
+    #   c) 短信来源、已取但 picked_at 为空 —— 不在 v11 的 WHERE 里（它限 source='ACCOUNT'）
+    db.execute(
+        "INSERT INTO parcel (code,carrier,point_key,point_name,point_kind,owner,source,received_at,picked,picked_at,raw)"
+        " VALUES ('6-2-3391','中通快递','pk3','示例小区菜鸟驿站','STATION','SELF','ACCOUNT',10,1,11,'真点过已取')")
+    db.execute(
+        "INSERT INTO parcel (code,carrier,point_key,point_name,point_kind,owner,source,received_at,picked,raw)"
+        " VALUES ('7-1-0001','京东','pk4','示例京东站点','STATION','ACCOUNT','ACCOUNT',12,1,'账号件无 picked_at')")
+    db.execute(
+        "INSERT INTO parcel (code,carrier,point_key,point_name,point_kind,owner,source,received_at,picked,raw)"
+        " VALUES ('7-1-0002','中通快递','pk5','示例小区菜鸟驿站','STATION','SELF','SMS',13,1,'短信件无 picked_at')")
     db.execute("INSERT INTO message_seen VALUES ('fp1', 1, 'PARCEL:1')")
     db.execute("INSERT INTO sender_mute VALUES ('10690000', 1)")
     db.execute("INSERT INTO meta VALUES ('last_sync','999')")
     db.commit()
+
+    # 迁移前把「用户真点过的已取」那几行记下来，迁移后逐列比。
+    user_decided = db.execute(
+        "SELECT id, code, picked, picked_at, retired FROM parcel WHERE picked_at IS NOT NULL ORDER BY id"
+    ).fetchall()
+
+    # 第二步：跑改数据的语句——这才是真正要测的那一段。
+    rewrites()
+    db.commit()
+
+    # 三条数据断言，正对着 v11 那条 UPDATE 的 WHERE 三档。
+    after = db.execute(
+        "SELECT id, code, picked, picked_at, retired FROM parcel WHERE picked_at IS NOT NULL ORDER BY id"
+    ).fetchall()
+    check("v11 的 UPDATE 没碰 picked_at 有值的行（用户真点过的已取）",
+          after == user_decided,
+          "前 %s / 后 %s" % (user_decided, after))
+    account_retired = db.execute(
+        "SELECT picked, retired FROM parcel WHERE code = '7-1-0001'"
+    ).fetchone()
+    check("账号来源 + picked_at 为空的已取被退休（picked=0, retired=1）",
+          account_retired == (0, 1), account_retired)
+    sms_untouched = db.execute(
+        "SELECT picked, retired FROM parcel WHERE code = '7-1-0002'"
+    ).fetchone()
+    check("短信来源的同类行不在 v11 的 WHERE 里，不许被动",
+          sms_untouched == (1, 0), sms_untouched)
+
+    # 索引真的建出来了，而且谓词里带着 retired 那一半。
+    indexes = {r[0]: r[1] for r in db.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL"
+    )}
+    check("迁移区的索引全部建出来了",
+          {"parcel_dedupe", "parcel_tracking_dedupe"} <= set(indexes),
+          sorted(indexes))
+    dedupe_sql = (indexes.get("parcel_dedupe") or "").replace(" ", "")
+    check("parcel_dedupe 的谓词带着 retired = 0（去掉它会让退休行挡住同码新件）",
+          "retired=0" in dedupe_sql, dedupe_sql)
+
     snapshot = db.execute("SELECT * FROM parcel ORDER BY id").fetchall()
     for name in baseline:
         before = db.execute("SELECT COUNT(*) FROM %s" % name).fetchone()[0]
