@@ -199,9 +199,13 @@ private fun accountChannel(
     val detail = when {
         state == ChannelState.RUNNING -> progressText(progress)
         state == ChannelState.OFF -> "已停用"
-        state == ChannelState.FAILED -> account.lastSyncResult ?: when (account.state) {
-            AccountState.BROKEN -> "凭据解不开，需要重新登录"
-            else -> "登录已失效，需要重新登录"
+        state == ChannelState.FAILED -> when {
+            platform == Platform.PDD && account.state == AccountState.EXPIRED ->
+                "拼多多需要重新登录，请用扫码（手机号登录会互踢）"
+            else -> account.lastSyncResult ?: when (account.state) {
+                AccountState.BROKEN -> "凭据解不开，需要重新登录"
+                else -> "登录已失效，需要重新登录"
+            }
         }
         state == ChannelState.NEVER -> "还没成功同步过"
         /* 点本身已经说明「成功」，这行只留结果：省下的字够把「跳过 3（已签收）」说全。 */

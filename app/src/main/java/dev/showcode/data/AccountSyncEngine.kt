@@ -85,7 +85,12 @@ object AccountSyncEngine {
                    瞬时失败不改账号既有的状态（原来是 EXPIRED 就还是 EXPIRED，不能因为一次断网
                    把「需要重新登录」擦成 ACTIVE）；只记一次退避时间，别每次回前台都重试。 */
                 val state = if (decision.retryable) account.state else decision.state
-                repository.accounts.mark(account, state, decision.message)
+                val message = if (account.platform == Platform.PDD && !decision.retryable) {
+                    "拼多多登录已失效，请用扫码重新登录（手机号登录会互踢）"
+                } else {
+                    decision.message
+                }
+                repository.accounts.mark(account, state, message)
                 if (decision.retryable) {
                     repository.prefs.lastTransientFailureAt = at
                 } else {

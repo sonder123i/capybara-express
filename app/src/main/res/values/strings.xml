@@ -467,6 +467,7 @@
     <string name="account_bound_meta">已绑定 · 尚未同步</string>
     <string name="account_expired">登录已失效，需要重新登录</string>
     <string name="account_broken">凭据解不开，需要重新登录</string>
+    <string name="account_pdd_scan_hint">建议扫码登录；手机号登录会和手机上的拼多多互踢。</string>
     <string name="account_login">去登录</string>
     <string name="account_relogin">重新登录</string>
     <string name="account_sync_now">立即同步</string>
@@ -514,8 +515,11 @@
     <string name="login_title">登录%1$s</string>
     <string name="login_lead">用你自己的账号登录</string>
     <string name="login_body">手机号或扫码都可以登录；扫码确认要在拼多多 App 内完成。我们只保存登录凭据，加密存在这台手机上。</string>
+    <string name="login_pdd_title">拼多多只建议「扫码登录」</string>
+    <string name="login_body_pdd">手机号登录会和手机上的拼多多互踢，别用。请打开手机上的拼多多 App 扫下方二维码，并在手机上确认。</string>
     <string name="login_escape">不想登录就返回。短信、通知和手动导入都还在。</string>
-    <string name="login_risk_hint">按页面提示完成验证即可继续；显示不全时换手机版再答题。</string>
+    <string name="login_pdd_guide">步骤：打开拼多多 App → 扫一扫 → 手机确认 → 按提示选头像/名字。没有标题或下一步时点「选完点这里」。</string>
+    <string name="login_risk_hint">按页面提示完成验证即可继续；没有标题/下一步时点「点页面下一步」，显示不全时换手机版再答题。</string>
     <string name="login_risk_reload">用手机版重新加载</string>
     <string name="login_use_phone">改用手机号登录</string>
     <string name="login_waiting">等待你在页面上完成登录…</string>
