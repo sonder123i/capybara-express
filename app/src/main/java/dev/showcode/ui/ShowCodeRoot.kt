@@ -694,6 +694,24 @@ fun ShowCodeRoot() {
         }
     }
 
+    /**
+     * 外部深链进来时，先把演示态摘掉——**只清演示痕迹，不动路由**（路由由调用点自己定）。
+     *
+     * 为什么必须在入口处统一清，而不是各分支自己记得清：
+     * 演示隔离原先靠每个屏自己判断 `isDemo`，而深链能绕过底栏直接落到某一屏。
+     * 2026-11-04 那次只修了 `ROUTE_ONSITE` 一条分支，`ROUTE_UNRECOGNIZED` 与
+     * `ROUTE_MANUAL` 漏了——它们落到的屏（`UnrecognizedScreen` 的 dismiss/mute/
+     * addParseRule、手动导入的 manualAdd）的写操作全都没有 demo 守卫，
+     * 于是录演示时点一下自己组件的角标，写操作就落到真实库上。
+     * 把「摘演示」放在唯一的入口上，以后再加分支也不会漏。
+     */
+    fun leaveDemoForDeepLink() {
+        if (!demo) return
+        demo = false
+        demoPicked.clear()
+        demoIdentityCodes.clear()
+    }
+
     /* 外部入口的深链（桌面组件、巡检提醒那条通知）：冷启动与 onNewIntent 都汇到 WidgetNav.request。
        通知点开来必须**直接落在那一格里**——它叫的是「对一眼有没有漏的」，
        还要用户自己找一遍那一格在哪，这条提醒就白发了。 */
@@ -701,10 +719,12 @@ fun ShowCodeRoot() {
         WidgetNav.request.collect { intent ->
             val target = WidgetNav.routeOf(intent) ?: return@collect
             WidgetNav.request.value = null
+            /* 除了「进入演示」这一条，其余深链都是对**真实数据**的访问。
+               演示态下收到它们就先摘演示，否则会写进真实库（见 leaveDemoForDeepLink）。 */
+            if (target != WidgetNav.ROUTE_DEMO) leaveDemoForDeepLink()
             when (target) {
                 WidgetNav.ROUTE_ONSITE -> {
                     val key = WidgetNav.pointKeyOf(intent).orEmpty()
-                    demo = false
                     openPoint(key, realGroups.firstOrNull { it.key == key }?.name.orEmpty())
                 }
                 WidgetNav.ROUTE_DEMO -> enterDemo()
