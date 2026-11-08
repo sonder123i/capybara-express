@@ -41,17 +41,23 @@ if [ -z "$id" ]; then
   NOTES="fastlane/metadata/android/zh-CN/changelogs/$CODE.txt"
   BODY=""
   [ -f "$NOTES" ] && BODY=$(cat "$NOTES")
-  # ⚠️ 不传 target_commitish。
+  # ⚠️ target_commitish 传 **tag 自己**，不传 main。
   #
-  # 原来写死 "main"，于是 Gitee 在 tag 还没推上去时会拿 main 的 HEAD 新建一个 tag。
-  # v0.3.1 就这么分叉了：GitHub 指向 cab8bff（versionCode 4），
-  # Gitee 指向 4210511（versionCode 3，0.3.0 的源码）——而 Gitee Release
-  # 自动附的源码 zip 按那个 tag 生成，用户按包内自述 checkout 会拿到上一版代码。
+  # 这一条踩过两次，两次的失败方式不同：
   #
-  # 不传时 Gitee 要求 tag 已存在；不在就报错，走到下面那条提示。
-  # 失败比发错好：发错了没人看得出来。
+  # 1) 写死 "main"：Gitee 会拿 main 的 HEAD **新建一个 tag**，而不是用推上去那个。
+  #    v0.3.1 就这么分叉了——GitHub 指向 cab8bff（versionCode 4），
+  #    Gitee 指向 4210511（versionCode 3，0.3.0 的源码）。Gitee Release
+  #    自动附的源码 zip 按那个 tag 生成，用户按包内自述 checkout 会拿到上一版代码。
+  #
+  # 2) 干脆不传：Gitee 直接 400 `target_commitish is missing`——它是**必填**的。
+  #    我一度以为「不传 = 要求 tag 已存在」，实测不成立。
+  #
+  # 传 tag 名才两边都对：Gitee 解析到已存在的那个 tag（实测返回的
+  # target_commitish 是 tag 指向的 commit，不是 main 的 HEAD），
+  # tag 不在时则报错——**失败比发错好**，发错了没人看得出来。
   payload=$("$PY" -c 'import json,sys
-print(json.dumps({"access_token":sys.argv[1],"tag_name":sys.argv[2],"name":sys.argv[3],"body":sys.argv[4]}))' \
+print(json.dumps({"access_token":sys.argv[1],"tag_name":sys.argv[2],"name":sys.argv[3],"body":sys.argv[4],"target_commitish":sys.argv[2]}))' \
     "$GITEE_TOKEN" "$TAG" "$TITLE" "$BODY")
   created=$(curl -sf --max-time 20 -X POST "$API/releases" \
     -H "Content-Type: application/json" -d "$payload")
