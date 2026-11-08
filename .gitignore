@@ -27,6 +27,8 @@ keystore-debug.properties
 .trae/
 .video_agent/
 .workbuddy/
+# 录屏与逐帧导出的临时目录（本机 1.4G，全是过程产物）
+.screenshots/
 docs/screenshots/_*
 # 参考应用截图：含真实姓名、教师名、学校与个人课表，永久不入库
 docs/screenshots/ref-nav-*
@@ -43,3 +45,7 @@ app/build/outputs/roborazzi/
 
 # Baseline Profile 的采集产物：基准清单在 app/src/main/baseline-prof.txt，那个进版本库。
 baselineprofile/build/
+
+# 发布前审查产物（/full-review 的六份报告）。仓库是公开的，报告里写着
+# 导出组件的攻击面、自更新链路缺什么校验——这些不该跟着代码一起发出去。
+.full-review/
