@@ -79,6 +79,22 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # tag 和包内版本号必须对得上。没有这一步时，`git tag v0.4.0` 打在一个
+      # 还是 versionCode 4 / "0.3.1" 的提交上，CI 会构建出内部版本 0.3.1 的包、
+      # 命名成 showcode-0.4.0.apk 发出去——用户装完发现「更新了但还是旧版」，
+      # 再点更新又说已是最新，陷入死循环。0.3.1 那次就是这个状态（版本 bump 没提交）。
+      # 失败比发错好：这一步红在打 tag 后 30 秒内，比用户装上之后才发现便宜得多。
+      - name: tag 与 versionName 必须一致
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          NAME=$(sed -n 's/^[[:space:]]*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -1)
+          if [ "$TAG_VERSION" != "$NAME" ]; then
+            echo "::error::tag 是 v$TAG_VERSION，但 app/build.gradle.kts 的 versionName 是 \"$NAME\""
+            echo "::error::先把版本号改到 $TAG_VERSION 并提交，再打 tag。"
+            exit 1
+          fi
+          echo "tag v$TAG_VERSION 与 versionName \"$NAME\" 一致"
+
       - name: 检查有没有配签名密钥
         id: gate
         env:
@@ -177,11 +193,22 @@ jobs:
           EXISTING=$(curl -s --max-time 20 "$API/releases/tags/$TAG?access_token=$GITEE_TOKEN")
           ID=$(echo "$EXISTING" | jq -r 'if type=="object" then (.id // empty) else empty end' 2>/dev/null || true)
           if [ -z "$ID" ]; then
-            CREATED=$(curl -s --max-time 20 -X POST "$API/releases"               -H "Content-Type: application/json"               -d "$(jq -n --arg token "$GITEE_TOKEN" --arg tag "$TAG" --arg name "$TITLE" --arg body "$BODY"                 '{access_token:$token, tag_name:$tag, name:$name, body:$body, target_commitish:"main"}')")
+            # ⚠️ 不传 `target_commitish`。
+            #
+            # 原来写死 "main"，于是 Gitee 在「tag 还没推上去」时会拿 main 的 HEAD
+            # **新建一个 tag**，而不是用我们推的那个。v0.3.1 就这么分叉了：
+            #   GitHub v0.3.1 → cab8bff（versionCode 4）
+            #   Gitee  v0.3.1 → 4210511（versionCode 3，0.3.0 的源码）
+            # 而 Gitee Release 自动附的源码 zip 就是按那个 tag 生成的——
+            # 用户按包内自述去 checkout 会拿到上一版的代码。
+            #
+            # 不传这个字段时，Gitee 要求 tag 必须已存在；tag 不在就报错、
+            # 走到下面那条 warning 分支。**失败比发错好**：发错了没人看得出来。
+            CREATED=$(curl -s --max-time 20 -X POST "$API/releases"               -H "Content-Type: application/json"               -d "$(jq -n --arg token "$GITEE_TOKEN" --arg tag "$TAG" --arg name "$TITLE" --arg body "$BODY"                 '{access_token:$token, tag_name:$tag, name:$name, body:$body}')")
             ID=$(echo "$CREATED" | jq -r '.id // empty' 2>/dev/null || true)
           fi
           if [ -z "$ID" ]; then
-            echo "::warning::Gitee 发行版创建失败（镜像是否已推送 main？），跳过附件上传"
+            echo "::warning::Gitee 发行版创建失败——先确认 tag $TAG 已推到 Gitee（git push gitee main --tags）。跳过附件上传"
             exit 0
           fi
           # 附件已存在就不重复传（Gitee 不提供覆盖）。
