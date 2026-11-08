@@ -10,15 +10,15 @@
 </head>
 <body>
 
-<!-- 顶部：一行，发丝线分隔，不做玻璃 -->
 <header class="bar">
   <a class="mark" href="#top">
-    <img src="assets/icon.png" alt="" width="22" height="22">
+    <img src="assets/icon.png" alt="" width="24" height="24">
     <span>卡皮巴拉快递助手</span>
   </a>
   <nav>
     <a href="#code">取件码</a>
-    <a href="#triage">三态</a>
+    <a href="#field">现场</a>
+    <a href="#inside">界面</a>
     <a href="#privacy">隐私</a>
     <a href="#install">安装</a>
     <a href="https://github.com/sonder123i/capybara-express" class="ext">源码 ↗</a>
@@ -28,201 +28,248 @@
 
 <main id="top">
 
-<!-- ── 01 主视觉：把取件码当发车牌 ─────────────────────────── -->
-<section class="plate">
-  <div class="plate-meta">
-    <span class="k">v0.4.1</span>
-    <span class="k">12.09 MB</span>
-    <span class="k">minSdk 26</span>
-    <span class="k live"><i></i>GPL-3.0</span>
-  </div>
+<!-- ══ 主视觉 ═══════════════════════════════════════════════ -->
+<section class="hero">
+  <div class="hero-inner">
 
-  <h1>柜机前的三十秒。</h1>
-  <p class="lede">
-    翻三个 App、在短信里找那串码、到了柜子不知道是几号格、丰巢还剩多久开始收钱。
-    这个 App 只干一件事：把这几步压成一眼。
-  </p>
-
-  <!-- 发车牌本体：等宽数字 + 发丝线 + 语义色 -->
-  <div class="board" role="img" aria-label="取件码 8-3-1024，格口 A12，丰巢快递柜 3 号楼下，剩余 18 小时免费保管">
-    <div class="board-row">
-      <div class="board-code">8-3-1024</div>
-      <div class="board-side">
-        <div class="side-label">取件点</div>
-        <div class="side-value">丰巢快递柜<span>3 号楼下</span></div>
+    <div class="hero-copy">
+      <div class="ticker">
+        <span>v0.4.1</span><span>12.09 MB</span><span>minSdk 26</span>
+        <span class="live"><i></i>GPL-3.0</span>
       </div>
-    </div>
-    <div class="board-row tight">
-      <div class="board-locker"><span class="side-label">格口</span><b>A12</b></div>
-      <div class="board-left">
-        <span class="side-label">免费保管剩余</span>
-        <b class="mono">17:42</b>
-      </div>
-    </div>
-  </div>
 
-  <div class="actions">
-    <a class="btn primary" href="https://gitee.com/sonder123i/capybara-express/releases/download/v0.4.1/showcode-0.4.1.apk">
-      <span>下载 APK</span><span class="sub">Gitee · 国内直连</span>
-    </a>
-    <a class="btn" href="https://github.com/sonder123i/capybara-express/releases/tag/v0.4.1">
-      <span>GitHub Release</span><span class="sub">备用源</span>
-    </a>
+      <h1>柜机前<br>那三十秒。</h1>
+
+      <p class="lede">
+        翻三个 App、在短信里找那串码、到了柜子不知道是几号格、丰巢还剩多久开始收钱。
+        这个 App 只干一件事：把这几步压成一眼。
+      </p>
+
+      <div class="actions">
+        <a class="btn primary" href="https://gitee.com/sonder123i/capybara-express/releases/download/v0.4.1/showcode-0.4.1.apk">
+          <span>下载 APK</span><span class="sub">Gitee · 国内直连</span>
+        </a>
+        <a class="btn" href="https://github.com/sonder123i/capybara-express/releases/tag/v0.4.1">
+          <span>GitHub</span><span class="sub">备用源</span>
+        </a>
+      </div>
+
+      <p class="fine">
+        两边同一个签名包 · <code>sha256sum -c SHA256SUMS.txt</code><br>
+        证书指纹 <code>e18262c9…674d3</code>
+      </p>
+    </div>
+
+    <!-- 右侧：两台机器并排，一柜一驿，都是真实画面 -->
+    <div class="hero-visual">
+      <figure class="phone phone-a">
+        <img src="assets/d-onsite-l.jpg" alt="丰巢柜机现场模式：取件码 8-3-1024，格口 A12">
+        <figcaption>柜机 · 格口 A12</figcaption>
+      </figure>
+      <figure class="phone phone-b">
+        <img src="assets/station.jpg" alt="菜鸟驿站现场模式：取件码 5-2-3391，货架 3排12号">
+        <figcaption>驿站 · 货架 3排12号</figcaption>
+      </figure>
+    </div>
+
   </div>
-  <p class="fine">
-    两边是同一个签名包。校验：<code>sha256sum -c SHA256SUMS.txt</code> ·
-    证书指纹 <code>e18262c9…674d3</code>
-  </p>
 </section>
 
-<!-- ── 02 取件码：字号规则是可验证的 ───────────────────────── -->
+<!-- ══ 01 取件码：尺度对比 ═════════════════════════════════ -->
 <section id="code" class="sec">
-  <div class="sec-head">
-    <span class="num">01</span>
-    <h2>码有多大，取决于它有多长</h2>
-  </div>
+  <div class="sec-label"><span class="num">01</span><span class="tag">取件码</span></div>
+
+  <h2>码有多大<br>取决于它有多长</h2>
+
   <p class="body">
     全屏现场模式。字号按 <code>min(基准, 140 / 字符数 × 屏宽)</code> 算——
     12 位的码和 4 位的码都不会撑破屏幕，也不会小到看不清。
     短信里没有格口号时，那一整块<b>消失</b>、码变大，而不是留一个 <code>--</code>。
   </p>
 
-  <div class="specimens">
-    <figure>
-      <div class="specimen s-long">8-3-1024</div>
-      <figcaption><b>8 字符</b><span>基准字号</span></figcaption>
-    </figure>
-    <figure>
-      <div class="specimen s-mid">5-2-3391</div>
-      <figcaption><b>8 字符 · 无格口</b><span>格口那一块让位给码</span></figcaption>
-    </figure>
-    <figure>
-      <div class="specimen s-short">76416</div>
-      <figcaption><b>5 字符</b><span>单号后五位，字更大</span></figcaption>
-    </figure>
+  <div class="codes">
+    <div class="code-row">
+      <div class="code-crumb">8 字符 · 柜机</div>
+      <div class="code-big">8-3-1024</div>
+      <div class="code-note">格口紧贴其下</div>
+    </div>
+    <div class="code-row">
+      <div class="code-crumb">5 字符 · 单号后五位</div>
+      <div class="code-big larger">76416</div>
+      <div class="code-note">字更大，一眼看清</div>
+    </div>
+    <div class="code-row">
+      <div class="code-crumb">8 字符 · 无格口</div>
+      <div class="code-big largest">5-2-3391</div>
+      <div class="code-note">那一块整块让位</div>
+    </div>
   </div>
 
-  <div class="note">
-    <div class="note-k">8 秒</div>
-    <p>没人碰屏幕，顶栏、分组、位置行、「已取」和复制提示一起退场，只留码、格口和倒计时。
-    举着手机对格口时，最容易被误触的那颗键不在那儿。</p>
+  <div class="silence">
+    <div class="silence-n">8<span>秒</span></div>
+    <div class="silence-t">
+      <h3>没人碰屏幕，界面自己退场</h3>
+      <p>顶栏、分组、位置行、「已取」和复制提示一起消失，只留码、格口和倒计时。
+      举着手机对格口时，最容易被误触的那颗键不在那儿；身后排队的人也看不到点名和件数。</p>
+    </div>
   </div>
 </section>
 
-<!-- ── 03 三态：只有三种颜色，语义固定 ─────────────────────── -->
-<section id="triage" class="sec">
-  <div class="sec-head">
-    <span class="num">02</span>
-    <h2>只有三种颜色</h2>
-  </div>
+<!-- ══ 02 现场：两种机器 ═══════════════════════════════════ -->
+<section id="field" class="sec">
+  <div class="sec-label"><span class="num">02</span><span class="tag">现场模式</span></div>
+
+  <h2>柜机和驿站<br>不是一回事</h2>
+
   <p class="body">
-    安全 / 临期 / 过期风险。不靠加第四种颜色表达紧迫度，靠倒计时数字一直在跳。
-    丰巢按免费保管剩余时间算（默认 18 小时，超时 0.5 元/12 小时、封顶 3 元），驿站按关门时间。
+    柜机给的是<b>格口</b>，驿站给的是<b>货架</b>。两者的时效判据也不同：
+    丰巢按免费保管剩余时间（默认 18 小时，超时 0.5 元/12 小时、封顶 3 元），驿站按关门时间。
+    所以现场模式不是一张万能模板。
   </p>
 
-  <table class="states">
-    <thead>
-      <tr><th></th><th>状态</th><th>判据</th><th>色值</th></tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td><span class="dot" style="--c:#00B578"></span></td>
-        <td><b>安全</b></td>
-        <td>离收费还早</td>
-        <td><code>#00B578</code></td>
-      </tr>
-      <tr>
-        <td><span class="dot" style="--c:#FF8F1F"></span></td>
-        <td><b>临期</b></td>
-        <td>免费时间快用完</td>
-        <td><code>#FF8F1F</code></td>
-      </tr>
-      <tr>
-        <td><span class="dot" style="--c:#FF3141"></span></td>
-        <td><b>过期风险</b></td>
-        <td>已开始计费，或驿站要关门</td>
-        <td><code>#FF3141</code></td>
-      </tr>
-    </tbody>
-  </table>
-</section>
-
-<!-- ── 04 界面：真实截图，不画样机 ─────────────────────────── -->
-<section class="sec sec-shots">
-  <div class="sec-head">
-    <span class="num">03</span>
-    <h2>长这样</h2>
-  </div>
-  <div class="shots">
-    <figure>
-      <img src="assets/01-home-samples.jpg" alt="首页：按取件点分组的待取件卡片" loading="lazy">
-      <figcaption>首页按取件点分组，不是按时间排的流水账</figcaption>
-    </figure>
-    <figure>
-      <img src="assets/02-onsite-demo.jpg" alt="现场模式：超大取件码与格口号" loading="lazy">
-      <figcaption>现场模式：码、格口、倒计时</figcaption>
-    </figure>
-    <figure>
-      <img src="assets/00-onboarding.jpg" alt="首次打开：绑定账号或先看演示" loading="lazy">
-      <figcaption>首次打开，两条路都不逼你</figcaption>
-    </figure>
+  <div class="duo">
+    <div class="duo-item">
+      <div class="duo-shot">
+        <img src="assets/d-onsite-l.jpg" alt="柜机现场：格口 A12">
+      </div>
+      <div class="duo-body">
+        <div class="duo-k">丰巢快递柜</div>
+        <h3>格口 A12</h3>
+        <p>18 小时内免费。超时 0.5 元/12 小时，封顶 3 元。倒计时一直在跳，紧迫度不靠加第四种颜色。</p>
+      </div>
+    </div>
+    <div class="duo-item">
+      <div class="duo-shot">
+        <img src="assets/station.jpg" alt="驿站现场：货架 3排12号">
+      </div>
+      <div class="duo-body">
+        <div class="duo-k">菜鸟驿站</div>
+        <h3>货架 3排12号</h3>
+        <p>没有免费时限，按关门时间算。同一个点有几件会一起轮播，第 1/3 件，不用退出重进。</p>
+      </div>
+    </div>
   </div>
 </section>
 
-<!-- ── 05 边界：把「不做什么」写清楚 ───────────────────────── -->
+<!-- ══ 03 三态 ═════════════════════════════════════════════ -->
 <section class="sec">
-  <div class="sec-head">
-    <span class="num">04</span>
-    <h2>它不做什么</h2>
+  <div class="sec-label"><span class="num">03</span><span class="tag">时效</span></div>
+
+  <h2>只有三种颜色</h2>
+
+  <div class="triage">
+    <div class="triage-bar" style="--c:#00B578">
+      <div class="triage-name">安全</div>
+      <div class="triage-when">离收费还早</div>
+      <code>#00B578</code>
+    </div>
+    <div class="triage-bar" style="--c:#FF8F1F">
+      <div class="triage-name">临期</div>
+      <div class="triage-when">免费时间快用完</div>
+      <code>#FF8F1F</code>
+    </div>
+    <div class="triage-bar" style="--c:#FF3141">
+      <div class="triage-name">过期风险</div>
+      <div class="triage-when">已开始计费，或驿站要关门</div>
+      <code>#FF3141</code>
+    </div>
   </div>
-  <div class="cols">
-    <div class="col">
+
+  <div class="triage-proof">
+    <figure>
+      <img src="assets/d-home-l.jpg" alt="首页：临期卡片是暖底，过期风险是红标" loading="lazy">
+      <figcaption>首页上三种颜色同时出现：<b>丰巢柜</b>是过期风险（红），
+      <b>菜鸟驿站</b>是安全（绿）。卡片底色跟着状态走，不是随便涂的。</figcaption>
+    </figure>
+    <div class="triage-note">
+      <p>不靠加第四种颜色表达紧迫度，靠倒计时数字一直在跳。
+      卡片底色也跟着走：临期是暖底，未识别是要你看一眼的暖底。</p>
+      <p class="dim">同一条短信里两个件、两个点，颜色不同是因为它们真的不一样。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 04 界面：横向截图带 ═════════════════════════════════ -->
+<section id="inside" class="sec sec-wide">
+  <div class="sec-label"><span class="num">04</span><span class="tag">界面</span></div>
+
+  <h2>长这样</h2>
+
+  <p class="body">
+    这些不是设计稿，是 release 包在真机上跑出来的。
+  </p>
+
+  <div class="strip">
+    <figure><img src="assets/d-home-l.jpg" alt="首页：按取件点分组的待取件" loading="lazy"><figcaption>首页 · 按取件点分组</figcaption></figure>
+    <figure><img src="assets/detail.jpg" alt="件详情：商品、运单号、最新轨迹原文" loading="lazy"><figcaption>件详情 · 商品与轨迹</figcaption></figure>
+    <figure><img src="assets/accounts.jpg" alt="平台账号：拼多多、淘宝、京东" loading="lazy"><figcaption>平台账号</figcaption></figure>
+    <figure><img src="assets/thresholds.jpg" alt="临期阈值可调：丰巢剩余免费 ≤6 小时，驿站关门前 ≤90 分钟" loading="lazy"><figcaption>临期阈值可调</figcaption></figure>
+    <figure><img src="assets/alldone.jpg" alt="全部取完，本月共取 6 件" loading="lazy"><figcaption>全部取完</figcaption></figure>
+    <figure><img src="assets/pickup.jpg" alt="取走一件后撒纸屑" loading="lazy"><figcaption>取走一件</figcaption></figure>
+    <figure><img src="assets/pointdone.jpg" alt="一个取件点全部取完" loading="lazy"><figcaption>一个点清空</figcaption></figure>
+    <figure><img src="assets/entry.jpg" alt="设置：权限体检、底栏玻璃效果、演示模式" loading="lazy"><figcaption>设置 · 权限体检</figcaption></figure>
+    <figure><img src="assets/none.jpg" alt="空态：没有待取件" loading="lazy"><figcaption>空态</figcaption></figure>
+    <figure><img src="assets/d-home-d.jpg" alt="暗色首页" loading="lazy"><figcaption>暗色</figcaption></figure>
+  </div>
+</section>
+
+<!-- ══ 05 细节：编号网格 ═══════════════════════════════════ -->
+<section class="sec">
+  <div class="sec-label"><span class="num">05</span><span class="tag">细节</span></div>
+
+  <h2>它不做什么</h2>
+
+  <div class="grid4">
+    <div class="cell">
+      <span class="cell-n">01</span>
       <h3>不自动合并取件点</h3>
       <p>同一个驿站在不同短信里写法不同。App 只提示一句「可能是同一个点？」，
       合并前给你看两边各几件、各自的原始写法，合并后 5 秒内可撤销。</p>
     </div>
-    <div class="col">
+    <div class="cell">
+      <span class="cell-n">02</span>
       <h3>不猜取件点名字</h3>
       <p>认不出码属于哪个点时，宁可放进「没认出来」等你确认，也不猜一个名字生成一张卡片。</p>
     </div>
-    <div class="col">
+    <div class="cell">
+      <span class="cell-n">03</span>
       <h3>不假装能补全漏件</h3>
       <p>有些件不发短信、也不推通知。任何声称「不登录、不读屏、还能自动补上所有平台的漏件」的方案都在骗你。</p>
     </div>
-    <div class="col">
+    <div class="cell">
+      <span class="cell-n">04</span>
       <h3>不做锁屏组件</h3>
       <p>第三方锁屏小组件 Android 5.0 就被移除了。取快递时你本来就会解锁手机。</p>
     </div>
   </div>
 </section>
 
-<!-- ── 06 隐私：可核对的陈述 ───────────────────────────────── -->
-<section id="privacy" class="sec sec-privacy">
-  <div class="sec-head">
-    <span class="num">05</span>
-    <h2>数据不出这台手机</h2>
-  </div>
+<!-- ══ 06 隐私 ═════════════════════════════════════════════ -->
+<section id="privacy" class="sec">
+  <div class="sec-label"><span class="num">06</span><span class="tag">隐私</span></div>
+
+  <h2>数据不出<br>这台手机</h2>
 
   <div class="audit">
-    <div class="audit-row">
-      <span class="audit-k">解析</span>
-      <span class="audit-v">全部本地完成。解析器是纯 Kotlin，不依赖 Android，也没有网络出口。</span>
+    <div class="row">
+      <span class="k">解析</span>
+      <span class="v">全部本地完成。解析器是纯 Kotlin，不依赖 Android，也没有网络出口。</span>
     </div>
-    <div class="audit-row">
-      <span class="audit-k">登录凭据</span>
-      <span class="audit-v">Android Keystore 的 AES-256-GCM 加密存本机。同步结束即清空 WebView 会话。</span>
+    <div class="row">
+      <span class="k">登录凭据</span>
+      <span class="v">Android Keystore 的 AES-256-GCM 加密存本机。同步结束即清空 WebView 会话。</span>
     </div>
-    <div class="audit-row">
-      <span class="audit-k">网络请求</span>
-      <span class="audit-v">只在你按的时候发生：绑定平台账号后的同步、检查更新、拉商品缩略图。不绑定就一个请求都不发。</span>
+    <div class="row">
+      <span class="k">网络请求</span>
+      <span class="v">只在你按的时候发生：绑定平台账号后的同步、检查更新、拉商品缩略图。不绑定就一个请求都不发。</span>
     </div>
-    <div class="audit-row">
-      <span class="audit-k">统计 / 崩溃上报</span>
-      <span class="audit-v">没有。全仓零统计 SDK，也没有 <code>setDefaultUncaughtExceptionHandler</code>。</span>
+    <div class="row">
+      <span class="k">统计 / 崩溃上报</span>
+      <span class="v">没有。全仓零统计 SDK，也没有 <code>setDefaultUncaughtExceptionHandler</code>。</span>
     </div>
-    <div class="audit-row">
-      <span class="audit-k">备份</span>
-      <span class="audit-v"><code>allowBackup="false"</code>。Cookie 密文与取件码不会被 <code>adb backup</code> 或云备份带走。</span>
+    <div class="row">
+      <span class="k">备份</span>
+      <span class="v"><code>allowBackup="false"</code>。Cookie 密文与取件码不会被 <code>adb backup</code> 或云备份带走。</span>
     </div>
   </div>
 
@@ -231,12 +278,11 @@
   </p>
 </section>
 
-<!-- ── 07 安装 ─────────────────────────────────────────────── -->
+<!-- ══ 07 安装 ═════════════════════════════════════════════ -->
 <section id="install" class="sec">
-  <div class="sec-head">
-    <span class="num">06</span>
-    <h2>装之前对两道校验</h2>
-  </div>
+  <div class="sec-label"><span class="num">07</span><span class="tag">安装</span></div>
+
+  <h2>装之前<br>对两道校验</h2>
 
   <div class="steps">
     <div class="step">
@@ -256,13 +302,19 @@
     </div>
   </div>
 
-  <div class="dl">
-    <a class="btn primary" href="https://gitee.com/sonder123i/capybara-express/releases/download/v0.4.1/showcode-0.4.1.apk">
-      <span>下载 0.4.1</span><span class="sub">12.09 MB · Android 8.0+</span>
-    </a>
-    <a class="btn" href="https://github.com/sonder123i/capybara-express/releases">
-      <span>全部版本</span><span class="sub">含更新说明</span>
-    </a>
+  <div class="final">
+    <div class="final-copy">
+      <h3>Android 8.0 及以上 · 12.09 MB</h3>
+      <p>不注册、无广告、无统计 SDK。绑定平台账号是主路径，短信导入是补充手段——不开也能用。</p>
+    </div>
+    <div class="actions">
+      <a class="btn primary" href="https://gitee.com/sonder123i/capybara-express/releases/download/v0.4.1/showcode-0.4.1.apk">
+        <span>下载 0.4.1</span><span class="sub">Gitee · 国内直连</span>
+      </a>
+      <a class="btn" href="https://github.com/sonder123i/capybara-express/releases">
+        <span>全部版本</span><span class="sub">含更新说明</span>
+      </a>
+    </div>
   </div>
 </section>
 
@@ -284,8 +336,6 @@
 </footer>
 
 <script>
-/* 主题开关。默认跟随系统；点一下就固定成当前的反面，存 localStorage。
-   只有这 8 行脚本，页面不加载任何第三方资源。 */
 (function () {
   var root = document.documentElement;
   var saved = localStorage.getItem("theme");
