@@ -55,18 +55,51 @@ enum class SkipReason {
 }
 
 /** 还在走流程的订单状态。历史单（已签收/待评价/交易成功）绝不再当候选。 */
-internal fun isActiveOrderPrompt(prompt: String): Boolean =
-    listOf("待收货", "待取件", "运输中", "派送中", "派件中", "已发货", "已揽收", "待派送")
-        .any { prompt.contains(it) }
+internal fun isActiveOrderPrompt(prompt: String): Boolean = OrderStage.isActive(prompt)
 
-/** 明确结束的历史单。只用来让库里旧卡片退休，不再抓取。 */
+/**
+ * 明确结束的历史单。只用来让库里旧卡片退休，不再抓取。
+ *
+ * 必须同时认 [OrderStage] 的 DONE：否则「已收货 / 确认收货 / 签收成功」这类
+ * 既不在旧词表、又被 isActive 排除的状态会两边落空——不抓详情、也不退休，
+ * 老卡永远停在「在途」。两边词表重合是退休正确性的前提。
+ */
 internal fun isFinishedOrderPrompt(prompt: String): Boolean =
     listOf("已签收", "待评价", "交易成功", "订单完成", "已完成", "退款成功", "交易已取消")
-        .any { prompt.contains(it) }
+        .any { prompt.contains(it) } || OrderStage.stageOf(prompt) == Stage.DONE
 
 /** 取消、关闭、退款、售后：轨迹再新也不能盖过订单状态。 */
 internal fun isBlockedOrderPrompt(prompt: String): Boolean =
     listOf("取消", "交易关闭", "退款", "售后", "退货").any { prompt.contains(it) }
+
+/**
+ * 这条订单状态还值不值得抓详情。
+ *
+ * 只排除「明确关闭」和「没有物流可抓」的待付款单。**认不出的活跃状态也要抓**：
+ * 词表没收录不等于件不存在——「已揽件」就是这么被漏掉的。详情页会给出真实阶段，
+ * 词表只负责排序和兜底。
+ */
+internal fun needsDetailForPrompt(prompt: String): Boolean =
+    !isFinishedOrderPrompt(prompt) && !isBlockedOrderPrompt(prompt) &&
+        !prompt.contains("待付款") && !prompt.contains("未支付")
+
+/**
+ * 卡券/虚拟商品：只有「发货」没有物流签收，永远不会有运单号和取件码。
+ *
+ * 判据只取商品标题里的**强特征词**：像「虚拟」这种会命中「虚拟现实眼镜」的词不收，
+ * 宁可漏掉一张卡券，也不能把真包裹判成虚拟件。
+ */
+internal fun isVirtualGoodsTitle(title: String?): Boolean {
+    val text = title?.trim().orEmpty()
+    if (text.isEmpty()) return false
+    return VIRTUAL_GOODS.any { text.contains(it) }
+}
+
+private val VIRTUAL_GOODS = listOf(
+    "兑换码", "卡密", "激活码", "电子卡", "卡券", "充值卡", "礼品卡", "代金券",
+    "提货券", "兑换券", "虚拟商品", "虚拟物品", "虚拟卡", "话费充值", "流量充值",
+    "会员月卡", "月卡", "季卡", "年卡", "会员卡", "点卡",
+)
 
 /**
  * 在途轨迹与订单状态的交叉校验：
@@ -127,10 +160,10 @@ internal fun fallbackFetchedParcel(
     goods: GoodsInfo?,
     at: Long,
 ): FetchedParcel? {
-    val stage = when (prompt) {
-        "待取件" -> Stage.AT_STATION
-        "运输中", "已发货", "已揽收", "待收货" -> Stage.IN_TRANSIT
-        "派送中", "派件中", "待派送" -> Stage.DELIVERING
+    val stage = when (OrderStage.stageOf(prompt)) {
+        Stage.AT_STATION -> Stage.AT_STATION
+        Stage.IN_TRANSIT -> Stage.IN_TRANSIT
+        Stage.DELIVERING -> Stage.DELIVERING
         else -> return null
     }
     return FetchedParcel(
@@ -152,6 +185,7 @@ internal fun fallbackFetchedParcel(
         goodsPrice = goods?.price,
         shopName = goods?.shop,
         orderedAt = goods?.orderedAt,
+        fromListFallback = true,
     )
 }
 
@@ -251,12 +285,25 @@ private fun mergeExisting(
     }
     val markPicked = item.stage == Stage.DONE && item.explicitPickup
     /* 新轨迹是终态时必须盖过旧的到站/派送——这正是「已签收却还挂在派送中」的来源。
-       新轨迹认不出来（UNKNOWN）时保留旧阶段；新轨迹只是更早的阶段时，不把已有到站卡打回在途。 */
+       新轨迹认不出来（UNKNOWN）时保留旧阶段；新轨迹只是更早的阶段时，不把已有到站卡打回在途。
+       列表兜底比详情粗，只允许它把阶段往前推，不允许降级。 */
     val stage = when {
         item.stage == Stage.DONE -> Stage.DONE
         item.stage == Stage.UNKNOWN -> old.stage
         old.stage == Stage.AT_STATION -> Stage.AT_STATION
+        item.fromListFallback && stageProgress(item.stage) < stageProgress(old.stage) -> old.stage
         else -> item.stage
+    }
+    /* 列表兜底没有运单号与承运商细节；拿它覆盖老行会把「顺丰速运 · SF…」降级成
+       「快递 · 运单号待出」。这些字段只能由详情结果更新。 */
+    val incoming = if (item.fromListFallback) {
+        item.copy(
+            trackingNo = old.trackingNo?.takeUnless { it.isBlank() } ?: item.trackingNo,
+            carrier = old.carrier.ifBlank { item.carrier },
+            raw = old.raw.ifBlank { item.raw },
+        )
+    } else {
+        item
     }
     /* 账号行的点名被清洗规则刷新时，pointKey 必须跟着换——
        否则同一个「示例大学示例校区驿站」会按旧 key 和新 key 裂成两张卡。 */
@@ -272,7 +319,7 @@ private fun mergeExisting(
     }
 
     return AccountSyncAction.Update(
-        item = item,
+        item = incoming,
         id = old.id,
         pointKey = pointKey,
         /* 账号行的点名允许被新的解析结果刷新（同一件、来源相同）；
@@ -294,3 +341,12 @@ private fun mergeExisting(
 /** 点名后缀决定柜/驿站；认不出的一律当驿站，和读库时的兜底同一条口径。 */
 fun pointKindOf(name: String): PointKind =
     if (name.contains("柜") || name.contains("格口")) PointKind.LOCKER else PointKind.STATION
+
+/** 只用于列表兜底的单调保护；详情结果有自己的轨迹语序判据，不套这张表。 */
+private fun stageProgress(stage: Stage): Int = when (stage) {
+    Stage.IN_TRANSIT -> 1
+    Stage.DELIVERING -> 2
+    Stage.AT_STATION -> 3
+    Stage.DONE -> 4
+    else -> 0
+}

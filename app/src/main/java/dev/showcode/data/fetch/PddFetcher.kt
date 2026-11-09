@@ -35,6 +35,7 @@ import dev.showcode.core.account.isActiveOrderPrompt
 import dev.showcode.core.account.isBlockedOrderPrompt
 import dev.showcode.core.account.isFinishedOrderPrompt
 import dev.showcode.core.account.isTerminalTrackStatus
+import dev.showcode.core.account.isVirtualGoodsTitle
 import dev.showcode.core.account.normalizeImageUrl
 import dev.showcode.core.account.orderTimeMs
 import dev.showcode.core.account.pddPriceText
@@ -186,10 +187,18 @@ object PddFetcher {
                         "dropTrack sn=${Slog.mask(t.sn)} track=${t.status} reason=order:${promptBySn[t.sn]}"
                     }
                 }
+                /* 卡券/虚拟商品没有物流签收：不进候选，也不留在首页；老行交给退休。 */
+                val virtualSns = listOrders.filter {
+                    isVirtualGoodsTitle(it.goods?.title) || isVirtualGoodsTitle(known[it.sn]?.goodsTitle)
+                }.map { it.sn }.toSet()
                 val activeTracks = tracks.filter {
-                    !isTerminalTrackStatus(it.status) && !conflictsWithOrderStatus(it.sn, promptBySn)
+                    !isTerminalTrackStatus(it.status) &&
+                        !conflictsWithOrderStatus(it.sn, promptBySn) &&
+                        it.sn !in virtualSns
                 }
-                val activeList = listOrders.filter { isActiveOrderPrompt(it.prompt) }
+                val activeList = listOrders.filter {
+                    isActiveOrderPrompt(it.prompt) && it.sn !in virtualSns
+                }
                 val historySns = (
                     tracks.filter { isTerminalTrackStatus(it.status) }.map { it.sn } +
                         listOrders.filter {
@@ -253,12 +262,13 @@ object PddFetcher {
                         "${detailsFailed} 件详情都没抓到，稍后再试",
                     )
                 }
-                Slog.safe(TAG, "candidates=${candidates.size} parcels=${result.size} history=${historySns.size}")
+                Slog.safe(TAG, "candidates=${candidates.size} parcels=${result.size} history=${historySns.size} virtual=${virtualSns.size}")
                 FetchOutcome.Success(
-                    result,
-                    historySns,
-                    if (ordersEnded) seenSns else emptySet(),
-                    detailsFailed,
+                    parcels = result,
+                    historyOrderSns = historySns,
+                    seenOrderSns = if (ordersEnded) seenSns else emptySet(),
+                    detailsFailed = detailsFailed,
+                    retireOrderSns = virtualSns.toList(),
                 )
             } catch (t: Throwable) {
                 Slog.w(TAG, t) { "fetch failed" }
@@ -627,18 +637,10 @@ object PddFetcher {
         withTimeoutOrNull(6_000) {
             suspendCancellableCoroutine { cont ->
                 web.evaluateJavascript(js) { value ->
-                    if (cont.isActive) cont.resume(jsString(value))
+                    if (cont.isActive) cont.resume(decodeJsString(value))
                 }
             }
         }
-
-    private fun jsString(value: String?): String? {
-        if (value == null || value == "null") return null
-        return runCatching {
-            val v = JSONTokener(value).nextValue()
-            if (v is String) v else value
-        }.getOrDefault(value)
-    }
 
     /** 返回这一轮 window.name 是否读得到（超时/空值/坏 JSON 都算读不到）。 */
     private suspend fun readsCaps(web: WebView, out: MutableList<JSONObject>): Boolean {

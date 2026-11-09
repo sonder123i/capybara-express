@@ -1,22 +1,27 @@
 package dev.showcode.data.fetch
 
+import android.app.Activity
 import dev.showcode.core.Parcel
 import dev.showcode.core.Slog
+import dev.showcode.core.Stage
 import dev.showcode.core.account.FetchOutcome
 import dev.showcode.core.account.FailureKind
 import dev.showcode.core.account.FetchedParcel
 import dev.showcode.core.account.GoodsInfo
+import dev.showcode.core.account.OrderStage
 import dev.showcode.core.account.Platform
 import dev.showcode.core.account.StageMachine
 import dev.showcode.core.account.SyncPhase
 import dev.showcode.core.account.SyncProgress
 import dev.showcode.core.account.TraceEntry
 import dev.showcode.core.account.TraceParser
-import dev.showcode.core.account.allDetailsFailed
 import dev.showcode.core.account.detailNeeded
+import dev.showcode.core.account.fallbackFetchedParcel
 import dev.showcode.core.account.goodsPriceText
 import dev.showcode.core.account.isBlockedOrderPrompt
 import dev.showcode.core.account.isFinishedOrderPrompt
+import dev.showcode.core.account.isVirtualGoodsTitle
+import dev.showcode.core.account.needsDetailForPrompt
 import dev.showcode.core.account.normalizeImageUrl
 import dev.showcode.core.account.orderTimeMs
 import dev.showcode.core.account.stageOfPrompt
@@ -51,10 +56,13 @@ object TbFetcher {
             "(KHTML, like Gecko) Chrome/105.0.0.0 Mobile Safari/537.36 EdgA/105.0.1343.48"
 
     suspend fun fetch(
+        activity: Activity?,
         accountId: String,
         cookie: String,
         /** 库里这个账号已有的件（键 = 订单号）。状态没变的单不再进详情页。 */
         known: Map<String, Parcel> = emptyMap(),
+        /** 这个账号从没成功同步过：主源空时也值得试一次第二源，否则首装用户永远看不到件。 */
+        neverSynced: Boolean = false,
         /** 这一轮走到哪一步：顶栏的「读取详情 2/8」就是它。 */
         onProgress: suspend (SyncProgress) -> Unit = {},
     ): FetchOutcome =
@@ -62,53 +70,111 @@ object TbFetcher {
             if (cookie.isBlank()) {
                 return@withContext FetchOutcome.Failure("Cookie 为空，需要重新登录", FailureKind.AUTH)
             }
-            val page = try {
+            val activeKnown = known.values.count { !it.retired && !it.picked }
+            var listFailure: FetchFailure? = null
+            var page: OrderPage? = try {
                 listOrders(cookie)
             } catch (f: FetchFailure) {
                 Slog.w(TAG, f) { "listOrders failed" }
-                return@withContext FetchOutcome.Failure(f.message ?: "订单列表请求失败", f.kind)
+                listFailure = f
+                null
             } catch (t: Throwable) {
+                t.rethrowIfCancellation()
                 Slog.w(TAG, t) { "listOrders failed" }
-                return@withContext FetchOutcome.Failure("订单列表请求失败，稍后再试")
+                null
             }
-            val orders = page.orders
-            Slog.safe(TAG, "orders=${orders.size} ended=${page.ended}")
+            /* 主源空/失败时，用 WebView 打开 H5 订单页抓页面自己发出的订单响应。
+               这是拼多多同款的第二数据源；它签名、风控参数都由页面生成，不伪造请求。 */
+            if (activity != null &&
+                (page == null || (page.orders.isEmpty() && (activeKnown > 0 || neverSynced)))
+            ) {
+                val webOrders = (try {
+                    TbWebSource.fetchOrders(activity, cookie)
+                } catch (t: Throwable) {
+                    t.rethrowIfCancellation()
+                    Slog.w(TAG, t) { "second source failed" }
+                    null
+                }).orEmpty()
+                if (webOrders.isNotEmpty()) {
+                    Slog.safe(TAG, "second-source orders=${webOrders.size}")
+                    page = OrderPage(webOrders, ended = false)
+                }
+            }
+            val resolved = page ?: return@withContext FetchOutcome.Failure(
+                listFailure?.message ?: "订单列表请求失败，稍后再试",
+                listFailure?.kind ?: FailureKind.TRANSIENT,
+            )
+            val orders = resolved.orders
+            Slog.safe(TAG, "orders=${orders.size} ended=${resolved.ended}")
+            /* 覆盖度自检：库里有活跃账号件，这次却一条订单都没读到——更可能是接口改版/被风控，
+               不是「件都没了」。按瞬时失败处理，不写空快照、不退休任何已有卡。 */
+            if (orders.isEmpty() && activeKnown > 0) {
+                Slog.safe(TAG, "empty-list-with-known=$activeKnown treat-as-breakage")
+                return@withContext FetchOutcome.Failure("订单列表为空（接口可能改版），本次先保留已有数据")
+            }
+            /* 数量骤降：老库有 4 件以上、这次读到的订单比活跃件还少——更可能是接口改版/翻页丢失，
+               不把这次当完整结果，避免退休还没读到的在途件。 */
+            if (activeKnown >= 4 && orders.size < activeKnown) {
+                Slog.safe(TAG, "order-count-drop=$activeKnown->${orders.size} treat-as-breakage")
+                return@withContext FetchOutcome.Failure("订单数量异常减少（可能接口改版），本次先保留已有数据")
+            }
             orders.forEachIndexed { i, o ->
                 Slog.i(TAG) {
                     "list[$i] sn=${Slog.mask(o.id)} status=${o.status.ifBlank { "<空>" }} " +
                         "goods=${o.goods?.title?.take(32) ?: "<无>"}"
                 }
             }
+            /* 状态分布只打计数，不含订单号/商品名；用于现场判断「为什么活跃单数为 0」。
+               unrecognized 单列：它是词表补录的入口，不能混在「没有活跃件」里。 */
+            Slog.safe(
+                TAG,
+                "statuses=" + orders.groupingBy { it.status.ifBlank { "<空>" } }.eachCount()
+                    .entries.joinToString("|") { "${it.key}:${it.value}" } +
+                    " unrecognized=" + orders.count { OrderStage.stageOf(it.status) == null },
+            )
+            /* 卡券/虚拟商品只有「发货」，没有物流签收：不进详情，也不留在首页。
+               列表偶尔不给商品信息，这时用库里同号行记住的标题兜底；老行交给退休。 */
+            val virtualIds = orders.filter {
+                isVirtualGoodsTitle(it.goods?.title) || isVirtualGoodsTitle(known[it.id]?.goodsTitle)
+            }.map { it.id }.toSet()
             /* 取消/关闭/退款/待付款的单不进详情，但要让库里同号的在途卡退休；
                历史单也不再占用详情名额。 */
             val history = orders.filter { closesOrder(it.status) }.map { it.id }
-            val pending = orders.filter { needsDetail(it) }.sortedBy { detailRank(it.status) }
-            /* 上限保留（每单详情都是一次整页请求），但只从真正待取/在途的单里取。
-               状态没变、运单号与码都在的单先剔掉：它们这次拿回来的会和上次一样，
-               还白占一个详情名额。判据见 core/account/DetailGate.kt。 */
+            /* 候选 = 所有「明确没结束、也不是待付款」的单。认不出的状态也要进：
+               词表没收录只说明排序靠后，不说明件不存在。 */
+            val pending = orders.filter {
+                needsDetailForPrompt(it.status) && it.id !in virtualIds
+            }.sortedBy { detailRank(it.status) }
             val now = System.currentTimeMillis()
-            val candidates = pending
+            /* 详情是贵操作：有上限；但**超出上限的候选也要有兜底条目**，不能消失。 */
+            val detailTargets = pending
                 .filter { detailNeeded(it.id, stageOfPrompt(it.status), known, now) }
                 .take(MAX_DETAILS)
             Slog.safe(
                 TAG,
-                "pending=${pending.size} candidates=${candidates.size} " +
-                    "skip=${pending.size - candidates.size} history=${history.size}",
+                "pending=${pending.size} detailTargets=${detailTargets.size} " +
+                    "skip=${pending.size - detailTargets.size} history=${history.size} " +
+                    "virtual=${virtualIds.size}",
             )
-            /* 详情是纯 HTTP、彼此独立：四路并发把 8 单的等待从「串行累加」压成「两轮」。
+            /* 详情被门控跳过的老行保持原样；没有老行的（新单/超出详情名额）必须走兜底，
+               否则它在首页会静默消失。 */
+            val detailIds = detailTargets.map { it.id }.toSet()
+            val worklist = pending.filter { it.id in detailIds || known[it.id] == null }
+            /* 详情是纯 HTTP、彼此独立：四路并发把多单的等待从「串行累加」压成「几轮」。
                进度按**完成数**报，所以并发下也只增不减。 */
             val done = AtomicInteger()
             val attempts = coroutineScope {
-                candidates.map { order ->
+                detailTargets.map { order ->
                     async(detailDispatcher) {
                         val attempt = try {
                             Attempt(order, detail(cookie, accountId, order), null)
                         } catch (f: FetchFailure) {
                             Attempt(order, null, f)
                         } catch (t: Throwable) {
+                            t.rethrowIfCancellation()
                             Attempt(order, DetailOutcome(null, "exception:${t.message}", ""), null)
                         }
-                        onProgress(SyncProgress(SyncPhase.DETAILS, done.incrementAndGet(), candidates.size))
+                        onProgress(SyncProgress(SyncPhase.DETAILS, done.incrementAndGet(), detailTargets.size))
                         attempt
                     }
                 }.awaitAll()
@@ -120,32 +186,59 @@ object TbFetcher {
                     authFailure.message ?: "物流详情没拿到", authFailure.kind,
                 )
             }
+            val byOrder = attempts.associateBy { it.order.id }
             val result = mutableListOf<FetchedParcel>()
             var detailsFailed = 0
-            attempts.forEachIndexed { index, attempt ->
-                val order = attempt.order
-                val outcome = attempt.outcome ?: DetailOutcome(null, "unknown", "")
+            var fallbackCount = 0
+            worklist.forEachIndexed { index, order ->
+                val outcome = byOrder[order.id]?.outcome
+                val parsed = outcome?.parcel
+                /* 兜底优先级：详情解析结果 > 列表状态。列表状态认不出来时保留 UNKNOWN，
+                   由首页显示「轨迹待补」，绝不让这件从结果里消失。 */
+                val item = when {
+                    parsed == null -> fallbackOf(accountId, order, now)
+                    parsed.stage == Stage.UNKNOWN -> {
+                        val stage = OrderStage.stageOf(order.status)
+                        if (stage != null && stage != Stage.DONE) parsed.copy(stage = stage, pointName = null) else parsed
+                    }
+                    else -> parsed
+                }
                 Slog.i(TAG) {
                     "result[$index] sn=${Slog.mask(order.id)} status=${order.status.ifBlank { "<空>" }} " +
-                        "mailNo=${Slog.mask(outcome.mailNo)} goods=${order.goods?.title?.take(28) ?: "<无>"} " +
-                        "parcel=${outcome.parcel != null} reason=${outcome.reason.ifBlank { "ok" }}"
+                        "detail=${outcome?.reason?.ifBlank { "ok" } ?: "skipped-budget"} " +
+                        "parcel=${parsed != null} fallback=${parsed == null && item != null} " +
+                        "stage=${item?.stage ?: "<none>"} goods=${order.goods?.title?.take(28) ?: "<无>"}"
                 }
-                val item = outcome.parcel
-                if (item != null) result.add(item) else detailsFailed++
+                /* 详情抓取失败但用列表状态兜底：结果照常返回，但计数要如实上报，
+                   账号状态行会说「N 件轨迹待补」，不冒充全成功。 */
+                if (item != null) {
+                    result.add(item)
+                    if (parsed == null) fallbackCount++
+                } else {
+                    detailsFailed++
+                }
             }
-            /* 一件都没解析出来：不能说成「成功·没有新件」，这批算瞬时失败。 */
-            if (allDetailsFailed(candidates.size, detailsFailed)) {
-                return@withContext FetchOutcome.Failure("${detailsFailed} 件详情都没抓到，稍后再试")
+            /* 只有「所有需要结果的候选都没有任何可用结果」才算整批失败；有兜底时不再误报。 */
+            if (worklist.isNotEmpty() && result.isEmpty()) {
+                return@withContext FetchOutcome.Failure("${detailsFailed} 件都没有可用信息，稍后再试")
             }
             /* 只在订单接口给出结束信号时才交 seen；只有一页、又说不清是否看全时保持空集。 */
-            val seen = if (page.ended) orders.map { it.id }.toSet() else emptySet()
-            FetchOutcome.Success(result, history, seen, detailsFailed)
+            val seen = if (resolved.ended) orders.map { it.id }.toSet() else emptySet()
+            Slog.safe(TAG, "result=${result.size} fallback=$fallbackCount detailsFailed=$detailsFailed")
+            FetchOutcome.Success(
+                parcels = result,
+                historyOrderSns = history,
+                seenOrderSns = seen,
+                detailsFailed = detailsFailed,
+                fallbackCount = fallbackCount,
+                retireOrderSns = virtualIds.toList(),
+            )
         }
 
-    private data class Order(val id: String, val status: String, val goods: GoodsInfo? = null)
+    internal data class Order(val id: String, val status: String, val goods: GoodsInfo? = null)
 
     /** 订单列表的一页：订单本身，外加「接口有没有明确说没有下一页」。 */
-    private data class OrderPage(val orders: List<Order>, val ended: Boolean)
+    internal data class OrderPage(val orders: List<Order>, val ended: Boolean)
 
     private data class DetailOutcome(
         val parcel: FetchedParcel?,
@@ -160,7 +253,12 @@ object TbFetcher {
         val auth: FetchFailure?,
     )
 
-    private const val MAX_DETAILS = 8
+    private const val MAX_DETAILS = 16
+
+    /* 详情页单独收紧超时：16 单 / 4 路，单件最坏 8+10s，整批 ≈ 72s 封顶。
+       慢到 18s 还没返回的页下一次同步会重试，不能让它把整轮拖到两分钟。 */
+    private const val DETAIL_CONNECT_TIMEOUT_MS = 8_000
+    private const val DETAIL_READ_TIMEOUT_MS = 10_000
 
     /** 详情是独立请求，并发四路；再高只会让 mtop 更容易触发风控。 */
     private const val DETAIL_PARALLELISM = 4
@@ -176,24 +274,55 @@ object TbFetcher {
     private fun closesOrder(status: String): Boolean =
         isBlockedOrderPrompt(status) || isFinishedOrderPrompt(status)
 
-    /** 待付款/未支付的单没有物流可抓，别浪费详情名额。 */
-    private fun needsDetail(order: Order): Boolean =
-        !closesOrder(order.status) &&
-            !order.status.contains("待付款") && !order.status.contains("未支付")
-
     /** 真正待取/在途优先；历史单已在候选集合外。 */
-    private fun detailRank(status: String): Int = when {
-        status.contains("待取") || status.contains("已到") -> 0
-        status.contains("派件") || status.contains("派送") || status.contains("待收货") -> 1
-        status.contains("运输") || status.contains("已发货") || status.contains("已发出") ||
-            status.contains("已揽收") -> 2
+    private fun detailRank(status: String): Int = when (OrderStage.stageOf(status)) {
+        Stage.AT_STATION -> 0
+        Stage.DELIVERING -> 1
+        Stage.IN_TRANSIT -> 2
         else -> 3
     }
 
+    /** 详情失败/没名额时的兜底：用列表状态先入列，绝不让活跃单消失。 */
+    private fun fallbackOf(accountId: String, order: Order, at: Long): FetchedParcel? =
+        fallbackFetchedParcel(
+            platform = Platform.TB,
+            accountId = accountId,
+            orderSn = order.id,
+            prompt = order.status,
+            goods = order.goods,
+            at = at,
+        )
+
+    /** 协程取消必须原样抛出，不能被当成「同步失败」。 */
+    private fun Throwable.rethrowIfCancellation() {
+        if (this is kotlinx.coroutines.CancellationException) throw this
+    }
+
+    private const val MAX_LIST_PAGES = 5
+
+    /**
+     * 订单列表：最多翻 [MAX_LIST_PAGES] 页，按 orderId 去重合并。
+     *
+     * 只认接口自己的结束信号；如果接口忽略 page 参数、每页都返回同一批，
+     * 这里会因去重得到同一份集合，且 ended 保持 false —— 此时上层不会提交 seen，
+     * 不会误退休任何在途件（宁可留一张旧卡，不删一件真件）。
+     */
     private fun listOrders(cookie: String): OrderPage {
+        val merged = LinkedHashMap<String, Order>()
+        var ended = false
+        for (page in 1..MAX_LIST_PAGES) {
+            val one = listOrdersPage(cookie, page)
+            one.orders.forEach { merged[it.id] = it }
+            ended = one.ended || one.orders.isEmpty()
+            if (ended) break
+        }
+        return OrderPage(merged.values.toList(), ended)
+    }
+
+    private fun listOrdersPage(cookie: String, page: Int): OrderPage {
         val data = JSONObject()
             .put("tabCode", "all")
-            .put("page", 1)
+            .put("page", page)
             .put("OrderType", "OrderList")
             .put("templateConfigVersion", "0")
             .put("appName", "tborder")
@@ -207,6 +336,14 @@ object TbFetcher {
         if (body.isBlank()) throw FetchFailure("订单接口返回空响应，稍后再试", FailureKind.TRANSIENT)
         /* 响应正文里带会话失效标记才是登录失效的硬证据；其余解析失败都归瞬时。 */
         if (authSignal(body)) throw FetchFailure("登录已失效，需要重新登录", FailureKind.AUTH)
+        return parseOrderResponse(body)
+    }
+
+    /**
+     * 解析订单 JSON（mtop 响应或 WebView 捕获到的页面响应，两种 schema 都认）。
+     * 解析失败抛 [FetchFailure]，让上层决定是主源失败还是第二源无数据。
+     */
+    internal fun parseOrderResponse(body: String): OrderPage {
         val root = runCatching { JSONObject(jsonpBody(body)) }.getOrNull()
             ?: throw FetchFailure("订单接口返回不是 JSON（可能已改版）", FailureKind.TRANSIENT)
         val dataObj = root.optJSONObject("data")
@@ -417,13 +554,23 @@ object TbFetcher {
     }
 
     private fun httpGet(url: String, cookie: String): Pair<Int, String> =
-        httpRequest(url, mapOf("User-Agent" to UA, "Cookie" to cookie)).let { it.first to it.second }
+        httpRequest(
+            url,
+            mapOf("User-Agent" to UA, "Cookie" to cookie),
+            connectTimeoutMs = DETAIL_CONNECT_TIMEOUT_MS,
+            readTimeoutMs = DETAIL_READ_TIMEOUT_MS,
+        ).let { it.first to it.second }
 
-    private fun httpRequest(url: String, headers: Map<String, String>): Triple<Int, String, List<String>> {
+    private fun httpRequest(
+        url: String,
+        headers: Map<String, String>,
+        connectTimeoutMs: Int = 12_000,
+        readTimeoutMs: Int = 15_000,
+    ): Triple<Int, String, List<String>> {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
-            connectTimeout = 12_000
-            readTimeout = 15_000
+            connectTimeout = connectTimeoutMs
+            readTimeout = readTimeoutMs
             headers.forEach { (k, v) -> setRequestProperty(k, v) }
         }
         val code = conn.responseCode

@@ -74,7 +74,14 @@ object AccountSyncEngine {
         onProgress(SyncProgress.Orders)
         val outcome = when (account.platform) {
             Platform.PDD -> PddFetcher.fetch(activity, account.id, cookie, known, onProgress)
-            Platform.TB -> TbFetcher.fetch(account.id, cookie, known, onProgress)
+            Platform.TB -> TbFetcher.fetch(
+                activity = activity,
+                accountId = account.id,
+                cookie = cookie,
+                known = known,
+                neverSynced = account.lastSyncAt == null,
+                onProgress = onProgress,
+            )
             Platform.JD -> JdFetcher.fetch(activity, account.id, cookie, known, onProgress)
         }
         val at = System.currentTimeMillis()
@@ -127,11 +134,15 @@ object AccountSyncEngine {
                     accountId = account.id,
                     historyOrderSns = decision.historyOrderSns,
                     seenOrderSns = decision.seenOrderSns,
+                    retireOrderSns = decision.retireOrderSns,
                 )
                 repository.prefs.lastTransientFailureAt = 0L
                 /* 单件详情失败的数量属于本次抓取，不进库；带上它，状态行才不会把
                    「3 件没抓到」说成「没有新件」。 */
-                val withDetails = result.copy(detailsFailed = decision.detailsFailed)
+                val withDetails = result.copy(
+                    detailsFailed = decision.detailsFailed,
+                    fallbackCount = decision.fallbackCount,
+                )
                 repository.accounts.mark(account, AccountState.ACTIVE, syncSuccessMessage(withDetails), at)
                 return withDetails
             }
@@ -161,6 +172,10 @@ sealed interface SyncDecision {
         val seenOrderSns: Set<String> = emptySet(),
         /** 单件详情没抓到的数量；0 = 全部解析成功。 */
         val detailsFailed: Int = 0,
+        /** 用列表状态兜底的件数（轨迹待补）。 */
+        val fallbackCount: Int = 0,
+        /** 确认不是包裹的订单号（卡券/虚拟商品）：退休旧卡，不计入跳过统计。 */
+        val retireOrderSns: List<String> = emptyList(),
         val advanceLastSyncAt: Boolean = true,
     ) : SyncDecision
 }
@@ -190,6 +205,8 @@ internal fun decideSync(outcome: FetchOutcome): SyncDecision = when (outcome) {
         historyOrderSns = outcome.historyOrderSns,
         seenOrderSns = outcome.seenOrderSns,
         detailsFailed = outcome.detailsFailed,
+        fallbackCount = outcome.fallbackCount,
+        retireOrderSns = outcome.retireOrderSns,
     )
 }
 
@@ -203,7 +220,9 @@ internal fun decideSync(outcome: FetchOutcome): SyncDecision = when (outcome) {
 internal fun syncSuccessMessage(result: AccountSyncResult): String {
     val skipped = result.skippedHistory +
         result.skippedNoTracking + result.skippedNoPoint + result.skippedNoCode
-    if (result.added == 0 && result.updated == 0 && skipped == 0 && result.detailsFailed == 0) {
+    if (result.added == 0 && result.updated == 0 && skipped == 0 &&
+        result.detailsFailed == 0 && result.fallbackCount == 0
+    ) {
         return "$SYNC_OK_PREFIX · 没有新件"
     }
     return buildString {
@@ -224,6 +243,9 @@ internal fun syncSuccessMessage(result: AccountSyncResult): String {
         /* 中性陈述，不是告警：已解析到的件照常入库，只是这几条没读到。 */
         if (result.detailsFailed > 0) {
             append(" · ${result.detailsFailed} 件详情没抓到")
+        }
+        if (result.fallbackCount > 0) {
+            append(" · ${result.fallbackCount} 件轨迹待补")
         }
     }
 }

@@ -19,8 +19,10 @@ class TraceCorpusPrivacyTest {
 
     private companion object {
         const val FAKE_PHONE = "13800000000"
+        const val FAKE_LANDLINE = "021-00000000"
         val REAL_PHONE = Regex("1[3-9]\\d{9}")
         val MASKED_PHONE = Regex("1\\d{2}\\*\\*\\*\\*\\d{4}")
+        val REAL_LANDLINE = Regex("0\\d{2,3}-\\d{7,8}")
         val LONG_DIGITS = Regex("(?<![0-9])\\d{10,}(?![0-9])")
     }
 
@@ -30,11 +32,12 @@ class TraceCorpusPrivacyTest {
         assertTrue("traces 目录为空", files.isNotEmpty())
         val violations = files.flatMap { file ->
             val body = file.readText().substringAfter("\n---\n", "")
-            // 13800000000 是约定的假号，先摘掉再做检查
-            val noFake = body.replace(FAKE_PHONE, "")
+            // 13800000000 与 021-00000000 是约定的假号，先摘掉再做检查
+            val noFake = body.replace(FAKE_PHONE, "").replace(FAKE_LANDLINE, "")
             buildList {
                 if (REAL_PHONE.containsMatchIn(noFake)) add("${file.name}: phone")
                 if (MASKED_PHONE.containsMatchIn(noFake)) add("${file.name}: masked-phone")
+                if (REAL_LANDLINE.containsMatchIn(noFake)) add("${file.name}: landline")
                 if (LONG_DIGITS.containsMatchIn(noFake)) add("${file.name}: long-digits")
             }
         }

@@ -1,0 +1,10 @@
+id: tb-9022
+platform: TB
+tracking: 000000000000000002
+point: -
+fetched_at: 2026-11-09T17:47:00+08:00
+expected_stage: IN_TRANSIT
+production_stage: IN_TRANSIT
+---
+运输中 11-09 17:45
+【示例市】快件已发往 示例转运中心，如遇问题请致电【客服热线：021-00000000】

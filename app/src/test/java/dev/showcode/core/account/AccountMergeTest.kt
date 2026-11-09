@@ -436,10 +436,39 @@ class AccountMergeTest {
         assertTrue(isFinishedOrderPrompt("交易成功"))
         assertFalse(isFinishedOrderPrompt("待取件"))
 
+        /* DONE 的每种写法都必须能退休：两套词表不重合，老卡就会永远停在在途。 */
+        listOf("已收货", "确认收货", "签收成功", "已代收", "已投递", "已取件", "本人签收")
+            .forEach { assertTrue(it, isFinishedOrderPrompt(it)) }
+        assertFalse(isFinishedOrderPrompt("待确认收货"))
+
         assertTrue(isTerminalTrackStatus("OUT_CABINET"))
         assertTrue(isTerminalTrackStatus("SIGNED"))
         assertFalse(isTerminalTrackStatus("IN_CABINET"))
         assertFalse(isTerminalTrackStatus("DEPARTURE"))
+    }
+
+    @Test
+    fun `候选门 - 认不出的活跃状态照样抓详情`() {
+        assertTrue(needsDetailForPrompt("已揽件"))
+        assertTrue(needsDetailForPrompt("待取货"))
+        assertTrue(needsDetailForPrompt("等待确认收货"))
+        assertTrue(needsDetailForPrompt("尚未收录的状态"))
+        assertFalse(needsDetailForPrompt("已签收"))
+        assertFalse(needsDetailForPrompt("待付款"))
+        assertFalse(needsDetailForPrompt("交易关闭"))
+    }
+
+    @Test
+    fun `卡券与虚拟商品不进包裹列表`() {
+        assertTrue(isVirtualGoodsTitle("【李佳琦直播间双11彩妆节】千问办公会员月卡兑换码"))
+        assertTrue(isVirtualGoodsTitle("话费充值 50 元"))
+        assertTrue(isVirtualGoodsTitle("游戏点卡 100 元"))
+        assertTrue(isVirtualGoodsTitle("视频网站年卡激活码"))
+        assertFalse(isVirtualGoodsTitle("明日方舟 山山兔毛绒玩偶"))
+        assertFalse("虚拟现实是实体眼镜，不能误杀", isVirtualGoodsTitle("虚拟现实 VR 眼镜"))
+        assertFalse(isVirtualGoodsTitle("会员专享 抽纸 3 包"))
+        assertFalse(isVirtualGoodsTitle(null))
+        assertFalse(isVirtualGoodsTitle(""))
     }
 
     @Test
@@ -525,5 +554,48 @@ class AccountMergeTest {
         val actions = planAccountSync(listOf(a), emptyList())
         assertEquals(1, actions.size)
         assertTrue(actions.single() is AccountSyncAction.Insert)
+    }
+
+    @Test
+    fun `兜底条目覆盖老行 - 不抹掉运单号与承运商`() {
+        val old = parcel(
+            tracking = "SF1234567890123",
+            stage = Stage.IN_TRANSIT,
+            source = Source.ACCOUNT,
+            orderSn = "261109-100000000000001",
+            accountId = "tb",
+        ).copy(raw = "预计明天送达")
+        val fb = fallbackFetchedParcel(
+            platform = Platform.TB,
+            accountId = "tb",
+            orderSn = "261109-100000000000001",
+            prompt = "运输中",
+            goods = null,
+            at = 2_000,
+        )!!
+        val update = planAccountSync(listOf(fb), listOf(old)).single() as AccountSyncAction.Update
+        assertEquals("SF1234567890123", update.item.trackingNo)
+        assertEquals("中通快递", update.item.carrier)
+        assertEquals("预计明天送达", update.item.raw)
+    }
+
+    @Test
+    fun `兜底条目只允许推进阶段 - 不把派送中降回在途`() {
+        val old = parcel(
+            stage = Stage.DELIVERING,
+            source = Source.ACCOUNT,
+            orderSn = "261109-100000000000002",
+            accountId = "tb",
+        )
+        val fb = fallbackFetchedParcel(
+            platform = Platform.TB,
+            accountId = "tb",
+            orderSn = "261109-100000000000002",
+            prompt = "运输中",
+            goods = null,
+            at = 2_000,
+        )!!
+        val update = planAccountSync(listOf(fb), listOf(old)).single() as AccountSyncAction.Update
+        assertEquals(Stage.DELIVERING, update.stage)
     }
 }

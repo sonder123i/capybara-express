@@ -277,7 +277,10 @@ fun ShowCodeRoot() {
                 !it.picked && (
                     it.stage == dev.showcode.core.Stage.IN_TRANSIT ||
                         it.stage == dev.showcode.core.Stage.DELIVERING ||
-                        (it.stage == dev.showcode.core.Stage.AT_STATION && it.pointKey.isBlank())
+                        (it.stage == dev.showcode.core.Stage.AT_STATION && it.pointKey.isBlank()) ||
+                        /* 有身份（运单号/订单号）但阶段未知：至少进「信息待补」，绝不静默消失。 */
+                        (it.stage == dev.showcode.core.Stage.UNKNOWN &&
+                            (!it.trackingNo.isNullOrBlank() || !it.orderSn.isNullOrBlank()))
                     )
             }
             .sortedByDescending { it.receivedAt }

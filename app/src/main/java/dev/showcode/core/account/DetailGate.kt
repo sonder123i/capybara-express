@@ -25,13 +25,7 @@ const val DETAIL_REUSE_MS = 6L * 60 * 60 * 1000
  * 这里只看列表级文案，粒度和 [fallbackFetchedParcel] 一致：列表说不清到达与否时，
  * 不拿它去和库里的阶段做等值判断。
  */
-fun stageOfPrompt(prompt: String): Stage? = when {
-    prompt.contains("待取") || prompt.contains("已到") -> Stage.AT_STATION
-    prompt.contains("派送") || prompt.contains("派件") -> Stage.DELIVERING
-    prompt.contains("运输") || prompt.contains("已发货") || prompt.contains("已发出") ||
-        prompt.contains("已揽收") || prompt.contains("待收货") -> Stage.IN_TRANSIT
-    else -> null
-}
+fun stageOfPrompt(prompt: String): Stage? = OrderStage.stageOf(prompt)?.takeUnless { it == Stage.DONE }
 
 /**
  * 这次还要不要为 [orderSn] 抓详情。

@@ -81,6 +81,8 @@ data class AccountSyncResult(
     val at: Long,
     /** 单件详情没抓到的数量；0 = 全部解析成功。 */
     val detailsFailed: Int = 0,
+    /** 详情没抓到、用列表状态先展示的件数（轨迹待补）。 */
+    val fallbackCount: Int = 0,
 )
 
 data class AppData(
@@ -579,6 +581,8 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
         accountId: String = "",
         historyOrderSns: List<String> = emptyList(),
         seenOrderSns: Set<String> = emptySet(),
+        /** 确认不是包裹的订单（卡券/虚拟商品）：退休旧卡，但不计入跳过统计。 */
+        retireOrderSns: List<String> = emptyList(),
     ): AccountSyncResult = withContext(io) {
         var added = 0
         var updated = 0
@@ -602,6 +606,15 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
         } else {
             live.filter { isStaleTransitRow(it, accountId, seenOrderSns) }
         }
+        /* 卡券/虚拟商品不是包裹：库里同号的旧卡退休，但不计入「跳过」
+           （那不是漏抓，是被误收进来的非包裹件）。 */
+        val nonParcelTargets = if (retireOrderSns.isEmpty()) {
+            emptyList()
+        } else {
+            live.filter {
+                it.source == Source.ACCOUNT && it.accountId == accountId && it.orderSn in retireOrderSns
+            }
+        }
 
         /* 退休与本次合并必须同一个事务：否则一次失败会留下「退了但没写回」的中间态，
            而退休行只能靠下一次同步自愈。刷新快照也在事务内读，写完到展示之间没有空窗。 */
@@ -612,6 +625,12 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
                 Slog.i(TAG) {
                     "retire stray sn=${Slog.mask(it.orderSn)} tracking=${Slog.mask(it.trackingNo)} " +
                         "stage=${it.stage} reason=gone-from-live-order-set"
+                }
+                db.updateParcel(it.id, retireValues())
+            }
+            nonParcelTargets.forEach {
+                Slog.i(TAG) {
+                    "retire non-parcel sn=${Slog.mask(it.orderSn)} title=${it.goodsTitle?.take(20) ?: "<无>"}"
                 }
                 db.updateParcel(it.id, retireValues())
             }

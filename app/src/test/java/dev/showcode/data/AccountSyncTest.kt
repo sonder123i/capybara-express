@@ -72,6 +72,19 @@ class AccountSyncTest {
         assertEquals("同步成功 · 新增 2 · 更新 1", syncSuccessMessage(result))
     }
 
+    @Test
+    fun virtualGoodsRetirementIsNotReportedAsSkippedHistory() {
+        val decision = decideSync(
+            FetchOutcome.Success(emptyList(), retireOrderSns = listOf("000000000000000003")),
+        ) as SyncDecision.Succeeded
+        assertEquals(listOf("000000000000000003"), decision.retireOrderSns)
+        /* 卡券不是「已签收的历史单」：退休它不该在状态行冒充跳过。 */
+        assertEquals(
+            "同步成功 · 没有新件",
+            syncSuccessMessage(AccountSyncResult(0, 0, 0, 0, 0, 0, 0L)),
+        )
+    }
+
     /**
      * `last_sync_result` 没有单独的布尔位；同步轨道靠这个前缀判断上次是成功还是失败。
      * 这条一破，「成功但新增 0」的账号就会在首页被标成琥珀色失败。
@@ -106,6 +119,18 @@ class AccountSyncTest {
         )
         /* 不能吞成「没有新件」：3 件详情没抓到必须说出来。 */
         assertEquals("同步成功 · 新增 0 · 更新 0 · 3 件详情没抓到", syncSuccessMessage(result))
+        assertFalse(syncSuccessMessage(result).contains("没有新件"))
+    }
+
+    @Test
+    fun fallbackParcelsAreVisibleInSummary() {
+        val result = AccountSyncResult(
+            added = 3, updated = 0,
+            skippedHistory = 0, skippedNoTracking = 0, skippedNoPoint = 0, skippedNoCode = 0,
+            at = 0L,
+            fallbackCount = 2,
+        )
+        assertEquals("同步成功 · 新增 3 · 更新 0 · 2 件轨迹待补", syncSuccessMessage(result))
         assertFalse(syncSuccessMessage(result).contains("没有新件"))
     }
 

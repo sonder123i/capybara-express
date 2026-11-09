@@ -19,6 +19,7 @@ import dev.showcode.core.account.FetchOutcome
 import dev.showcode.core.account.FailureKind
 import dev.showcode.core.account.FetchedParcel
 import dev.showcode.core.account.GoodsInfo
+import dev.showcode.core.account.OrderStage
 import dev.showcode.core.account.Platform
 import dev.showcode.core.account.Session
 import dev.showcode.core.account.SyncPhase
@@ -29,6 +30,8 @@ import dev.showcode.core.account.detailNeeded
 import dev.showcode.core.account.goodsPriceText
 import dev.showcode.core.account.isBlockedOrderPrompt
 import dev.showcode.core.account.isFinishedOrderPrompt
+import dev.showcode.core.account.isVirtualGoodsTitle
+import dev.showcode.core.account.needsDetailForPrompt
 import dev.showcode.core.account.normalizeImageUrl
 import dev.showcode.core.account.orderTimeMs
 import dev.showcode.core.account.stageOfPrompt
@@ -140,18 +143,24 @@ object JdFetcher {
                 /* 取消/关闭/退款/待付款的单也要带回来：它们既是退休旧卡的证据，
                    也是「这次见过哪些单」的一部分。历史单不再占用详情名额。 */
                 val orders = parseOrders(captures)
+                /* 卡券/虚拟商品没有物流签收：不进详情，也不留在首页；老行交给退休。 */
+                val virtualIds = orders.filter {
+                    isVirtualGoodsTitle(it.goods?.title) || isVirtualGoodsTitle(known[it.id]?.goodsTitle)
+                }.map { it.id }.toSet()
                 val history = orders.filter { closesOrder(it.status) }.map { it.id }
                 /* 先剔除「状态没变、运单号与码都在」的单再占详情名额：
                    它们这次进详情拿回来的会和上次是同一段文字。判据见 core/account/DetailGate.kt。 */
                 val now = System.currentTimeMillis()
-                val pending = orders.filter { needsDetail(it) }.sortedBy { detailRank(it.status) }
+                val pending = orders.filter { needsDetail(it) && it.id !in virtualIds }
+                    .sortedBy { detailRank(it.status) }
                 val candidates = pending
                     .filter { detailNeeded(it.id, it.stage, known, now) }
                     .take(MAX_DETAILS)
                 Slog.safe(
                     TAG,
                     "orders=${orders.size} pending=${pending.size} candidates=${candidates.size} " +
-                        "skip=${pending.size - candidates.size} history=${history.size}",
+                        "skip=${pending.size - candidates.size} history=${history.size} " +
+                        "virtual=${virtualIds.size}",
                 )
                 val result = mutableListOf<FetchedParcel>()
                 var detailsFailed = 0
@@ -178,7 +187,13 @@ object JdFetcher {
                 } else {
                     emptySet()
                 }
-                FetchOutcome.Success(result, history, seen, detailsFailed)
+                FetchOutcome.Success(
+                    parcels = result,
+                    historyOrderSns = history,
+                    seenOrderSns = seen,
+                    detailsFailed = detailsFailed,
+                    retireOrderSns = virtualIds.toList(),
+                )
             } catch (t: Throwable) {
                 Slog.w(TAG, t) { "fetch failed" }
                 FetchOutcome.Failure("抓取中断：${t.message ?: "未知错误"}")
@@ -295,17 +310,14 @@ object JdFetcher {
     private fun closesOrder(status: String): Boolean =
         isBlockedOrderPrompt(status) || isFinishedOrderPrompt(status)
 
-    /** 待付款/未支付的单根本没有物流可抓，别浪费详情名额。 */
-    private fun needsDetail(order: Order): Boolean =
-        !closesOrder(order.status) &&
-            !order.status.contains("待付款") && !order.status.contains("未支付")
+    /** 待付款/未支付的单根本没有物流可抓；认不出的活跃状态仍要抓（见 core 的判据）。 */
+    private fun needsDetail(order: Order): Boolean = needsDetailForPrompt(order.status)
 
     /** 真正待取/在途的排在前面；历史单已经在外面被剔除了。 */
-    private fun detailRank(status: String): Int = when {
-        status.contains("待取") || status.contains("已到") -> 0
-        status.contains("派件") || status.contains("派送") || status.contains("待收货") -> 1
-        status.contains("运输") || status.contains("已发货") || status.contains("已发出") ||
-            status.contains("已揽收") -> 2
+    private fun detailRank(status: String): Int = when (OrderStage.stageOf(status)) {
+        Stage.AT_STATION -> 0
+        Stage.DELIVERING -> 1
+        Stage.IN_TRANSIT -> 2
         else -> 3
     }
 
@@ -385,18 +397,10 @@ object JdFetcher {
         withTimeoutOrNull(6_000) {
             suspendCancellableCoroutine { cont ->
                 web.evaluateJavascript(js) { value ->
-                    if (cont.isActive) cont.resume(jsString(value))
+                    if (cont.isActive) cont.resume(decodeJsString(value))
                 }
             }
         }
-
-    private fun jsString(value: String?): String? {
-        if (value == null || value == "null") return null
-        return runCatching {
-            val v = JSONTokener(value).nextValue()
-            if (v is String) v else value
-        }.getOrDefault(value)
-    }
 
     /** 返回这一轮抓取缓冲是否读得到；读不到但页面没发请求就是失败，不是「没有件」。 */
     private suspend fun readsCaps(web: WebView, out: MutableList<String>): Boolean {

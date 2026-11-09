@@ -28,12 +28,17 @@ sealed interface FetchOutcome {
      * 库里之前入库、这次彻底不见的在途行属于残留轨迹，要退休；空集表示抓取不完整，不做退休。
      * @param detailsFailed 单件详情没抓到的数量。它不影响整批已拿到的件，但必须说出来，
      * 不能把「N 件没抓到」吞成「没有新件」。
+     * @param retireOrderSns 确认「不是包裹」的订单号（卡券/虚拟商品）。库里同号的旧卡要退休，
+     * 但这不属于「跳过」，不进同步文案的跳过统计。
      */
     data class Success(
         val parcels: List<FetchedParcel>,
         val historyOrderSns: List<String> = emptyList(),
         val seenOrderSns: Set<String> = emptySet(),
         val detailsFailed: Int = 0,
+        /** 用列表状态兜底、轨迹还没拿到的件数。必须说出来，不能冒充完整轨迹。 */
+        val fallbackCount: Int = 0,
+        val retireOrderSns: List<String> = emptyList(),
     ) : FetchOutcome
 
     data class Failure(val reason: String, val kind: FailureKind = FailureKind.TRANSIENT) : FetchOutcome

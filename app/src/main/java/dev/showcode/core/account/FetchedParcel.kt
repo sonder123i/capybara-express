@@ -31,4 +31,9 @@ data class FetchedParcel(
     val goodsPrice: String? = null,
     val shopName: String? = null,
     val orderedAt: Long? = null,
+    /**
+     * true = 详情没拿到，这条是用订单列表状态兜底拼出来的：
+     * 没有运单号、承运商只是占位、raw 只有列表文案。合并时不许拿它覆盖老行的这些字段。
+     */
+    val fromListFallback: Boolean = false,
 )

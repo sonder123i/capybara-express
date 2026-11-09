@@ -728,6 +728,9 @@ internal fun inTransitStatus(parcel: Parcel): String {
     if (parcel.stage == dev.showcode.core.Stage.AT_STATION && parcel.pointKey.isBlank()) {
         return "待取 · 取件信息待补，下次同步会补全"
     }
+    if (parcel.stage == dev.showcode.core.Stage.UNKNOWN) {
+        return "状态未知 · 轨迹待补，下次同步会补全"
+    }
     /* 物流页的 innerText 第一行往往是承运商和运单号，直接取会得出「运输中 · 申通快递」这种废话。
        优先找带「预计…送达/到达」的那句，它才是用户真正想知道的状态。 */
     val eta = IN_TRANSIT_ETA.find(parcel.raw)?.value
