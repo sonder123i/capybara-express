@@ -121,6 +121,8 @@ object ShowCodeShapes {
     val Thumb = RoundedCornerShape(10.dp)
     /** 行内控件（详情页的淘宝交接按钮）：介于 Sm 与 Md 之间。 */
     val Control = RoundedCornerShape(14.dp)
+    /** 居中玻璃弹窗。单独一档，避免 UI 层出现圆角裸值。 */
+    val Modal = RoundedCornerShape(28.dp)
     val Pill = RoundedCornerShape(50)
 }
 

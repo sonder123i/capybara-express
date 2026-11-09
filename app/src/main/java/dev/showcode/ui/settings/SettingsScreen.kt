@@ -1,10 +1,7 @@
 package dev.showcode.ui.settings
 
-import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,12 +37,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +53,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.showcode.BuildConfig
+import dev.showcode.app
 import dev.showcode.R
 import dev.showcode.core.HOUR_MS
 import dev.showcode.core.HealthIssue
@@ -67,10 +63,10 @@ import dev.showcode.core.Urgency
 import dev.showcode.core.UrgencyThresholds
 import dev.showcode.core.urgencyOf
 import dev.showcode.data.Prefs
+import dev.showcode.data.update.DownloadPhase
+import dev.showcode.data.update.UpdateCenter
 import dev.showcode.data.update.UpdateChecker
-import dev.showcode.data.update.UpdateInfo
-import dev.showcode.data.update.UpdateInstaller
-import dev.showcode.data.update.UpdateResult
+import dev.showcode.data.update.UpdateState
 import androidx.compose.material3.Switch
 import dev.showcode.ui.navBarClearance
 import dev.showcode.ui.inbox.ScreenTopBar
@@ -91,12 +87,6 @@ import dev.showcode.ui.theme.SurfaceSunken
 import dev.showcode.ui.theme.UrgencyAtRisk
 import dev.showcode.ui.theme.UrgencyDueSoon
 import dev.showcode.ui.theme.UrgencyDueSoonTint
-import androidx.core.content.ContextCompat
-import java.io.File
-import java.util.Locale
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import dev.showcode.ui.theme.UrgencySafe
 import kotlin.math.roundToInt
 
@@ -158,94 +148,12 @@ fun SettingsScreen(
     var familyLabelDraft by remember { mutableStateOf(familyLabel) }
     val dueSoon = parcels.filter { !it.picked && urgencyOf(it, now, thresholds) == Urgency.DUE_SOON }
 
-    /* ── 更新：只有用户按「检查更新」时才会访问网络 ─────────────────── */
+    /* ── 更新：状态住在 UpdateCenter 里，不跟着这一屏生灭 ───────────── */
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var updateState by remember { mutableStateOf<UpdateUi>(UpdateUi.Idle) }
-
-    fun checkUpdate() {
-        if (updateState is UpdateUi.Checking) return
-        updateState = UpdateUi.Checking
-        scope.launch {
-            updateState = when (val result = UpdateChecker.check(BuildConfig.VERSION_NAME)) {
-                UpdateResult.UpToDate -> UpdateUi.UpToDate
-                UpdateResult.NoRelease -> UpdateUi.NoRelease
-                is UpdateResult.Failed -> UpdateUi.Failed(result.reason)
-                is UpdateResult.Available -> UpdateUi.Available(result.info)
-            }
-        }
-    }
-
-    fun download(info: UpdateInfo) {
-        if (info.sha256.isNullOrBlank()) {
-            openUpdatePage(context, info.pageUrl)
-            return
-        }
-        val id = UpdateInstaller.enqueue(context, info)
-        updateState = if (id != null) {
-            UpdateUi.Available(info, downloading = id)
-        } else {
-            UpdateUi.Failed("下载没起来，稍后再试")
-        }
-    }
-
-    fun install(file: File) {
-        when (val result = UpdateInstaller.install(context, file)) {
-            UpdateInstaller.Install.Started -> Unit
-            UpdateInstaller.Install.NeedsPermission -> {
-                context.startActivity(UpdateInstaller.permissionSettings(context))
-                updateState = UpdateUi.Failed("允许「安装未知应用」后再点一次安装")
-            }
-            is UpdateInstaller.Install.Failed -> updateState = UpdateUi.Failed(result.reason)
-        }
-    }
-
-    /* 下载在系统里跑，回到这一屏时看结果；下载完成后也算一遍 SHA-256，不对就删。 */
-    DisposableEffect(context) {
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context?, intent: Intent?) {
-                if (intent?.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
-                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
-                val current = updateState
-                if (current !is UpdateUi.Available || current.downloading != id) return
-                scope.launch {
-                    val file = UpdateInstaller.fileFor(context, current.info.versionName)
-                    val ok = withContext(Dispatchers.IO) {
-                        UpdateInstaller.verify(file, current.info.sha256)
-                    }
-                    updateState = if (ok) {
-                        current.copy(downloaded = file, downloading = null)
-                    } else {
-                        runCatching { file.delete() }
-                        UpdateUi.Failed("校验失败，已删除下载")
-                    }
-                }
-            }
-        }
-        ContextCompat.registerReceiver(
-            context,
-            receiver,
-            IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-            ContextCompat.RECEIVER_EXPORTED,
-        )
-        onDispose { runCatching { context.unregisterReceiver(receiver) } }
-    }
-
-    /* 上一次已经下好、用户这次才回来：不再重复下载。 */
-    LaunchedEffect(updateState) {
-        val current = updateState as? UpdateUi.Available ?: return@LaunchedEffect
-        if (current.downloaded != null || current.downloading != null) return@LaunchedEffect
-        val file = UpdateInstaller.fileFor(context, current.info.versionName)
-        if (!file.exists()) return@LaunchedEffect
-        val ok = withContext(Dispatchers.IO) {
-            UpdateInstaller.verify(file, current.info.sha256)
-        }
-        if (ok) {
-            updateState = current.copy(downloaded = file)
-        } else {
-            runCatching { file.delete() }
-        }
-    }
+    val updateCenter = remember(context) { UpdateCenter.get(context) }
+    val updateState by updateCenter.state.collectAsState()
+    val prefs = remember(context) { context.app.repository.prefs }
+    var autoCheckUpdate by remember { mutableStateOf(prefs.autoCheckUpdate) }
 
     Column(
         modifier = Modifier
@@ -580,11 +488,20 @@ fun SettingsScreen(
                     Box(modifier = Modifier.moduleEntrance(3)) {
                         AboutCard(
                             state = updateState,
-                            onCheck = ::checkUpdate,
-                            onDownload = ::download,
-                            onInstall = ::install,
+                            autoCheck = autoCheckUpdate,
+                            onToggleAutoCheck = { on ->
+                                autoCheckUpdate = on
+                                prefs.autoCheckUpdate = on
+                            },
+                            onCheck = { updateCenter.check(manual = true) },
+                            onDownload = { updateCenter.download() },
+                            onCancel = { updateCenter.cancelDownload() },
+                            onInstall = { updateCenter.install() },
                             onOpenPage = { openUpdatePage(context, it) },
-                            onDismiss = { updateState = UpdateUi.Idle },
+                            onStar = {
+                                prefs.starred = true
+                                openUpdatePage(context, dev.showcode.ui.PROJECT_STAR_URL)
+                            },
                         )
                     }
                 }
@@ -995,29 +912,17 @@ private fun HealthRow(
 
 /* ── 更新 ───────────────────────────────────────────────────────────── */
 
-private sealed interface UpdateUi {
-    data object Idle : UpdateUi
-    data object Checking : UpdateUi
-    data object UpToDate : UpdateUi
-    data object NoRelease : UpdateUi
-    data class Failed(val message: String) : UpdateUi
-    data class Available(
-        val info: UpdateInfo,
-        /** DownloadManager 的 id；非空 = 正在下载。 */
-        val downloading: Long? = null,
-        /** 已经下载并通过 SHA-256 校验的包。 */
-        val downloaded: File? = null,
-    ) : UpdateUi
-}
-
 @Composable
 private fun AboutCard(
-    state: UpdateUi,
+    state: UpdateState,
+    autoCheck: Boolean,
+    onToggleAutoCheck: (Boolean) -> Unit,
     onCheck: () -> Unit,
-    onDownload: (UpdateInfo) -> Unit,
-    onInstall: (File) -> Unit,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onInstall: () -> Unit,
     onOpenPage: (String) -> Unit,
-    onDismiss: () -> Unit,
+    onStar: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -1039,7 +944,7 @@ private fun AboutCard(
                     color = InkMuted,
                 )
             }
-            val busy = state is UpdateUi.Checking
+            val busy = state is UpdateState.Checking
             Text(
                 text = stringResource(
                     if (busy) R.string.settings_update_checking else R.string.settings_update_check
@@ -1052,27 +957,49 @@ private fun AboutCard(
             )
         }
         when (state) {
-            UpdateUi.Idle, UpdateUi.Checking -> Unit
-            UpdateUi.UpToDate -> UpdateLine(stringResource(R.string.settings_update_latest), InkMuted)
-            UpdateUi.NoRelease -> UpdateLine(stringResource(R.string.settings_update_none), InkMuted)
-            is UpdateUi.Failed -> UpdateLine(state.message, UrgencyDueSoon)
-            is UpdateUi.Available -> AvailableUpdate(
+            UpdateState.Idle, UpdateState.Checking -> Unit
+            UpdateState.UpToDate -> UpdateLine(stringResource(R.string.settings_update_latest), InkMuted)
+            UpdateState.NoRelease -> UpdateLine(stringResource(R.string.settings_update_none), InkMuted)
+            is UpdateState.Failed -> UpdateLine(state.message, UrgencyDueSoon)
+            is UpdateState.Available -> AvailableUpdate(
                 state = state,
                 onDownload = onDownload,
+                onCancel = onCancel,
                 onInstall = onInstall,
                 onOpenPage = onOpenPage,
-                onDismiss = onDismiss,
             )
         }
+
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.settings_update_auto),
+                    style = ShowCodeText.Meta,
+                    color = Ink,
+                )
+                Text(
+                    text = stringResource(R.string.settings_update_auto_hint),
+                    style = ShowCodeText.Caption,
+                    color = InkMuted,
+                )
+            }
+            Switch(checked = autoCheck, onCheckedChange = onToggleAutoCheck)
+        }
+
         Spacer(Modifier.height(10.dp))
         Text(
-            text = stringResource(R.string.settings_update_note),
-            style = ShowCodeText.Caption,
-            color = InkMuted,
+            text = stringResource(R.string.settings_update_star),
+            modifier = Modifier
+                .clickable(onClick = onStar)
+                .padding(vertical = 6.dp),
+            style = ShowCodeText.Action,
+            color = AccentInk,
         )
+
         /* 只在「没查到 / 没发布」时给两条发布页兜底；正常态不摆链接。 */
-        if (state is UpdateUi.Failed || state is UpdateUi.NoRelease) {
-            Spacer(Modifier.height(4.dp))
+        if (state is UpdateState.Failed || state is UpdateState.NoRelease) {
+            Spacer(Modifier.height(2.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(
                     text = "Gitee",
@@ -1103,11 +1030,11 @@ private fun UpdateLine(text: String, color: Color) {
 
 @Composable
 private fun AvailableUpdate(
-    state: UpdateUi.Available,
-    onDownload: (UpdateInfo) -> Unit,
-    onInstall: (File) -> Unit,
+    state: UpdateState.Available,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onInstall: () -> Unit,
     onOpenPage: (String) -> Unit,
-    onDismiss: () -> Unit,
 ) {
     val info = state.info
     Spacer(Modifier.height(10.dp))
@@ -1127,51 +1054,86 @@ private fun AvailableUpdate(
     Spacer(Modifier.height(4.dp))
     val meta = listOfNotNull(
         info.source.label,
-        info.sizeBytes?.let(::sizeText),
+        updateSizeText(info.sizeBytes),
         if (info.sha256.isNullOrBlank()) stringResource(R.string.settings_update_no_hash) else null,
     ).joinToString(" · ")
     Text(text = meta, style = ShowCodeText.Caption, color = InkMuted)
-    Spacer(Modifier.height(6.dp))
-    when {
-        state.downloaded != null -> Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(
-                text = stringResource(R.string.settings_update_install),
-                modifier = Modifier
-                    .clickable { state.downloaded?.let(onInstall) }
-                    .padding(vertical = 4.dp),
-                style = ShowCodeText.Action,
-                color = AccentInk,
-            )
-            Text(
-                text = stringResource(R.string.settings_update_later),
-                modifier = Modifier.clickable { onDismiss() }.padding(vertical = 4.dp),
-                style = ShowCodeText.Action,
-                color = InkMuted,
-            )
-        }
-        state.downloading != null -> Text(
-            text = stringResource(R.string.settings_update_downloading),
-            style = ShowCodeText.Meta,
+
+    if (state.phase in setOf(DownloadPhase.Downloading, DownloadPhase.Paused, DownloadPhase.Verifying)) {
+        Spacer(Modifier.height(8.dp))
+        UpdateProgressBar(state.progressFraction())
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = if (state.phase == DownloadPhase.Verifying) {
+                stringResource(R.string.update_dialog_verifying)
+            } else {
+                state.progressText()
+            },
+            style = ShowCodeText.Caption,
             color = InkMuted,
         )
-        else -> Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            val manual = info.sha256.isNullOrBlank()
-            Text(
-                text = stringResource(
-                    if (manual) R.string.settings_update_manual else R.string.settings_update_download
-                ),
+    }
+    state.notice?.let {
+        Spacer(Modifier.height(6.dp))
+        Text(text = it, style = ShowCodeText.Meta, color = UrgencyDueSoon)
+    }
+
+    Spacer(Modifier.height(6.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        when (state.phase) {
+            DownloadPhase.Ready -> Text(
+                text = stringResource(R.string.settings_update_install),
                 modifier = Modifier
-                    .clickable { if (manual) onOpenPage(info.pageUrl) else onDownload(info) }
+                    .clickable(onClick = onInstall)
                     .padding(vertical = 4.dp),
                 style = ShowCodeText.Action,
                 color = AccentInk,
             )
-            Text(
-                text = stringResource(R.string.settings_update_later),
-                modifier = Modifier.clickable { onDismiss() }.padding(vertical = 4.dp),
+            DownloadPhase.Verifying -> Text(
+                text = stringResource(R.string.update_dialog_verifying_short),
+                modifier = Modifier.padding(vertical = 4.dp),
                 style = ShowCodeText.Action,
                 color = InkMuted,
             )
+            DownloadPhase.Downloading -> Text(
+                text = stringResource(R.string.settings_update_cancel),
+                modifier = Modifier
+                    .clickable(onClick = onCancel)
+                    .padding(vertical = 4.dp),
+                style = ShowCodeText.Action,
+                color = InkMuted,
+            )
+            DownloadPhase.Paused -> {
+                Text(
+                    text = stringResource(R.string.settings_update_redownload),
+                    modifier = Modifier
+                        .clickable(onClick = onDownload)
+                        .padding(vertical = 4.dp),
+                    style = ShowCodeText.Action,
+                    color = AccentInk,
+                )
+                Text(
+                    text = stringResource(R.string.settings_update_cancel),
+                    modifier = Modifier
+                        .clickable(onClick = onCancel)
+                        .padding(vertical = 4.dp),
+                    style = ShowCodeText.Action,
+                    color = InkMuted,
+                )
+            }
+            DownloadPhase.Idle -> {
+                val manual = info.sha256.isNullOrBlank()
+                Text(
+                    text = stringResource(
+                        if (manual) R.string.settings_update_manual else R.string.settings_update_download
+                    ),
+                    modifier = Modifier
+                        .clickable { if (manual) onOpenPage(info.pageUrl) else onDownload() }
+                        .padding(vertical = 4.dp),
+                    style = ShowCodeText.Action,
+                    color = AccentInk,
+                )
+            }
         }
     }
 }
@@ -1183,10 +1145,3 @@ private fun openUpdatePage(context: Context, url: String) {
         )
     }
 }
-
-private fun sizeText(bytes: Long): String =
-    if (bytes >= 1024 * 1024) {
-        String.format(Locale.US, "%.1f MB", bytes / 1024f / 1024f)
-    } else {
-        String.format(Locale.US, "%d KB", (bytes / 1024).coerceAtLeast(1))
-    }

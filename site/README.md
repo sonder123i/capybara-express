@@ -42,7 +42,7 @@ cd site && python -m http.server 8899
 
 | 页面上的说法 | 出处 |
 |---|---|
-| 12.09 MB | `showcode-0.4.4.apk` 实际大小 |
+| 12.09 MB | `showcode-0.4.5.apk` 实际大小 |
 | minSdk 26 | `app/build.gradle.kts` |
 | 18 小时免费 / 0.5 元每 12 小时 / 封顶 3 元 | `README.md:70-71` |
 | 字号 `min(基准, 140 / 字符数 × 屏宽)` | `README.md:78` |

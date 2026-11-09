@@ -38,8 +38,8 @@ sealed interface UpdateResult {
 /**
  * 检查更新。
  *
- * 只在用户按「检查更新」时调用一次，不做任何后台轮询——这个 App 的隐私承诺是
- * 「不绑定平台就一个网络请求都不发」，更新检查是用户主动打开的那扇门。
+ * 由 `UpdateCenter` 在两种时机调用：启动后（6 小时最多一次，可在设置里关掉）与用户
+ * 手动按「检查更新」。没有后台轮询，也不带账号信息——只问公开的 Release API。
  *
  * 两个源都走公开的 Release API，JSON 形状基本一致（Gitee 的 `assets[]` 与 GitHub 同构）。
  * Gitee 默认按旧到新排序，所以显式带 `direction=desc`；两边的结果取版本更高的那个，

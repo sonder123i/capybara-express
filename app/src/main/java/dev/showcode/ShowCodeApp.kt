@@ -31,7 +31,11 @@ class ShowCodeApp : Application(), coil3.SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         // 先于任何一次渲染：读上一次进程的退出原因，只留证据、不关玻璃（见 GlassRuntimeGuard）。
-        GlassRuntimeGuard.initialize(this, Prefs(this))
+        val prefs = Prefs(this)
+        GlassRuntimeGuard.initialize(this, prefs)
+        /* 启动次数在 Application 里加，不在 Composable 里加：转屏、换深色都不会重开进程，
+           而「第几次启动」问的是进程，不是组合。Star 弹窗靠它决定开不开口。 */
+        prefs.launchCount = prefs.launchCount + 1
         repository = ParcelRepository(this, ShowCodeDb(this))
         // 组件是用户不打开 App 也会看到的表面：数据或阈值一变它就得跟着重绘
         repository.onDataChange = { PickupWidgetProvider.updateAll(this) }

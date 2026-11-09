@@ -3,6 +3,7 @@ package dev.showcode.data.update
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -46,6 +47,42 @@ object UpdateInstaller {
         return runCatching { manager.enqueue(request) }.getOrNull()
     }
 
+    /** 某一笔下载的当前状态。没有这笔（被系统清掉、被用户删了）返回 null。 */
+    data class Progress(val status: Int, val bytes: Long, val total: Long, val reason: Int) {
+        val running get() = status == DownloadManager.STATUS_RUNNING || status == DownloadManager.STATUS_PENDING
+        val paused get() = status == DownloadManager.STATUS_PAUSED
+        val successful get() = status == DownloadManager.STATUS_SUCCESSFUL
+    }
+
+    fun progress(context: Context, id: Long): Progress? {
+        val manager = context.getSystemService(DownloadManager::class.java) ?: return null
+        return runCatching {
+            manager.query(DownloadManager.Query().setFilterById(id))?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use null
+                fun column(name: String) = cursor.getColumnIndexOrThrow(name)
+                Progress(
+                    status = cursor.getInt(column(DownloadManager.COLUMN_STATUS)),
+                    bytes = cursor.getLong(column(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                        .coerceAtLeast(0),
+                    total = cursor.getLong(column(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                        .coerceAtLeast(0),
+                    reason = cursor.getInt(column(DownloadManager.COLUMN_REASON)),
+                )
+            }
+        }.getOrNull()
+    }
+
+    /**
+     * 取消会把系统里的记录和文件一起删掉；调用方负责把本地状态也退回「未下载」。
+     *
+     * 没有暂停/继续：`DownloadManager.pauseDownload` 是系统内部接口，公开 SDK 里不存在。
+     * 想要可暂停就只能自建下载器——那会把「切走、锁屏、App 被杀仍能继续」一起丢掉，
+     * 对一次十几 MB 的更新不值得。下载在通知栏里看得见，也随时可以取消。
+     */
+    fun cancel(context: Context, id: Long) {
+        runCatching { context.getSystemService(DownloadManager::class.java)?.remove(id) }
+    }
+
     /** 算文件自己的 SHA-256，和发布页给的对比。expected 为空一律算失败。 */
     fun verify(file: File, expected: String?): Boolean {
         if (expected.isNullOrBlank() || !file.exists()) return false
@@ -61,6 +98,54 @@ object UpdateInstaller {
         val actual = digest.digest().joinToString("") { "%02x".format(it) }
         return actual.equals(expected, ignoreCase = true)
     }
+
+    /**
+     * 装之前再确认一次「这确实是本应用的新版本」，返回 null 表示通过。
+     *
+     * SHA-256 只能证明「文件没被换过」——它证明不了这个包属于本应用。一个被换了内容的
+     * Release 资产只要同时改掉 SHA256SUMS.txt 就能过第一道关；包名与签名这两条是
+     * 换不掉的，所以必须在拉起安装器之前再拦一次。
+     *
+     * 不比对 `versionName`：发布标签可能带 `-beta` 之类的后缀，而 APK 里的 versionName
+     * 是干净的三段式；拿它们比会把合法更新挡在门外。版本前进看 versionCode 就够。
+     */
+    fun identityProblem(context: Context, file: File): String? {
+        if (!file.exists()) return "安装包不在了，重新下载一次"
+        val pm = context.packageManager
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            @Suppress("DEPRECATION")
+            PackageManager.GET_SIGNATURES
+        }
+        val archive = pm.getPackageArchiveInfo(file.path, flags) ?: return "无法识别这个安装包"
+        if (archive.packageName != context.packageName) return "安装包不是本应用，已删除"
+        val installed = runCatching { pm.getPackageInfo(context.packageName, flags) }.getOrNull()
+            ?: return "读不到本机应用信息"
+        if (versionCodeOf(archive) <= versionCodeOf(installed)) return "这个安装包不比当前版本新"
+        val incoming = signaturesOf(archive)
+        val current = signaturesOf(installed)
+        if (incoming.isEmpty() || current.isEmpty() || incoming != current) {
+            return "安装包签名与当前应用不一致，已删除"
+        }
+        return null
+    }
+
+    private fun versionCodeOf(info: android.content.pm.PackageInfo): Long =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            info.versionCode.toLong()
+        }
+
+    private fun signaturesOf(info: android.content.pm.PackageInfo): Set<String> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet().orEmpty()
+        } else {
+            @Suppress("DEPRECATION")
+            info.signatures?.map { it.toCharsString() }?.toSet().orEmpty()
+        }
 
     sealed interface Install {
         data object Started : Install

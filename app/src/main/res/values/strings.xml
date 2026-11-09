@@ -543,13 +543,47 @@
     <string name="settings_update_latest">已是最新版本</string>
     <string name="settings_update_none">还没有发布记录</string>
     <string name="settings_update_available">新版本 %1$s</string>
-    <string name="settings_update_note">只在你按的时候访问 Gitee / GitHub，不做后台检查。</string>
+    <string name="settings_update_note">启动后 6 小时内最多查一次，也可以随时手动检查；只在设置里关掉自动检查后才会完全不发请求。</string>
     <string name="settings_update_no_hash">无校验和</string>
     <string name="settings_update_download">下载并安装</string>
     <string name="settings_update_manual">去发布页下载</string>
     <string name="settings_update_install">安装</string>
     <string name="settings_update_later">稍后</string>
     <string name="settings_update_downloading">正在下载…（通知栏可见）</string>
+    <string name="settings_update_pause">暂停</string>
+    <string name="settings_update_resume">继续</string>
+    <string name="settings_update_redownload">重新下载</string>
+    <string name="settings_update_cancel">取消下载</string>
+    <string name="settings_update_auto">启动时检查更新</string>
+    <string name="settings_update_auto_hint">6 小时内最多一次。关掉后更新只剩你按「检查更新」时才会查。</string>
+    <string name="settings_update_star">给项目点个 Star</string>
+
+    <!-- 更新弹窗 -->
+    <string name="update_dialog_title">发现新版本 %1$s</string>
+    <string name="update_dialog_current">当前 %1$s</string>
+    <string name="update_dialog_download">下载更新</string>
+    <string name="update_dialog_downloading">正在下载…</string>
+    <string name="update_dialog_redownload">重新下载</string>
+    <string name="update_dialog_pause">暂停下载</string>
+    <string name="update_dialog_resume">继续下载</string>
+    <string name="update_dialog_install">安装更新</string>
+    <string name="update_dialog_open_page">去发布页下载</string>
+    <string name="update_dialog_later">稍后提醒</string>
+    <string name="update_dialog_background">后台继续下载</string>
+    <string name="update_dialog_cancel">取消这次下载</string>
+    <string name="update_dialog_verifying">正在校验安装包…</string>
+    <string name="update_dialog_verifying_short">校验中…</string>
+    <string name="update_dialog_ready">已通过 SHA-256 校验，可以安装。</string>
+    <string name="update_dialog_progress">%1$d%% · %2$s / %3$s</string>
+
+    <!-- Star 邀请 -->
+    <string name="star_prompt_title">如果它帮到了你</string>
+    <string name="star_prompt_title_last">最后一次邀请</string>
+    <string name="star_prompt_body">取一个快递，要在短信、淘宝、拼多多、京东之间来回切，到了驿站还要翻各自的身份码。\n\n这个 App 把待取件、取件码和身份码收到同一处，站在驿站前不用再开一排 App。如果它替你省下了这些来回，去 GitHub 点一个 Star 就是最好的支持。</string>
+    <string name="star_prompt_body_last">这是最后一次提这件事。\n\n愿意的话，去仓库留一个 Star；不愿意也没关系，该有的功能一样不少。</string>
+    <string name="star_prompt_go">去点 Star</string>
+    <string name="star_prompt_later">暂不</string>
+    <string name="star_prompt_no_browser">没找到浏览器，仓库地址在设置 → 关于里。</string>
 
     <!-- 查快递入口 -->
 </resources>

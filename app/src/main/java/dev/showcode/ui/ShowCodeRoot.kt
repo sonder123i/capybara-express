@@ -38,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -201,6 +202,14 @@ fun ShowCodeRoot() {
     var pointName by rememberSaveable { mutableStateOf("") }
     var focusParcelId by rememberSaveable { mutableStateOf<Long?>(null) }
     var demo by rememberSaveable { mutableStateOf(false) }
+    /* 更新的状态住在 UpdateCenter：设置页与全局弹窗看的是同一份，离开设置页也不丢。 */
+    val updateCenter = remember { dev.showcode.data.update.UpdateCenter.get(context) }
+    val updateState by updateCenter.state.collectAsState()
+    val updatePrompt by updateCenter.prompt.collectAsState()
+    var starPromptVisible by rememberSaveable { mutableStateOf(false) }
+    /* 一次进程里只判断一次 Star。否则关掉之后，任何一次独立的重组都可能把它再弹出来。 */
+    var starPromptHandled by rememberSaveable { mutableStateOf(false) }
+
     var manualPrefill by rememberSaveable { mutableStateOf("") }
     var manualSourceBody by rememberSaveable { mutableStateOf<String?>(null) }
     var manualReturn by rememberSaveable { mutableStateOf(Route.HOME) }
@@ -344,6 +353,38 @@ fun ShowCodeRoot() {
        演示模式不刷：那条路径一个字都不该落库。 */
     LaunchedEffect(route) {
         if (route == Route.HOME && !demo) repository.refreshNow()
+    }
+
+    /* 启动后查一次更新。等首屏与启动动画落了地再问，避免和入场抢注意力；
+       6 小时节流与「自动检查」开关都在 UpdateCenter 里判，这里只负责开门。 */
+    LaunchedEffect(Unit) {
+        if (!repository.prefs.onboardingDone) return@LaunchedEffect
+        withFrameNanos { }
+        delay(1_200)
+        updateCenter.check(manual = false)
+    }
+
+    /* Star 邀请：第 3 次启动起、最多两次。更新弹窗优先——两个弹窗叠在一起时，
+       用户会先关掉不那么重要哪一个都说不准。 */
+    LaunchedEffect(demo, updatePrompt, updateState, route) {
+        if (starPromptHandled || starPromptVisible) return@LaunchedEffect
+        if (demo || !repository.prefs.onboardingDone) return@LaunchedEffect
+        if (updatePrompt || updateState is dev.showcode.data.update.UpdateState.Available) {
+            return@LaunchedEffect
+        }
+        /* 检查还在路上时先等它落地：否则 Star 先弹、更新弹窗后到，
+           用户关掉更新之后又得面对一个刚见过的 Star。 */
+        if (updateState is dev.showcode.data.update.UpdateState.Checking) {
+            return@LaunchedEffect
+        }
+        val prefs = repository.prefs
+        if (prefs.starred || prefs.starPromptDismissals >= 2 || prefs.launchCount < 3) {
+            return@LaunchedEffect
+        }
+        withFrameNanos { }
+        delay(1_600)
+        starPromptHandled = true
+        starPromptVisible = true
     }
 
     fun openMergePreview(a: PickupPointGroup, b: PickupPointGroup, preferTarget: PickupPointGroup? = null) {
@@ -1615,6 +1656,31 @@ fun ShowCodeRoot() {
                     lensFreshness = lensFreshness,
                 )
             }
+        }
+
+        /* 两个全局弹窗。更新优先：它带着用户此刻需要的动作（下载/安装），
+           Star 只是邀请，排后面，且同一时刻只出现一个。 */
+        if (updatePrompt) {
+            dev.showcode.ui.settings.UpdatePrompt(
+                center = updateCenter,
+                tier = glassTier,
+                backdrop = glassBackdrop,
+            )
+        } else if (starPromptVisible) {
+            StarPrompt(
+                dismissals = repository.prefs.starPromptDismissals,
+                tier = glassTier,
+                backdrop = glassBackdrop,
+                onDismiss = {
+                    starPromptVisible = false
+                    repository.prefs.starPromptDismissals =
+                        repository.prefs.starPromptDismissals + 1
+                },
+                onStar = {
+                    starPromptVisible = false
+                    repository.prefs.starred = true
+                },
+            )
         }
 
         /* 换主题的圆形扩散：**最上层**，连底栏一起盖住。

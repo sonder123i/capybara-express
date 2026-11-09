@@ -124,6 +124,29 @@ class Prefs(context: Context) {
         get() = sp.getLong(KEY_LAST_TRANSIENT_FAILURE, 0L)
         set(value) = sp.edit().putLong(KEY_LAST_TRANSIENT_FAILURE, value).apply()
 
+    /**
+     * 启动时要不要查一次更新。默认开：6 小时最多一次，且只问公开的 Release API。
+     * 关掉之后更新只剩设置页那颗手动按钮——不是「隐藏」，是真的一个请求都不发。
+     */
+    var autoCheckUpdate: Boolean
+        get() = sp.getBoolean(KEY_AUTO_CHECK_UPDATE, true)
+        set(value) = sp.edit().putBoolean(KEY_AUTO_CHECK_UPDATE, value).apply()
+
+    /** 进程启动次数。Star 弹窗从第 3 次启动才开口，先让用户把 App 用起来。 */
+    var launchCount: Int
+        get() = sp.getInt(KEY_LAUNCH_COUNT, 0)
+        set(value) = sp.edit().putInt(KEY_LAUNCH_COUNT, value.coerceAtLeast(0)).apply()
+
+    /** Star 弹窗被「暂不」过几次。到 2 次就永久闭嘴，不再问同一件事。 */
+    var starPromptDismissals: Int
+        get() = sp.getInt(KEY_STAR_DISMISSALS, 0)
+        set(value) = sp.edit().putInt(KEY_STAR_DISMISSALS, value.coerceAtLeast(0)).apply()
+
+    /** 点过 Star 就不再提醒。用户在设置页主动点过也算。 */
+    var starred: Boolean
+        get() = sp.getBoolean(KEY_STARRED, false)
+        set(value) = sp.edit().putBoolean(KEY_STARRED, value).apply()
+
     private fun keyBinding(widgetId: Int) = "widget_bind_$widgetId"
     private fun keyBindingName(widgetId: Int) = "widget_bind_name_$widgetId"
 
@@ -149,6 +172,10 @@ class Prefs(context: Context) {
         private const val KEY_GLASS_BAR_ON = "glass_bar_on"
         private const val KEY_GLASS_SESSION_USED = "glass_session_used"
         private const val KEY_LAST_TRANSIENT_FAILURE = "last_transient_failure_at"
+        private const val KEY_AUTO_CHECK_UPDATE = "auto_check_update"
+        private const val KEY_LAUNCH_COUNT = "launch_count"
+        private const val KEY_STAR_DISMISSALS = "star_prompt_dismissals"
+        private const val KEY_STARRED = "starred"
 
         const val DEFAULT_LOCKER_HOURS = 6
         const val DEFAULT_STATION_MINUTES = 90
