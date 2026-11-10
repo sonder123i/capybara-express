@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useLayoutEffect } from 'react'
+import { initSiteMotion } from './lib/motion.js'
 import Iridescence from './components/reactbits/Iridescence.jsx'
 import Rail from './components/Rail.jsx'
 import Hero from './components/Hero.jsx'
@@ -15,6 +16,8 @@ import { NAV } from './data.js'
 
 export default function App() {
   const [active, setActive] = useState('')
+
+  useLayoutEffect(() => initSiteMotion(), [])
 
   useEffect(() => {
     // React renders after the browser's first hash pass; restore deep links.
@@ -52,6 +55,14 @@ export default function App() {
 
   return (
     <>
+      <div className="opening" aria-hidden="true">
+        <div className="opening-inner">
+          <div className="opening-line"><span>CAPYBARA</span></div>
+          <div className="opening-line"><span>EXPRESS</span></div>
+          <div className="opening-sub"><span>卡皮巴拉快递助手 · LOCAL-FIRST</span></div>
+          <div className="opening-rule"><i /></div>
+        </div>
+      </div>
       <div className="site-field" aria-hidden="true">
         <Iridescence
           color={[1, 1, 1]}

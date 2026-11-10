@@ -1,0 +1,118 @@
+/* ============================================================
+   MOTION — opening overlay + title masks
+   GSAP 驱动；这里只放静态壳和遮罩容器。
+   ============================================================ */
+
+.opening {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: none;
+  overflow: hidden;
+  background:
+    radial-gradient(52% 68% at 74% 22%, rgba(255, 158, 219, 0.22), transparent 62%),
+    radial-gradient(48% 62% at 22% 46%, rgba(126, 232, 250, 0.2), transparent 60%),
+    var(--paper);
+}
+
+.opening::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(8, 9, 11, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(8, 9, 11, 0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(72% 72% at 50% 50%, #000, transparent 88%);
+  -webkit-mask-image: radial-gradient(72% 72% at 50% 50%, #000, transparent 88%);
+  pointer-events: none;
+}
+
+.opening-inner {
+  position: absolute;
+  left: var(--gutter);
+  right: var(--gutter);
+  bottom: 14%;
+  z-index: 2;
+}
+
+.opening-line {
+  overflow: hidden;
+}
+
+.opening-line span {
+  display: block;
+  font-family: var(--latin);
+  font-size: clamp(3.2rem, 9.4vw, 8rem);
+  line-height: 0.94;
+  font-weight: 600;
+  letter-spacing: -0.055em;
+  color: var(--ink);
+  will-change: transform;
+}
+
+.opening-line:nth-child(2) span {
+  padding-left: 0.5em;
+}
+
+.opening-sub {
+  margin-top: 22px;
+  overflow: hidden;
+}
+
+.opening-sub span {
+  display: inline-block;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.26em;
+  color: #3f4652;
+}
+
+.opening-rule {
+  width: min(320px, 44vw);
+  height: 2px;
+  margin-top: 26px;
+  background: rgba(8, 9, 11, 0.12);
+  overflow: hidden;
+}
+
+.opening-rule i {
+  display: block;
+  height: 100%;
+  background: var(--red);
+}
+
+html.opening-lock {
+  overflow: hidden;
+}
+
+/* 标题遮罩：行内动画的裁切容器 */
+
+.hero-title {
+  overflow: hidden;
+}
+
+.poster-head-title {
+  overflow: hidden;
+  padding-bottom: 0.08em;
+  margin-bottom: -0.08em;
+}
+
+.hero-title-line,
+.poster-en,
+.poster-cn,
+.opening-line span {
+  will-change: transform;
+}
+
+@media (max-width: 680px) {
+  .opening-inner {
+    bottom: 18%;
+  }
+
+  .opening-sub span {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+  }
+}

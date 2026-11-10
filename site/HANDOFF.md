@@ -621,6 +621,7 @@ E:\express
 | 05 安装 | `TearTicket`、`SpotlightCard`、`GlassIcons` | `Install.jsx` |
 | 全局 | `ViewportShaderGate`、VERSION 去硬编码、无 Google Fonts | `ViewportShaderGate.jsx` / `Poster.jsx` / 各 section |
 | 全局背景 | 固定 `Iridescence` 场 + 透明 section；顶栏移除 | `App.jsx` / `readability.css` |
+| 全局动效 | GSAP + ScrollTrigger：开场遮罩揭开、标题压缩归位、卡片 stagger、图片视差 | `lib/motion.js` |
 
 ### 13.2 验证结果
 

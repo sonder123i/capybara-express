@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import { asset, LINKS, VERSION } from '../data.js'
-import { ArrowDown, ArrowRight, Barcode, Reveal } from './Common.jsx'
+import { ArrowDown, ArrowRight, Barcode } from './Common.jsx'
 import ShinyText from './reactbits/ShinyText.jsx'
 import Magnet from './reactbits/Magnet.jsx'
 import DecryptedText from './reactbits/DecryptedText/DecryptedText/DecryptedText.jsx'
@@ -31,7 +31,7 @@ export default function Hero() {
         </defs>
       </svg>
       <div className="shell hero-poster">
-        <Reveal className="hero-topline">
+        <div className="hero-topline">
           <p className="hero-eyebrow">
             <span className="live-dot" aria-hidden="true" />
             <span>ANDROID 取件面板</span>
@@ -43,9 +43,9 @@ export default function Hero() {
             <span>12.7 MB</span>
             <span>GPL-3.0</span>
           </p>
-        </Reveal>
+        </div>
 
-        <Reveal className="hero-copy" delay={60}>
+        <div className="hero-copy">
           <div className="hero-kicker">
             <DecryptedText
               text="ANDROID PICKUP CONSOLE"
@@ -151,9 +151,9 @@ export default function Hero() {
             <span>CE-{VERSION} / ANDROID 8.0+ / LOCAL-FIRST</span>
             <span className="hero-meta-dot" aria-hidden="true" />
           </div>
-        </Reveal>
+        </div>
 
-        <Reveal className="hero-stage" delay={120}>
+        <div className="hero-stage">
           <div className="hero-stage-grid" aria-hidden="true" />
           <span className="hero-stage-label">SPECIMEN 00 / IRIDESCENT LOCALITY</span>
           <span className="hero-stage-caption">LIQUID GLASS / NO CLOUD</span>
@@ -204,9 +204,9 @@ export default function Hero() {
               </a>
             ))}
           </nav>
-        </Reveal>
+        </div>
 
-        <Reveal className="hero-facts-row" delay={180}>
+        <div className="hero-facts-row">
           <ul className="hero-facts" aria-label="产品边界">
             {FACTS.map((fact) => (
               <li key={fact}>{fact}</li>
@@ -217,7 +217,7 @@ export default function Hero() {
             <i />
             01—05
           </span>
-        </Reveal>
+        </div>
       </div>
     </section>
   )
