@@ -15,6 +15,7 @@ import dev.showcode.core.DEFAULT_CLOSING_MINUTE
 import dev.showcode.core.Attempt
 import dev.showcode.core.account.AccountSyncAction
 import dev.showcode.core.account.SkipReason
+import dev.showcode.core.account.isAgedOutTransitRow
 import dev.showcode.core.account.isStaleTransitRow
 import dev.showcode.core.DeepLinkLadder
 import dev.showcode.core.EntryPurpose
@@ -615,6 +616,13 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
                 it.source == Source.ACCOUNT && it.accountId == accountId && it.orderSn in retireOrderSns
             }
         }
+        /* 放太久的在途幽灵：翻页永远翻不到、平台也不再返回的老单，靠年龄收掉。
+           不依赖 seenOrderSns 是否完整——拼多多的翻页经常给不出「没有下一页」的信号，
+           而这些单（如九月的单到十一月）在「在途」里挂几个月本身就说明该退休了。 */
+        val claimedIds = (historyTargets + strayTargets + nonParcelTargets).map { it.id }.toSet()
+        val agedTargets = live.filter {
+            it.id !in claimedIds && isAgedOutTransitRow(it, accountId, at)
+        }
 
         /* 退休与本次合并必须同一个事务：否则一次失败会留下「退了但没写回」的中间态，
            而退休行只能靠下一次同步自愈。刷新快照也在事务内读，写完到展示之间没有空窗。 */
@@ -634,7 +642,14 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
                 }
                 db.updateParcel(it.id, retireValues())
             }
-            history += historyTargets.size + strayTargets.size
+            agedTargets.forEach {
+                Slog.i(TAG) {
+                    "retire aged sn=${Slog.mask(it.orderSn)} stage=${it.stage} " +
+                        "lastSync=${it.lastSyncedAt ?: it.receivedAt} reason=transit-too-old"
+                }
+                db.updateParcel(it.id, retireValues())
+            }
+            history += historyTargets.size + strayTargets.size + agedTargets.size
             actions.forEach { action ->
                 when (action) {
                     is AccountSyncAction.Insert -> {
@@ -1019,7 +1034,11 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
     ): LaunchOutcome = OfficialAppLauncher.open(context, packageName, purpose)
 
     /**
-     * 「去淘宝查询」：优先落到淘宝里的身份码 / 我的快递页，最后才退到淘宝首页。
+     * 「去淘宝查询」：落到淘宝的「待取 / 我的快递」列表页（比身份码页浅一层），
+     * 让用户把已复制的单号粘进去搜；**不是**落到身份码那一页。
+     *
+     * 用途必须显式传 [EntryPurpose.PENDING]：淘宝的身份码页与待取页是两条不同的链，
+     * 走成 IDENTITY 会把「查快递」的人扔进「我是谁」那张码的页面上（改造前正是如此）。
      *
      * 不走浏览器兜底——没装淘宝时用户要的是「单号已复制，去淘宝粘贴搜索」，
      * 不是被扔进一个还要自己找登录的网页。
@@ -1028,7 +1047,7 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
         OfficialAppLauncher.open(
             context = context,
             packageName = DeepLinkLadder.TAOBAO,
-            purpose = EntryPurpose.IDENTITY,
+            purpose = EntryPurpose.PENDING,
             allowWebFallback = false,
         )
 

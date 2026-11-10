@@ -598,4 +598,92 @@ class AccountMergeTest {
         val update = planAccountSync(listOf(fb), listOf(old)).single() as AccountSyncAction.Update
         assertEquals(Stage.DELIVERING, update.stage)
     }
+
+    @Test
+    fun `退款退货售后的订单状态一律算阻断 - 不许进在途`() {
+        /* 订单列表 / 详情页顶部的状态：退款、退货、售后、拒收、退回、待商家收货。 */
+        listOf(
+            "退款成功，已全额退款", "退款中", "退货退款", "售后处理中", "售后完成",
+            "已退回", "退货中", "待商家收货", "待卖家收货", "拒收", "拒签",
+        ).forEach { assertTrue("「$it」应被阻断", isBlockedOrderPrompt(it)) }
+
+        /* 活跃状态不能被误伤。 */
+        listOf("待收货", "运输中", "已发货", "派送中", "已揽件").forEach {
+            assertFalse("「$it」不应被阻断", isBlockedOrderPrompt(it))
+        }
+
+        /* 退款/退回不算结束（finished），但确实阻断；两者都不许进候选。 */
+        assertFalse(isFinishedOrderPrompt("已退回"))
+        assertFalse(needsDetailForPrompt("退款成功，已全额退款"))
+        assertFalse(needsDetailForPrompt("已退回"))
+    }
+
+    @Test
+    fun `退回件的物流轨迹能识别出来`() {
+        /* 截图原话：已退回，快件离开衡阳转运中心。 */
+        assertTrue(isReturnOrRefundTrace("已退回 | 您的快件离开【衡阳转运中心】"))
+        assertTrue(isReturnOrRefundTrace("您的退件已发出"))
+        assertTrue(isReturnOrRefundTrace("商家拒收，包裹原路退回"))
+        /* 正常在途/派送轨迹不能被误判成退回。 */
+        assertFalse(isReturnOrRefundTrace("您的快件已到达【示例驿站】"))
+        assertFalse(isReturnOrRefundTrace("快件正在派送中"))
+        assertFalse(isReturnOrRefundTrace("已揽件 09:22"))
+        assertFalse(isReturnOrRefundTrace(null))
+        assertFalse(isReturnOrRefundTrace(""))
+    }
+
+    @Test
+    fun `退回退款拒收的物流状态算终态 - 不进在途候选`() {
+        listOf("RETURNED", "RETURN", "RETURNING", "REFUNDED", "REJECTED", "已退回", "退件")
+            .forEach { assertTrue("「$it」应算终态", isTerminalTrackStatus(it)) }
+        listOf("DEPARTURE", "DELIVERING", "ARRIVAL", "IN_CABINET")
+            .forEach { assertFalse("「$it」是活跃物流状态", isTerminalTrackStatus(it)) }
+    }
+
+    @Test
+    fun `退回单不会被兜底抬进在途`() {
+        /* 「已退回」「退货退款」这类单的列表阶段认不出，兜底直接返回 null，
+           不会再用「运输中」把它塞进在途。 */
+        assertNull(
+            fallbackFetchedParcel(
+                platform = Platform.PDD,
+                accountId = "pdd",
+                orderSn = "261107-150281961762822",
+                prompt = "已退回",
+                goods = null,
+                at = 1_000,
+            ),
+        )
+    }
+
+    @Test
+    fun `放太久的在途幽灵按年龄退休 - 到站件与已取不动`() {
+        val now = 900L + MAX_TRANSIT_AGE_MS + 1_000L
+        val ghost = parcel(
+            stage = Stage.IN_TRANSIT,
+            source = Source.ACCOUNT,
+            orderSn = "260905-091289064972767",
+            accountId = "pdd",
+        )
+        assertTrue("九月下单、十一月还运输中：该退休", isAgedOutTransitRow(ghost, "pdd", now))
+        assertFalse(
+            "刚入库几天的在途件不退休",
+            isAgedOutTransitRow(ghost.copy(receivedAt = now - 2L * 24 * 60 * 60 * 1000), "pdd", now),
+        )
+        assertFalse(
+            "到站件不按年龄退休（驿站里可能真没人取）",
+            isAgedOutTransitRow(ghost.copy(stage = Stage.AT_STATION), "pdd", now),
+        )
+        assertFalse("已取不走这条", isAgedOutTransitRow(ghost.copy(picked = true), "pdd", now))
+        assertFalse("手动件不动", isAgedOutTransitRow(ghost.copy(source = Source.MANUAL), "pdd", now))
+        assertFalse("别的账号不动", isAgedOutTransitRow(ghost, "tb", now))
+        assertFalse("没有订单号无从判断", isAgedOutTransitRow(ghost.copy(orderSn = null), "pdd", now))
+        /* last_synced_at 优先：receivedAt 再老，只要最近同步确认过就不退休。 */
+        assertFalse(
+            "最近同步确认过的不退休",
+            isAgedOutTransitRow(ghost.copy(lastSyncedAt = now - 60_000L), "pdd", now),
+        )
+        /* 展示层只看年龄：同一个老幽灵即使换账号也照样挡住（不区分账号）。 */
+        assertTrue("展示层同样认它是老幽灵", isAgedOutTransit(ghost, now))
+    }
 }

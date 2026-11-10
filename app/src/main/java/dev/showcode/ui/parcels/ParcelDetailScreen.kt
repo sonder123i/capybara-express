@@ -12,12 +12,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -25,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
@@ -32,17 +36,25 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.showcode.R
 import dev.showcode.core.CodeKind
 import dev.showcode.core.LaunchOutcome
 import dev.showcode.core.Parcel
+import dev.showcode.core.account.TraceRow
+import dev.showcode.core.account.parseTraceTimeline
 import dev.showcode.ui.copyCode
 import dev.showcode.ui.navBarClearance
 import dev.showcode.ui.performTrackingLookup
+import dev.showcode.ui.relativeTimeText
 import dev.showcode.ui.onsite.trackingLookupText
 import dev.showcode.ui.inbox.ScreenTopBar
 import dev.showcode.ui.stageLabel
@@ -52,10 +64,13 @@ import dev.showcode.ui.theme.Ink
 import dev.showcode.ui.theme.sharedParcelThumb
 import dev.showcode.ui.theme.InkFaint
 import dev.showcode.ui.theme.InkMuted
+import dev.showcode.ui.theme.InkSecondary
 import dev.showcode.ui.theme.ShowCodeShapes
 import dev.showcode.ui.theme.ShowCodeText
 import dev.showcode.ui.theme.SurfaceCard
 import dev.showcode.ui.theme.SurfaceInset
+import dev.showcode.ui.theme.UrgencyDueSoon
+import dev.showcode.ui.theme.withTabular
 import dev.showcode.ui.theme.environmentBackground
 
 /**
@@ -208,6 +223,9 @@ fun ParcelDetailScreen(
                 style = ShowCodeText.Action,
                 color = InkMuted,
             )
+            /* 账号件的 raw 是整页物流 innerText，混着订单头 / 商品卡 / 推荐位；
+               先抽成「带时间的轨迹」，能抽出来就画时间线，抽不出来才回退原文。 */
+            val traceRows = remember(parcel.raw) { parseTraceTimeline(parcel.raw) }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -215,20 +233,31 @@ fun ParcelDetailScreen(
                     .border(1.dp, Hairline, ShowCodeShapes.Md)
                     .padding(14.dp),
             ) {
-                if (parcel.raw.isBlank()) {
-                    Text(
+                when {
+                    traceRows.isNotEmpty() -> TraceTimeline(traceRows)
+                    parcel.raw.isBlank() -> Text(
                         text = stringResource(R.string.detail_no_trace),
                         style = ShowCodeText.Meta,
                         color = InkMuted,
                     )
-                } else {
-                    SelectionContainer {
+                    else -> SelectionContainer {
                         Text(
                             text = parcel.raw,
                             style = ShowCodeText.Body,
                             color = Ink,
                         )
                     }
+                }
+                /* 轨迹来自「最近一次同步」，不是打开这一刻的快递公司实时页；
+                   如实标一下时间，免得把「我们手里最新」误读成「现在最新」。 */
+                parcel.lastSyncedAt?.let { syncedAt ->
+                    Spacer(Modifier.height(if (traceRows.isNotEmpty()) 12.dp else 8.dp))
+                    Text(
+                        text = "轨迹来自最近一次同步 · " +
+                            relativeTimeText(syncedAt, System.currentTimeMillis()),
+                        style = ShowCodeText.Caption,
+                        color = InkFaint,
+                    )
                 }
             }
         }
@@ -341,6 +370,111 @@ private fun TrackingLookupBlock(
         )
     }
 }
+
+/**
+ * 物流时间线：新的在上，最新一条实心高亮，历史条目空心点 + 竖线连起来。
+ * 数据来自 [parseTraceTimeline]，只含带时间的真实轨迹，不含商品/推荐文案。
+ */
+@Composable
+private fun TraceTimeline(rows: List<TraceRow>) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        rows.forEachIndexed { index, row ->
+            TraceRowItem(row = row, isLatest = index == 0, isLast = index == rows.lastIndex)
+        }
+    }
+}
+
+@Composable
+private fun TraceRowItem(row: TraceRow, isLatest: Boolean, isLast: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min),
+    ) {
+        /* 左轨：圆点 + 连接到下一条的竖线。最新一条实心，其余空心。 */
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .size(9.dp)
+                    .then(
+                        if (isLatest) {
+                            Modifier.background(AccentInk, CircleShape)
+                        } else {
+                            Modifier.border(1.5.dp, InkFaint, CircleShape)
+                        },
+                    ),
+            )
+            if (!isLast) {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 3.dp)
+                        .width(1.5.dp)
+                        .weight(1f)
+                        .background(Hairline),
+                )
+            }
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp, bottom = if (isLast) 0.dp else 18.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (row.stage.isNotBlank()) {
+                    Text(
+                        text = row.stage,
+                        style = ShowCodeText.Meta,
+                        fontWeight = if (isLatest) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isLatest) AccentInk else Ink,
+                    )
+                }
+                if (row.stage.isNotBlank() && row.time.isNotBlank()) {
+                    Spacer(Modifier.width(8.dp))
+                }
+                if (row.time.isNotBlank()) {
+                    Text(
+                        text = row.time,
+                        style = ShowCodeText.Caption.withTabular(),
+                        color = if (isLatest) AccentInk else InkMuted,
+                    )
+                }
+            }
+            if (row.detail.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = highlightPhones(row.detail),
+                    style = ShowCodeText.Body,
+                    color = if (isLatest) Ink else InkSecondary,
+                )
+            }
+        }
+    }
+}
+
+/** 明细里的手机号 / 座机号高亮成强调色（对齐参照图里被点亮的号码）。 */
+@Composable
+private fun highlightPhones(text: String): AnnotatedString {
+    val color = UrgencyDueSoon
+    return remember(text, color) {
+        buildAnnotatedString {
+            var last = 0
+            for (m in PHONE.findAll(text)) {
+                if (m.range.first > last) append(text.substring(last, m.range.first))
+                withStyle(SpanStyle(color = color)) { append(m.value) }
+                last = m.range.last + 1
+            }
+            if (last < text.length) append(text.substring(last))
+        }
+    }
+}
+
+private val PHONE = Regex("1[3-9]\\d{9}|0\\d{2,3}-\\d{7,8}")
 
 @Composable
 private fun DetailRow(label: String, value: String) {

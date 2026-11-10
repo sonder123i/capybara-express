@@ -20,6 +20,14 @@ import dev.showcode.core.Stage
 const val DETAIL_REUSE_MS = 6L * 60 * 60 * 1000
 
 /**
+ * 「在途 / 派送中」的件轨迹更新最频繁（转运、到达网点、派件都是十几分钟一条），
+ * 用 6 小时窗口会让详情页停在昨晚的轨迹上。这一档单独收短到 20 分钟：
+ * 只要距上次详情超过它，哪怕列表状态没变也重进详情页，把最新几条轨迹抓回来。
+ * 到站/已取仍走 [DETAIL_REUSE_MS]——那些件没有新轨迹可等。
+ */
+const val TRANSIT_DETAIL_REUSE_MS = 20L * 60 * 1000
+
+/**
  * 订单列表里的一行状态文案 → 阶段。认不出来返回 null，调用方据此退回「照旧抓」。
  *
  * 这里只看列表级文案，粒度和 [fallbackFetchedParcel] 一致：列表说不清到达与否时，
@@ -53,5 +61,10 @@ fun detailNeeded(
     /* 列表说阶段变了：哪怕只是文案变了，也值得进去确认。 */
     if (listStage != null && listStage != row.stage) return true
     val at = row.lastSyncedAt ?: return true
-    return now - at >= maxAgeMs
+    /* 在途/派送中用更短的复用窗口：这两档正是「轨迹一直在变」的件。 */
+    val reuse = when (row.stage) {
+        Stage.IN_TRANSIT, Stage.DELIVERING -> minOf(maxAgeMs, TRANSIT_DETAIL_REUSE_MS)
+        else -> maxAgeMs
+    }
+    return now - at >= reuse
 }

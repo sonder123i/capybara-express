@@ -70,6 +70,8 @@ import dev.showcode.core.account.Platform
 import dev.showcode.core.account.SmsChannelInput
 import dev.showcode.core.account.SyncProgress
 import dev.showcode.core.account.SyncRailState
+import dev.showcode.core.account.isAgedOutTransit
+import dev.showcode.core.account.isReturnOrRefundTrace
 import dev.showcode.core.account.syncRailState
 import dev.showcode.core.bodyFingerprint
 import dev.showcode.core.groupByPoint
@@ -280,10 +282,13 @@ fun ShowCodeRoot() {
     }
     /* 在途/待补信息的件：独立小节，不参与待取计数。
        到站但 pointKey 为空的（详情失败先入列）也放这里，等下次同步补点。 */
-    val realInTransit = remember(appData.parcels) {
+    val realInTransit = remember(appData.parcels, now) {
         appData.parcels
             .filter {
-                !it.picked && (
+                /* 退回件不进在途：订单已在退款/退货，件在往回走。
+                   轨迹原文（raw）认得出退回迹象时，即便库里阶段还没退休也先不显示。
+                   同样，放太久的在途幽灵（如九月的单到十一月）即使还没被同步退休也先挡住。 */
+                !it.picked && !isReturnOrRefundTrace(it.raw) && !isAgedOutTransit(it, now) && (
                     it.stage == dev.showcode.core.Stage.IN_TRANSIT ||
                         it.stage == dev.showcode.core.Stage.DELIVERING ||
                         (it.stage == dev.showcode.core.Stage.AT_STATION && it.pointKey.isBlank()) ||

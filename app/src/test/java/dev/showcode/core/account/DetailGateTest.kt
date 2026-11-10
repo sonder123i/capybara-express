@@ -131,6 +131,26 @@ class DetailGateTest {
     }
 
     @Test
+    fun `在途派送中 - 超过 20 分钟就重抓_不受 6 小时窗口限制`() {
+        assertTrue(
+            detailNeeded(
+                sn,
+                Stage.IN_TRANSIT,
+                known(parcel(code = "", stage = Stage.IN_TRANSIT, lastSyncedAt = now - TRANSIT_DETAIL_REUSE_MS - 1)),
+                now,
+            ),
+        )
+        assertFalse(
+            detailNeeded(
+                sn,
+                Stage.DELIVERING,
+                known(parcel(code = "", stage = Stage.DELIVERING, lastSyncedAt = now - 5 * 60_000)),
+                now,
+            ),
+        )
+    }
+
+    @Test
     fun `列表文案到阶段 - 认不出就返回 null，不拿它下结论`() {
         assertEquals(Stage.AT_STATION, stageOfPrompt("待取件"))
         assertEquals(Stage.AT_STATION, stageOfPrompt("已到达驿站"))

@@ -27,13 +27,14 @@ import dev.showcode.core.account.Session
 import dev.showcode.core.account.SyncPhase
 import dev.showcode.core.account.SyncProgress
 import dev.showcode.core.account.TraceParser
-import dev.showcode.core.account.allDetailsFailed
 import dev.showcode.core.account.conflictsWithOrderStatus
 import dev.showcode.core.account.detailNeeded
 import dev.showcode.core.account.fallbackFetchedParcel
 import dev.showcode.core.account.isActiveOrderPrompt
 import dev.showcode.core.account.isBlockedOrderPrompt
 import dev.showcode.core.account.isFinishedOrderPrompt
+import dev.showcode.core.account.isReturnOrRefundTrace
+import dev.showcode.core.account.isReturnStatusBanner
 import dev.showcode.core.account.isTerminalTrackStatus
 import dev.showcode.core.account.isVirtualGoodsTitle
 import dev.showcode.core.account.normalizeImageUrl
@@ -65,9 +66,14 @@ import kotlin.coroutines.resume
 object PddFetcher {
 
     private const val TAG = "PddFetcher"
-    /* 和原来那两处固定睡眠对齐：上限不变，只是数据到了就提前返回。 */
-    private const val FIRST_SCREEN_WAIT_MS = 2_500L
-    private const val PAGE_WAIT_MS = 2_500L
+    /* 首屏/翻页的「上限」等待：数据一到就提前返回——快机通常 0.1~0.5s 就走，
+       只有慢机/弱网才逼近上限。上限保留给慢机兜底，所以不会比以前更慢。 */
+    private const val FIRST_SCREEN_WAIT_MS = 2_000L
+    private const val PAGE_WAIT_MS = 1_500L
+    /* 详情是 WebView 串行、单件最贵：限名额 + 总预算，超出走列表兜底。
+       8 与京东一致；拼多多单件比淘宝纯 HTTP 慢，所以不照搬淘宝的 16。 */
+    private const val MAX_DETAILS = 8
+    private const val DETAIL_BUDGET_MS = 25_000L
     private const val HOST = "https://mobile.yangkeduo.com"
     private const val ORDERS = "$HOST/orders.html"
     private const val ORDER_DETAIL = "$HOST/order.html?order_sn="
@@ -138,9 +144,14 @@ object PddFetcher {
 
                 val captures = mutableListOf<JSONObject>()
                 var nameReadable = false
-                /* 首屏保留固定等待：虚拟列表要先把首屏渲染出来才吃得下滑动。
-                   从这里往后才是条件等待——每轮有响应就立刻进下一轮，没有就收工。 */
-                delay(FIRST_SCREEN_WAIT_MS)
+                /* 首屏轮询：首屏响应一到就继续，最多等 FIRST_SCREEN_WAIT_MS。
+                   快机不白等 2.5s，慢机仍由上限兜住（不会比以前更慢）。 */
+                val firstStart = SystemClock.uptimeMillis()
+                while (SystemClock.uptimeMillis() - firstStart < FIRST_SCREEN_WAIT_MS) {
+                    if (readsCaps(web, captures)) nameReadable = true
+                    if (captures.isNotEmpty()) break
+                    delay(120)
+                }
                 if (readsCaps(web, captures)) nameReadable = true
                 var rounds = 0
                 while (rounds < 4) {
@@ -148,7 +159,7 @@ object PddFetcher {
                     swipeUp(web)
                     rounds++
                     /* 这一轮一个新响应都没有：更靠后的页不会自己出现，直接收工。
-                       上限仍是每轮 2.5s，所以最坏情况和原来的固定睡眠一样慢。 */
+                       有数据时 awaitCaptures 会在安静 400ms 后提前返回，不等满上限。 */
                     if (awaitCaptures(web, captures, PAGE_WAIT_MS) <= 0) break
                 }
                 httpCode?.let {
@@ -231,33 +242,65 @@ object PddFetcher {
 
                 val result = mutableListOf<FetchedParcel>()
                 var detailsFailed = 0
+                var fallbackCount = 0
+                /* 详情/轨迹确认为「退回单」的订单号：不进在途，交给退休把旧行清掉。 */
+                val returnSns = mutableListOf<String>()
                 val now = System.currentTimeMillis()
                 /* 状态没变、运单号与码都在的件不再进详情页：那是这次刷新里最贵的一步，
                    而它这次拿回来的会和上次是同一段文字。判据见 core/account/DetailGate.kt。 */
-                val toFetch = candidates.filter { detailNeeded(it.sn, it.stage, known, now) }
-                val unchanged = candidates.size - toFetch.size
-                toFetch.forEachIndexed { index, order ->
-                    onProgress(SyncProgress(SyncPhase.DETAILS, index + 1, toFetch.size))
-                    /* 单条详情超时/改版不能把整批已拿到的件一起丢掉；
-                       一条失败就继续下一条，最后把成功的那部分交出去。 */
-                    val item = try {
-                        fetchTrace(web, pages, accountId, order)
-                    } catch (t: Throwable) {
-                        Slog.w(TAG, t) { "trace failed ${Slog.mask(order.sn)}" }
-                        null
-                    } ?: fallbackFetchedParcel(
-                        platform = Platform.PDD,
-                        accountId = accountId,
-                        orderSn = order.sn,
-                        prompt = order.prompt,
-                        goods = order.goods,
-                        at = System.currentTimeMillis(),
-                    )
-                    if (item != null) result.add(item) else detailsFailed++
+                val pending = candidates
+                    .filter { detailNeeded(it.sn, it.stage, known, now) }
+                    .sortedBy { detailRank(it.stage) }
+                /* 详情是 WebView 串行、单件最贵：限名额 + 总预算，超出的走列表兜底，
+                   绝不因为「读不完」就从结果里消失（轨迹待补，下次同步补全）。 */
+                val detailTargets = pending.take(MAX_DETAILS)
+                val overflow = pending.drop(MAX_DETAILS)
+                val unchanged = candidates.size - pending.size
+                val detailStart = SystemClock.uptimeMillis()
+                detailTargets.forEachIndexed { index, order ->
+                    onProgress(SyncProgress(SyncPhase.DETAILS, index + 1, detailTargets.size))
+                    /* 单条详情超时/改版不能把整批已拿到的件一起丢掉；一条失败就继续下一条。 */
+                    val overBudget = SystemClock.uptimeMillis() - detailStart > DETAIL_BUDGET_MS
+                    val trace = if (overBudget) {
+                        Slog.i(TAG) { "detail-budget-exceeded sn=${Slog.mask(order.sn)} fallback" }
+                        TraceParse(null)
+                    } else {
+                        try {
+                            fetchTrace(web, pages, accountId, order)
+                        } catch (t: Throwable) {
+                            if (t is kotlinx.coroutines.CancellationException) throw t
+                            Slog.w(TAG, t) { "trace failed ${Slog.mask(order.sn)}" }
+                            TraceParse(null)
+                        }
+                    }
+                    if (trace.isReturn) {
+                        /* 退回件：不因为它「还有物流」就塞进在途。 */
+                        returnSns.add(order.sn)
+                        Slog.i(TAG) { "return-order sn=${Slog.mask(order.sn)} 不进在途" }
+                    } else {
+                        val item = trace.parcel ?: fallbackOf(accountId, order)
+                        if (item != null) {
+                            result.add(item)
+                            if (trace.parcel == null) fallbackCount++
+                        } else {
+                            detailsFailed++
+                        }
+                    }
                 }
-                Slog.safe(TAG, "skip unchanged=$unchanged")
-                /* 一条都没解析出来时不能说成「成功·没有新件」；这批算瞬时失败，可重试。 */
-                if (allDetailsFailed(toFetch.size, detailsFailed)) {
+                /* 超出详情名额的候选：用列表状态兜底成「轨迹待补」，不消失。 */
+                overflow.forEach { order ->
+                    val item = fallbackOf(accountId, order)
+                    if (item != null) {
+                        result.add(item)
+                        fallbackCount++
+                    } else {
+                        detailsFailed++
+                    }
+                }
+                Slog.safe(TAG, "skip unchanged=$unchanged details=${detailTargets.size} overflow=${overflow.size} fallback=$fallbackCount")
+                /* 一条都没解析出来时不能说成「成功·没有新件」；这批算瞬时失败，可重试。
+                   detailsFailed 也包含 overflow 的兜底失败，不能拿 detailTargets.size 当分母。 */
+                if (candidates.isNotEmpty() && result.isEmpty() && returnSns.isEmpty()) {
                     return@withContext FetchOutcome.Failure(
                         "${detailsFailed} 件详情都没抓到，稍后再试",
                     )
@@ -265,12 +308,14 @@ object PddFetcher {
                 Slog.safe(TAG, "candidates=${candidates.size} parcels=${result.size} history=${historySns.size} virtual=${virtualSns.size}")
                 FetchOutcome.Success(
                     parcels = result,
-                    historyOrderSns = historySns,
+                    historyOrderSns = (historySns + returnSns).distinct(),
                     seenOrderSns = if (ordersEnded) seenSns else emptySet(),
                     detailsFailed = detailsFailed,
+                    fallbackCount = fallbackCount,
                     retireOrderSns = virtualSns.toList(),
                 )
             } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
                 Slog.w(TAG, t) { "fetch failed" }
                 FetchOutcome.Failure("抓取中断：${t.message ?: "未知错误"}")
             } finally {
@@ -352,6 +397,28 @@ object PddFetcher {
     }
 
     private data class TrackEntry(val sn: String, val status: String)
+
+    /** 一单详情的结果：是包裹就带回；识别出是「退回单」时只置 isReturn，不生成在途件。 */
+    private data class TraceParse(val parcel: FetchedParcel?, val isReturn: Boolean = false)
+
+    /** 详情名额有限：先读「待取/派送」，再读运输中，认不出阶段的最后。 */
+    private fun detailRank(stage: Stage?): Int = when (stage) {
+        Stage.AT_STATION -> 0
+        Stage.DELIVERING -> 1
+        Stage.IN_TRANSIT -> 2
+        else -> 3
+    }
+
+    /** 详情没读到（超时/改版/超预算）时的兜底：用列表阶段先入列，轨迹标「待补」。 */
+    private fun fallbackOf(accountId: String, order: OrderHit): FetchedParcel? =
+        fallbackFetchedParcel(
+            platform = Platform.PDD,
+            accountId = accountId,
+            orderSn = order.sn,
+            prompt = order.prompt,
+            goods = order.goods,
+            at = System.currentTimeMillis(),
+        )
 
     /** 只有订单列表/物流详情这类接口的失败才值得让整次同步失败。 */
     private fun isOrderEndpoint(url: String): Boolean {
@@ -442,13 +509,13 @@ object PddFetcher {
         pages: Channel<String>,
         accountId: String,
         order: OrderHit,
-    ): FetchedParcel? {
+    ): TraceParse {
         drain(pages)
         web.loadUrl(ORDER_DETAIL + Uri.encode(order.sn))
-        val loaded = withTimeoutOrNull(15_000) { pages.receive() } ?: return null
+        val loaded = withTimeoutOrNull(15_000) { pages.receive() } ?: return TraceParse(null)
         if (!loaded.contains("order.html")) {
             Slog.w(TAG) { "detail miss ${Slog.mask(order.sn)}: $loaded" }
-            return null
+            return TraceParse(null)
         }
         /* 商品图是懒加载的：等正文与首图就绪，而不是固定睡 2.2 秒。
            上限仍是 2.2 秒，所以慢页不会比以前更慢。 */
@@ -456,6 +523,15 @@ object PddFetcher {
         val detailNode = parseJsJson(evaluate(web, DETAIL_EXTRACT_JS).orEmpty())
         val detailLines = detailNode?.optJSONArray("lines")
         val lead = detailLines?.optString(0).orEmpty()
+        /* 订单详情页顶部若已经是「退款成功 / 退货退款 / 已退回」这类往回走的状态，
+           这件就不再是在途包裹：不生成条目，交给上层按订单号退休。 */
+        val detailHeader = detailNode?.optString("header").orEmpty().ifBlank {
+            detailLines?.let { a -> (0 until a.length()).joinToString(" ") { a.optString(it) } }.orEmpty()
+        }
+        if (isReturnStatusBanner(detailHeader)) {
+            Slog.i(TAG) { "return-detail(skip) sn=${Slog.mask(order.sn)} header=${detailHeader.take(30)}" }
+            return TraceParse(null, isReturn = true)
+        }
         val imageCandidates = detailImageCandidates(detailNode)
         val detailGoods = detailNode?.optJSONObject("goods")?.let { g ->
             val title = g.optString("title").takeIf { it.isNotBlank() && it != "null" }
@@ -513,6 +589,11 @@ object PddFetcher {
             val text = evaluate(web, "document.body ? document.body.innerText : ''").orEmpty()
             val tracking = Uri.parse(traceUrl).getQueryParameter("tracking_number").orEmpty()
             Slog.i(TAG) { "trace tracking=${Slog.mask(tracking)} len=${text.length}" }
+            /* 物流轨迹正文出现「已退回 / 退件 / 拒收」——退回件，不生成在途包裹。 */
+            if (isReturnOrRefundTrace(text)) {
+                Slog.i(TAG) { "return-trace(skip) sn=${Slog.mask(order.sn)} len=${text.length}" }
+                return TraceParse(null, isReturn = true)
+            }
             TraceParser.parse(
                 platform = Platform.PDD,
                 accountId = accountId,
@@ -531,13 +612,15 @@ object PddFetcher {
                 "point=${parsed?.pointName}"
         }
         /* 轨迹页没点到/解析失败：用详情页拿到的商品与列表阶段先入列，轨迹标记待补。 */
-        return parsed ?: fallbackFetchedParcel(
-            platform = Platform.PDD,
-            accountId = accountId,
-            orderSn = order.sn,
-            prompt = order.prompt,
-            goods = goods,
-            at = System.currentTimeMillis(),
+        return TraceParse(
+            parsed ?: fallbackFetchedParcel(
+                platform = Platform.PDD,
+                accountId = accountId,
+                orderSn = order.sn,
+                prompt = order.prompt,
+                goods = goods,
+                at = System.currentTimeMillis(),
+            ),
         )
     }
 
@@ -662,7 +745,7 @@ object PddFetcher {
         web: WebView,
         out: MutableList<JSONObject>,
         maxMs: Long,
-        quietMs: Long = 650,
+        quietMs: Long = 400,
     ): Int {
         val start = SystemClock.uptimeMillis()
         val before = out.size
@@ -718,7 +801,7 @@ object PddFetcher {
           }
           var goods = null;
           if (pi >= 2) goods = {title: lines[pi-2], shop: pi >= 3 ? lines[pi-3] : '', price: lines[pi]};
-          return JSON.stringify({lines: lines.slice(0, 4), goods: goods, images: images});
+          return JSON.stringify({lines: lines.slice(0, 6), header: lines.slice(0, 6).join(' '), goods: goods, images: images});
         })();
     """.trimIndent()
 

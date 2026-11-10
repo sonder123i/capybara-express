@@ -68,9 +68,47 @@ internal fun isFinishedOrderPrompt(prompt: String): Boolean =
     listOf("已签收", "待评价", "交易成功", "订单完成", "已完成", "退款成功", "交易已取消")
         .any { prompt.contains(it) } || OrderStage.stageOf(prompt) == Stage.DONE
 
-/** 取消、关闭、退款、售后：轨迹再新也不能盖过订单状态。 */
+/**
+ * 订单列表状态里的「往回走」词。订单列表只有状态文案、没有按钮，可以用宽词表；
+ * 这类件不会再送到用户手上，轨迹再新也不能把它带进「在途」。
+ */
+private val RETURN_OR_REFUND_PROMPT = listOf(
+    "退款", "退货", "售后", "退回", "退件", "拒收", "拒签", "原路退回",
+    "待商家收货", "待卖家收货", "等待商家收货",
+)
+
+internal fun isReturnOrRefundPrompt(prompt: String): Boolean =
+    prompt.isNotBlank() && RETURN_OR_REFUND_PROMPT.any { prompt.contains(it) }
+
+/**
+ * 详情页顶部状态 / 物流轨迹正文里的退回迹象。
+ *
+ * 这里刻意用**严格短语**，不收裸的「退款 / 退货 / 售后」：详情页和轨迹页会带
+ * 「申请退款 / 售后」这类入口按钮文本，用宽词表会把一张正常在途单按自己的按钮
+ * 误伤成退回单。严格短语只命中真正的退回归属状态。
+ */
+private val RETURN_TEXT_STRICT = listOf(
+    "退款成功", "退款中", "退款完成", "退款关闭", "已退款",
+    "退货退款", "退货中", "已退货", "退货完成",
+    "售后处理中", "售后完成",
+    "已退回", "退回中", "退件", "原路退回", "拒收", "拒签",
+    "待商家收货", "待卖家收货", "等待商家收货",
+)
+
+private fun matchesReturnText(text: String?): Boolean {
+    val t = text?.takeIf { it.isNotBlank() } ?: return false
+    return RETURN_TEXT_STRICT.any { t.contains(it) }
+}
+
+/** 详情页顶部状态是否是「退款/退货/售后」这类往回走的状态。 */
+internal fun isReturnStatusBanner(text: String?): Boolean = matchesReturnText(text)
+
+/** 物流轨迹正文里是否出现退回迹象（「已退回」「退件」「拒收」这类）。 */
+internal fun isReturnOrRefundTrace(text: String?): Boolean = matchesReturnText(text)
+
+/** 取消、关闭、退款、退货、售后、退回：轨迹再新也不能盖过订单状态。 */
 internal fun isBlockedOrderPrompt(prompt: String): Boolean =
-    listOf("取消", "交易关闭", "退款", "售后", "退货").any { prompt.contains(it) }
+    isReturnOrRefundPrompt(prompt) || listOf("取消", "交易关闭").any { prompt.contains(it) }
 
 /**
  * 这条订单状态还值不值得抓详情。
@@ -130,9 +168,50 @@ internal fun isStaleTransitRow(
     parcel.stage != Stage.AT_STATION &&
     parcel.stage != Stage.DONE
 
-internal fun isTerminalTrackStatus(status: String): Boolean =
-    status.equals("OUT_CABINET", true) || status.equals("SIGNED", true) ||
-        status.equals("FINISHED", true) || status.equals("CANCELED", true)
+/**
+ * 一条在途账号件「放太久」了：仍停在运输中 / 派送中（或身份待补的未知），
+ * 却已经超过 [MAX_TRANSIT_AGE_MS] 没有任何一次同步确认过它。
+ *
+ * 这不是「这次没翻到」的残留在途（那条靠 [isStaleTransitRow] 在翻全时退休）；
+ * 它处理的是**翻页永远翻不到、平台也不再返回**的老幽灵——九月的单十一月还挂在
+ * 「在途」，靠「翻页是否结束」永远等不到。到站件不在此列：驿站里真没人取的件另说。
+ */
+const val MAX_TRANSIT_AGE_MS: Long = 30L * 24 * 60 * 60 * 1000
+
+/**
+ * 只看年龄的版本：不区分账号，够老的账号在途件就不该再显示。
+ * 首页展示层用这个（同步登录失效、一直没成功同步时，也能把老幽灵先挡住）。
+ */
+fun isAgedOutTransit(
+    parcel: Parcel,
+    now: Long,
+    maxAgeMs: Long = MAX_TRANSIT_AGE_MS,
+): Boolean {
+    if (parcel.retired || parcel.picked) return false
+    if (parcel.source != Source.ACCOUNT) return false
+    if (parcel.orderSn.isNullOrBlank()) return false
+    if (parcel.stage == Stage.AT_STATION || parcel.stage == Stage.DONE) return false
+    val seenAt = parcel.lastSyncedAt ?: parcel.receivedAt
+    return now - seenAt >= maxAgeMs
+}
+
+internal fun isAgedOutTransitRow(
+    parcel: Parcel,
+    accountId: String,
+    now: Long,
+    maxAgeMs: Long = MAX_TRANSIT_AGE_MS,
+): Boolean = parcel.accountId == accountId && isAgedOutTransit(parcel, now, maxAgeMs)
+
+internal fun isTerminalTrackStatus(status: String): Boolean {
+    val s = status.trim()
+    return s.equals("OUT_CABINET", true) || s.equals("SIGNED", true) ||
+        s.equals("FINISHED", true) || s.equals("CANCELED", true) ||
+        /* 退回/退款/拒收的物流状态：这件在往回走，同样不许再进「在途」。 */
+        s.equals("RETURN", true) || s.equals("RETURNED", true) ||
+        s.equals("RETURNING", true) || s.equals("REFUND", true) ||
+        s.equals("REFUNDED", true) || s.equals("REJECT", true) || s.equals("REJECTED", true) ||
+        isReturnOrRefundTrace(s)
+}
 
 /** 首屏「待收货」区用的是 express/track/status，而不是 order_list。 */
 internal fun trackStatusStage(status: String): Stage? = when (status.uppercase()) {

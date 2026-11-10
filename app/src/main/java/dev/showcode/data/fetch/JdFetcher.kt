@@ -25,8 +25,8 @@ import dev.showcode.core.account.Session
 import dev.showcode.core.account.SyncPhase
 import dev.showcode.core.account.SyncProgress
 import dev.showcode.core.account.TraceParser
-import dev.showcode.core.account.allDetailsFailed
 import dev.showcode.core.account.detailNeeded
+import dev.showcode.core.account.fallbackFetchedParcel
 import dev.showcode.core.account.goodsPriceText
 import dev.showcode.core.account.isBlockedOrderPrompt
 import dev.showcode.core.account.isFinishedOrderPrompt
@@ -64,6 +64,11 @@ object JdFetcher {
     /* 和原来那两处固定睡眠对齐：上限不变，只是数据到了就提前返回。 */
     private const val FIRST_SCREEN_WAIT_MS = 2_500L
     private const val PAGE_WAIT_MS = 2_500L
+    /* 单件详情导航的超时：从 20s 收紧到和淘宝单件详情同档，慢页快速放弃、由列表兜底顶上。 */
+    private const val DETAIL_LOAD_TIMEOUT_MS = 12_000L
+    /** 京东运单号：带标签的优先，其次 JD 段位码 / 通用段位码。 */
+    private val TRACKING_LABELED = Regex("(?:运单号|快递单号|物流单号|货运单号)[：:\\s]*([A-Za-z0-9\\-]{8,})")
+    private val TRACKING_CODE = Regex("(JD[VA]?[0-9]{8,}|[A-Z]{2,4}[0-9]{8,})")
     private val HOSTS = setOf(
         "https://trade.m.jd.com",
         "https://wqs.jd.com",
@@ -98,18 +103,32 @@ object JdFetcher {
                 }
                 WebViewCompat.addDocumentStartJavaScript(web, HOOK_JS, HOSTS)
                 web.loadUrl(ORDER_CENTER)
-                val first = withTimeoutOrNull(20_000) { pages.receive() }
+                var first = withTimeoutOrNull(20_000) { pages.receive() }
                     ?: return@withContext FetchOutcome.Failure("订单页加载超时")
-                /* 跳到通行证页才是登录失效的硬证据；其它意外跳转按瞬时失败处理。 */
-                if (looksLikeLogin(first)) {
-                    return@withContext FetchOutcome.Failure(
-                        "订单页跳到了登录页", FailureKind.AUTH,
-                    )
-                }
                 httpCode?.let {
                     return@withContext FetchOutcome.Failure(
                         "订单页没打开：HTTP $it（$httpUrl）", httpFailureKind(it),
                     )
+                }
+                /* 京东风控/会话刷新也会把一次正常请求瞬时带到通行证页，紧接着重载又好了。
+                   一次重定向不足以判死会话：再要一次，仍不是订单页才认（对齐拼多多）。 */
+                if (!isJdOrdersPage(first)) {
+                    Slog.w(TAG) { "订单页没打开，重试一次: $first" }
+                    drain(pages)
+                    delay(700)
+                    web.loadUrl(ORDER_CENTER)
+                    val again = withTimeoutOrNull(20_000) { pages.receive() }
+                        ?: return@withContext FetchOutcome.Failure("订单页加载超时")
+                    if (!isJdOrdersPage(again)) {
+                        Slog.w(TAG) { "订单页重试仍失败: $again" }
+                        val auth = looksLikeLogin(again)
+                        return@withContext FetchOutcome.Failure(
+                            if (auth) "登录已失效，需要重新登录" else "订单页跳到了其它页面",
+                            if (auth) FailureKind.AUTH else FailureKind.TRANSIENT,
+                        )
+                    }
+                    first = again
+                    Slog.i(TAG) { "订单页重试成功: $first" }
                 }
 
                 val captures = mutableListOf<String>()
@@ -143,6 +162,19 @@ object JdFetcher {
                 /* 取消/关闭/退款/待付款的单也要带回来：它们既是退休旧卡的证据，
                    也是「这次见过哪些单」的一部分。历史单不再占用详情名额。 */
                 val orders = parseOrders(captures)
+                /* 覆盖度自检（对齐淘宝）：库里有活跃件却一条订单都没读到，更可能是接口改版/被风控，
+                   不是「件都没了」。当瞬时失败，不写空快照、不退休已有卡。 */
+                val activeKnown = known.values.count { !it.retired && !it.picked }
+                if (orders.isEmpty() && activeKnown > 0) {
+                    Slog.safe(TAG, "empty-list-with-known=$activeKnown treat-as-breakage")
+                    return@withContext FetchOutcome.Failure("订单列表为空（接口可能改版），本次先保留已有数据")
+                }
+                /* 数量骤降：老库有 4 件以上、这次读到的订单比活跃件还少——更可能是翻页丢失/改版，
+                   不把这次当完整结果，避免退休还没读到的在途件。 */
+                if (activeKnown >= 4 && orders.size < activeKnown) {
+                    Slog.safe(TAG, "order-count-drop=$activeKnown->${orders.size} treat-as-breakage")
+                    return@withContext FetchOutcome.Failure("订单数量异常减少（可能接口改版），本次先保留已有数据")
+                }
                 /* 卡券/虚拟商品没有物流签收：不进详情，也不留在首页；老行交给退休。 */
                 val virtualIds = orders.filter {
                     isVirtualGoodsTitle(it.goods?.title) || isVirtualGoodsTitle(known[it.id]?.goodsTitle)
@@ -153,32 +185,74 @@ object JdFetcher {
                 val now = System.currentTimeMillis()
                 val pending = orders.filter { needsDetail(it) && it.id !in virtualIds }
                     .sortedBy { detailRank(it.status) }
-                val candidates = pending
+                val detailTargets = pending
                     .filter { detailNeeded(it.id, it.stage, known, now) }
                     .take(MAX_DETAILS)
+                val detailIds = detailTargets.map { it.id }.toSet()
+                /* 详情之外也必须覆盖到：超出名额的新单、或详情被门控跳过但库里还没有的活跃单，
+                   不能因为「没进详情」就从结果里消失。新单进兜底，老行保持不动（对齐淘宝 worklist）。 */
+                val worklist = pending.filter { order ->
+                    order.id in detailIds ||
+                        known[order.id] == null ||
+                        known[order.id]?.let { row ->
+                            row.retired || row.trackingNo.isNullOrBlank() ||
+                                (order.stage != null && row.stage != order.stage)
+                        } == true
+                }
                 Slog.safe(
                     TAG,
-                    "orders=${orders.size} pending=${pending.size} candidates=${candidates.size} " +
-                        "skip=${pending.size - candidates.size} history=${history.size} " +
-                        "virtual=${virtualIds.size}",
+                    "orders=${orders.size} pending=${pending.size} detailTargets=${detailTargets.size} " +
+                        "worklist=${worklist.size} history=${history.size} virtual=${virtualIds.size}",
                 )
-                val result = mutableListOf<FetchedParcel>()
-                var detailsFailed = 0
-                candidates.forEachIndexed { index, order ->
-                    onProgress(SyncProgress(SyncPhase.DETAILS, index + 1, candidates.size))
+                /* 详情是单 WebView 串行导航：只对真正要读的 detailTargets 逐单进详情，
+                   单件失败不影响整批，结果按 orderId 暂存。 */
+                val byOrder = HashMap<String, FetchedParcel?>()
+                var detailIndex = 0
+                for (order in detailTargets) {
+                    detailIndex++
+                    onProgress(SyncProgress(SyncPhase.DETAILS, detailIndex, detailTargets.size))
                     val item = try {
                         detail(web, pages, accountId, order)
+                    } catch (auth: DetailAuthExpired) {
+                        return@withContext FetchOutcome.Failure("物流详情登录失效，需要重新登录", FailureKind.AUTH)
                     } catch (t: Throwable) {
+                        if (t is kotlinx.coroutines.CancellationException) throw t
                         Slog.w(TAG, t) { "detail failed ${Slog.mask(order.id)}" }
                         null
                     }
-                    if (item != null) result.add(item) else detailsFailed++
+                    byOrder[order.id] = item
                 }
-                /* 一条都没解析出来时说「成功·没有新件」等于骗人：这批发失败，可重试。 */
-                if (allDetailsFailed(candidates.size, detailsFailed)) {
-                    return@withContext FetchOutcome.Failure(
-                        "${detailsFailed} 件详情都没抓到，稍后再试",
+                /* 详情阶段若明确 401/403：整批按登录失效处理（对齐淘宝的 auth 聚合）。 */
+                httpCode?.let {
+                    if (httpFailureKind(it) == FailureKind.AUTH) {
+                        return@withContext FetchOutcome.Failure("物流详情登录失效（HTTP $it）", FailureKind.AUTH)
+                    }
+                }
+                val result = mutableListOf<FetchedParcel>()
+                var detailsFailed = 0
+                var fallbackCount = 0
+                worklist.forEach { order ->
+                    val parsed = byOrder[order.id]
+                    /* 兜底优先级：详情解析结果 > 列表状态。详情没抓到（或没名额/被跳过）时
+                       用列表状态先入列，标「轨迹待补」，绝不让一件活跃单从结果里消失。 */
+                    val item = parsed ?: fallbackFetchedParcel(
+                        platform = Platform.JD,
+                        accountId = accountId,
+                        orderSn = order.id,
+                        prompt = order.status,
+                        goods = order.goods,
+                        at = now,
                     )
+                    if (item != null) {
+                        result.add(item)
+                        if (parsed == null) fallbackCount++
+                    } else {
+                        detailsFailed++
+                    }
+                }
+                /* 有候选却一条结果都拼不出来才算整批失败；有兜底时不再误报（对齐淘宝）。 */
+                if (worklist.isNotEmpty() && result.isEmpty()) {
+                    return@withContext FetchOutcome.Failure("${detailsFailed} 件都没有可用信息，稍后再试")
                 }
                 /* 只在接口给出「没有下一页」的结束信号时才交 seen：
                    抓取不完整时保持空集，不让退休逻辑误删没翻到的在途件。 */
@@ -192,9 +266,11 @@ object JdFetcher {
                     historyOrderSns = history,
                     seenOrderSns = seen,
                     detailsFailed = detailsFailed,
+                    fallbackCount = fallbackCount,
                     retireOrderSns = virtualIds.toList(),
                 )
             } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
                 Slog.w(TAG, t) { "fetch failed" }
                 FetchOutcome.Failure("抓取中断：${t.message ?: "未知错误"}")
             } finally {
@@ -330,6 +406,18 @@ object JdFetcher {
         }.getOrDefault(false)
     }
 
+    /** 京东订单页：jd 域、path 里带 order；登录/通行证页不算（登录判据见 FetchSignals）。 */
+    private fun isJdOrdersPage(url: String): Boolean {
+        if (looksLikeLogin(url)) return false
+        val bare = urlWithoutQuery(url).lowercase()
+        val host = bare.substringAfter("://", "").substringBefore('/')
+        val path = bare.substringAfter("://", "").substringAfter('/', "")
+        return (host.endsWith("jd.com") || host.endsWith("jd.hk")) && path.contains("order")
+    }
+
+    /** 详情页导航落到登录页：会话在抓取途中失效，整批按 AUTH 处理。 */
+    private class DetailAuthExpired : Exception("detail auth expired")
+
     /** 只有订单列表/物流详情这类接口的失败才值得让整次同步失败。 */
     private fun isOrderEndpoint(url: String): Boolean {
         val u = url.lowercase()
@@ -346,14 +434,16 @@ object JdFetcher {
         if (order.trackLink.isBlank()) return null
         drain(pages)
         web.loadUrl(order.trackLink)
-        val loaded = withTimeoutOrNull(20_000) { pages.receive() } ?: return null
+        val loaded = withTimeoutOrNull(DETAIL_LOAD_TIMEOUT_MS) { pages.receive() } ?: return null
         if (!loaded.startsWith("http")) return null
-        /* 等正文就绪而不是固定睡 2.2 秒；上限不变。 */
+        /* 详情页导航落到通行证/登录页 = 会话失效的硬证据，整批按 AUTH 处理。 */
+        if (looksLikeLogin(loaded)) throw DetailAuthExpired()
+        /* 等正文就绪而不是固定睡眠；上限收紧到详情超时同档，慢页快速放弃、由列表兜底顶上。 */
         WebProbe.awaitBody(evaluate = { evaluate(web, it) })
+        if (looksLikeLogin(evaluate(web, "location.href").orEmpty())) throw DetailAuthExpired()
         val text = evaluate(web, "document.body ? document.body.innerText : ''").orEmpty()
-        val tracking = Regex("(?:运单号|快递单号|物流单号)[：:\\s]*([A-Za-z0-9\\-]{8,})")
-            .find(text)?.groupValues?.getOrNull(1)
-            ?: Regex("(JD[VA][0-9]{8,}|[A-Z]{2,4}[0-9]{8,})").find(text)?.groupValues?.getOrNull(1)
+        val tracking = TRACKING_LABELED.find(text)?.groupValues?.getOrNull(1)
+            ?: TRACKING_CODE.find(text)?.groupValues?.getOrNull(1)
             ?: return null
         Slog.i(TAG) { "detail tracking=${Slog.mask(tracking)} len=${text.length}" }
         return TraceParser.parse(
