@@ -83,7 +83,7 @@ export default function App() {
           grain={0.12}
           fade={0.42}
           opacity={0.78}
-          resolution={1}
+          resolution={0.65}
         />
       </div>
       <div className="site-field-veil" aria-hidden="true" />

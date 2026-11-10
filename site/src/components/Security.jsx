@@ -5,6 +5,7 @@ import StickerPeel from './reactbits/StickerPeel/StickerPeel.jsx'
 import HalftoneReveal from './reactbits/HalftoneReveal/HalftoneReveal.jsx'
 import FaultyTerminal from './reactbits/FaultyTerminal/FaultyTerminal.jsx'
 import StatusMark from './reactbits/StatusMark/StatusMark.jsx'
+import ViewportShaderGate from './ViewportShaderGate.jsx'
 import {
   HoloC,
   PosterCard,
@@ -93,6 +94,7 @@ export default function Security() {
             </div>
             <div className="zero-stage__shredder">
               <span className="zero-stage__hint">DRAG IN / AUTO FEED</span>
+              <ViewportShaderGate rootMargin="200px 0px">
               <Shredder
                 items={SHRED_ITEMS}
                 width={280}
@@ -116,6 +118,7 @@ export default function Security() {
                   </div>
                 )}
               />
+              </ViewportShaderGate>
             </div>
           </div>
           <p className="zero-stage__note">
