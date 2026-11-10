@@ -1,0 +1,54 @@
+.site-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  padding: 14px var(--gutter) 0;
+  pointer-events: none;
+}
+
+.site-header .card-nav {
+  pointer-events: auto;
+}
+
+.site-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.site-progress i {
+  display: block;
+  height: 100%;
+  background: var(--red);
+  transform-origin: 0 50%;
+  will-change: transform;
+}
+
+.cn-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+}
+
+.cn-brand .brand-mark {
+  width: 22px;
+  height: 22px;
+  color: var(--cn-text, var(--ink));
+  --brand-bg: var(--cn-text, var(--ink));
+  --brand-bar: #08090b;
+}
+
+.cn-brand-word {
+  font-family: var(--latin);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--cn-text, var(--ink));
+}

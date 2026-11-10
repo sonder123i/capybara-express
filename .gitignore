@@ -49,3 +49,10 @@ baselineprofile/build/
 # 发布前审查产物（/full-review 的六份报告）。仓库是公开的，报告里写着
 # 导出组件的攻击面、自更新链路缺什么校验——这些不该跟着代码一起发出去。
 .full-review/
+
+# 官网：Vite 依赖与构建产物（源码在 site/src，素材在 site/public/assets）
+site/node_modules/
+site/dist/
+
+# 官网交接快照（截图 + page.html，本地产物不入库）
+site/docs/handoff/

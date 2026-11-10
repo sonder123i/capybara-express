@@ -1,0 +1,1169 @@
+/* ============================================================
+   READABILITY PASS
+   The editorial microtype is part of the identity, but the small
+   labels and specimen copy were doing too much work. This layer
+   raises the floor: larger microtype, stronger contrast, calmer
+   ScrollStack dimming, and more legible ticket / shredder copy.
+   Loaded last so it can correct section and component defaults.
+   ============================================================ */
+
+/* --- global specimen labels ------------------------------------------------ */
+
+.poster-meta {
+  font-size: 9px;
+  letter-spacing: 0.11em;
+  color: #4b5160;
+}
+
+.poster-card--dark .poster-meta {
+  color: #bcc2cc;
+}
+
+.poster-foot {
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  color: #4b5160;
+}
+
+.poster-card--dark .poster-foot {
+  color: #bcc2cc;
+}
+
+.poster-lede {
+  font-size: clamp(13.5px, 1vw, 15px);
+  line-height: 1.78;
+  color: #464c57;
+}
+
+.poster-card--dark .poster-lede {
+  color: #c4c9d2;
+}
+
+.poster-cn {
+  line-height: 1.28;
+}
+
+.poster-index li {
+  font-size: 12.5px;
+  color: rgba(8, 9, 11, 0.82);
+}
+
+.poster-index li span {
+  font-size: 9px;
+}
+
+.poster-index li em {
+  font-size: 9px;
+  color: rgba(8, 9, 11, 0.64);
+}
+
+.poster-card--dark .poster-index li {
+  color: #c7ccd5;
+}
+
+.poster-card--dark .poster-index li em {
+  color: rgba(247, 248, 250, 0.62);
+}
+
+.poster-barcode-foot {
+  font-size: 8px;
+  color: rgba(8, 9, 11, 0.68);
+}
+
+.poster-companion-note {
+  font-size: 8px;
+  color: rgba(8, 9, 11, 0.58);
+}
+
+/* --- hero microtype -------------------------------------------------------- */
+
+.hero-kicker {
+  font-size: 9px;
+  color: #4a505b;
+}
+
+.hero-kicker-code {
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.hero-tagline-en {
+  font-size: 10px;
+  letter-spacing: 0.13em;
+}
+
+.hero-meta {
+  font-size: 9px;
+  color: #4a505b;
+}
+
+.hero-edition {
+  font-size: 9px;
+}
+
+.hero-stage-label,
+.hero-stage-caption {
+  font-size: 9px;
+  color: #4a505b;
+}
+
+.hero-side-nav {
+  font-size: 8px;
+}
+
+/* --- source / point / note cards ------------------------------------------ */
+
+.source-card p {
+  font-size: 13px;
+  line-height: 1.75;
+  color: #464c57;
+}
+
+.source-card.poster-card--dark p {
+  color: #c4c9d2;
+}
+
+.source-card .tag {
+  font-size: 8px;
+}
+
+.poster-note {
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: #4a505b;
+}
+
+.point-poster__meta {
+  font-size: 8px;
+  color: #4b5160;
+}
+
+.point-poster__state {
+  font-size: 9.5px;
+}
+
+.point-poster h3 {
+  font-size: clamp(1.05rem, 1.2vw, 1.2rem);
+}
+
+.point-poster__codes > span {
+  font-size: 9px;
+}
+
+.point-code .split-flap-text {
+  font-size: 12px;
+}
+
+.point-code__rest {
+  font-size: 9px;
+  color: rgba(247, 248, 250, 0.74);
+}
+
+.point-poster__count em {
+  font-size: 10px;
+}
+
+/* --- security shredder / audit -------------------------------------------- */
+
+.zero-stage__hint {
+  font-size: 8px;
+  color: #4b5160;
+}
+
+.shred-item {
+  font-size: 9px;
+}
+
+.shred-item span {
+  font-size: 8px;
+}
+
+.shred-item strong {
+  font-size: 10px;
+}
+
+.shred-item em {
+  font-size: 7.5px;
+  color: rgba(247, 248, 250, 0.6);
+}
+
+.zero-stage__note {
+  font-size: 10px;
+  line-height: 1.7;
+  color: #4a505b;
+}
+
+.audit-row dt {
+  font-size: 9px;
+}
+
+.audit-row dd strong {
+  font-size: 12px;
+}
+
+.audit-row dd span,
+.audit-foot {
+  font-size: 9.5px;
+  line-height: 1.7;
+  color: #b8bec8;
+}
+
+.audit-tag {
+  font-size: 7.5px;
+}
+
+/* --- calm dial / clock ----------------------------------------------------- */
+
+.poster-time-copy {
+  font-size: 10px;
+  color: rgba(8, 9, 11, 0.72);
+}
+
+.calm-dial__caption {
+  font-size: 8px;
+  color: rgba(8, 9, 11, 0.62);
+}
+
+.clock-kicker,
+.clock-foot,
+.clock-scale,
+.clock-time-label {
+  font-size: 9px;
+}
+
+.clock-foot p {
+  font-size: 10px;
+  line-height: 1.75;
+}
+
+.clock-state span {
+  font-size: 11px;
+}
+
+/* --- boundaries stack / margin -------------------------------------------- */
+
+.bnd-left-label,
+.bnd-left-note {
+  font-size: 8px;
+  color: #b8bec8;
+}
+
+.bnd-margin-card p {
+  font-size: 12px;
+  line-height: 1.75;
+  color: #c4c9d2;
+}
+
+.bnd-margin-card blockquote {
+  font-size: clamp(1.4rem, 1.9vw, 1.95rem);
+}
+
+.bnd-card-head {
+  font-size: 8px;
+  color: #4b5160;
+}
+
+.bnd-stack-card.is-dark .bnd-card-head {
+  color: #bcc2cc;
+}
+
+.bnd-card-head em {
+  font-size: 7.5px;
+}
+
+.bnd-stack-card h3 {
+  font-size: clamp(1.25rem, 1.5vw, 1.55rem);
+}
+
+.bnd-stack-card p {
+  font-size: 13px;
+  line-height: 1.75;
+  color: #464c57;
+}
+
+.bnd-stack-card.is-dark p {
+  color: #c4c9d2;
+}
+
+.bnd-card-foot {
+  font-size: 8px;
+  color: #4b5160;
+}
+
+.bnd-stack-card.is-dark .bnd-card-foot {
+  color: #bcc2cc;
+}
+
+/* --- install ticket / verify ---------------------------------------------- */
+
+.tt-body .dl-specs {
+  font-size: 9.5px;
+}
+
+.tt-body p {
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: #464c57;
+}
+
+.tt-stub__kicker {
+  font-size: 8px;
+}
+
+.tt-stub__hint {
+  font-size: 9.5px;
+  line-height: 1.6;
+  color: rgba(8, 9, 11, 0.78);
+}
+
+.tt-stub em {
+  font-size: 8px;
+}
+
+.dl-tear__foot {
+  font-size: 8px;
+  color: #4b5160;
+}
+
+.dl-kicker {
+  font-size: 9px;
+}
+
+.dl-ticket-left p,
+.dl-ticket-right p {
+  font-size: 11px;
+  line-height: 1.7;
+  color: #4a505b;
+}
+
+.verify-hash code {
+  font-size: 10px;
+}
+
+.verify-item > p {
+  font-size: 11px;
+  line-height: 1.75;
+  color: #4a505b;
+}
+
+.verify-item pre code {
+  font-size: 9px;
+}
+
+.verify-foot,
+.verify-head-note {
+  font-size: 10px;
+  line-height: 1.7;
+  color: #4a505b;
+}
+
+.install-spec-card .glass-icon-label {
+  font-size: 9px;
+}
+
+.install-foot-row {
+  font-size: 10px;
+  color: #4a505b;
+}
+
+/* --- small screens: never let the floor collapse -------------------------- */
+
+@media (max-width: 680px) {
+  .poster-meta,
+  .poster-foot {
+    font-size: 8.5px;
+  }
+
+  .poster-lede {
+    font-size: 13px;
+    line-height: 1.75;
+  }
+
+  .poster-index li {
+    font-size: 12px;
+  }
+
+  .source-card p,
+  .bnd-stack-card p {
+    font-size: 12.5px;
+  }
+
+  .poster-note,
+  .zero-stage__note {
+    font-size: 10px;
+  }
+
+  .point-poster h3 {
+    font-size: 1.05rem;
+  }
+
+  .point-code .split-flap-text {
+    font-size: 11px;
+  }
+
+  .shred-item strong {
+    font-size: 9.5px;
+  }
+
+  .tt-body p,
+  .tt-stub__hint {
+    font-size: 9px;
+  }
+
+  .hero-kicker,
+  .hero-meta {
+    font-size: 8.5px;
+  }
+
+  .hero-tagline-en {
+    font-size: 9px;
+  }
+}
+
+/* --- second pass: specimen body copy was still too quiet ------------------- */
+
+.source-card p {
+  font-size: 13.5px;
+  color: #2f343c;
+}
+
+.source-card.poster-card--dark p {
+  color: #d3d7de;
+}
+
+.source-card .tag {
+  font-size: 8.5px;
+  color: #2f343c;
+  border-color: rgba(8, 9, 11, 0.24);
+}
+
+.source-card.poster-card--dark .tag {
+  color: #d3d7de;
+  border-color: rgba(247, 248, 250, 0.3);
+}
+
+.parser-card p {
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: #c4c9d2;
+}
+
+.parser-card .poster-chip em {
+  font-size: 8px;
+  color: rgba(247, 248, 250, 0.7);
+}
+
+.zero-index li {
+  font-size: 10px;
+  color: #4a505b;
+}
+
+.zero-index li span {
+  font-size: 8.5px;
+}
+
+.zero-index li em {
+  font-size: 8px;
+  color: rgba(8, 9, 11, 0.52);
+}
+
+.audit-row dt {
+  font-size: 9.5px;
+}
+
+.audit-row dd span {
+  font-size: 10px;
+}
+
+.audit-foot {
+  font-size: 10px;
+}
+
+.tt-body .dl-specs {
+  font-size: 10px;
+}
+
+.tt-body p {
+  font-size: 12px;
+}
+
+.tt-stub__hint {
+  font-size: 10px;
+}
+
+.install-spec-card .glass-icon-label {
+  font-size: 9.5px;
+}
+
+@media (max-width: 680px) {
+  .source-card p {
+    font-size: 13px;
+  }
+
+  .zero-index li {
+    font-size: 9.5px;
+  }
+
+  .parser-card p {
+    font-size: 11px;
+  }
+
+  .tt-body p {
+    font-size: 10.5px;
+  }
+}
+
+.poster-card--pastel .poster-lede,
+.poster-card--white .poster-lede {
+  color: #2f343c;
+}
+
+.poster-card--pastel .poster-meta,
+.poster-card--white .poster-meta {
+  color: #3f4652;
+}
+
+.poster-card--pastel .poster-foot,
+.poster-card--white .poster-foot {
+  color: #3f4652;
+}
+
+/* ============================================================
+   CJK LEGIBILITY
+   Chinese was falling back to tiny monospace / thin Songti at
+   8–11px. Chinese now uses the sans stack, a larger floor, slightly
+   heavier weight, and near-ink colors; serif is reserved for the
+   big display phrases.
+   ============================================================ */
+
+.hero-eyebrow {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: #3f4652;
+}
+
+.hero-name {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: #2f343c;
+}
+
+.hero-lede {
+  font-size: clamp(1.02rem, 1.1vw, 1.12rem);
+  color: #3f4652;
+}
+
+.hero-facts {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: #3f4652;
+}
+
+.hero-side-nav em {
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  color: #3f4652;
+}
+
+.poster-lede {
+  font-weight: 500;
+}
+
+.poster-card--dark .poster-lede {
+  color: #e2e5ea;
+}
+
+.source-card h3 {
+  font-family: var(--sans);
+  font-size: clamp(1.35rem, 1.55vw, 1.6rem);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.source-card p {
+  font-size: 14px;
+  line-height: 1.8;
+  color: #20242a;
+}
+
+.source-card.poster-card--dark p {
+  color: #eceef2;
+}
+
+.source-card .tag {
+  padding: 5px 8px;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #2f343c;
+}
+
+.source-card.poster-card--dark .tag {
+  color: #eceef2;
+}
+
+.point-poster h3 {
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.point-poster__meta {
+  font-size: 8px;
+}
+
+.point-poster__state {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.point-poster__codes > span {
+  font-size: 10px;
+}
+
+.point-code__rest {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+
+.poster-note {
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.75;
+  color: #2f343c;
+}
+
+.note-card h3 {
+  font-family: var(--sans);
+  font-size: 1.18rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.note-card p {
+  font-size: 13px;
+  line-height: 1.78;
+  color: #2f343c;
+}
+
+.poster-card--dark .note-card p {
+  color: #d7dbe2;
+}
+
+.poster-card--pastel .note-card p {
+  color: #2f343c;
+}
+
+.parser-card p {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: #e2e5ea;
+}
+
+.zero-index li {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: #2f343c;
+}
+
+.zero-index li span,
+.zero-index li em {
+  font-family: var(--mono);
+}
+
+.zero-stage__note {
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.7;
+  color: #2f343c;
+}
+
+.shred-item strong {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.audit-row dt {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+
+.audit-row dd strong {
+  font-family: var(--sans);
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.audit-row dd span {
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.65;
+  letter-spacing: 0;
+}
+
+.audit-foot {
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.7;
+  letter-spacing: 0;
+}
+
+.poster-time-copy {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  line-height: 1.65;
+  letter-spacing: 0;
+  color: #2f343c;
+}
+
+.calm-dial__caption {
+  font-family: var(--sans);
+  font-size: 9.5px;
+  letter-spacing: 0;
+  color: #3f4652;
+}
+
+.clock-kicker,
+.clock-time-label,
+.clock-scale {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+
+.clock-state span {
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.clock-state strong {
+  font-size: 12px;
+}
+
+.clock-foot p {
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.75;
+  letter-spacing: 0;
+}
+
+.clock-foot-note {
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.specimen-kicker {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+
+.specimen-top h4 {
+  font-size: 15px;
+}
+
+.specimen-status span {
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.specimen-foot {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+
+.next-stop-label,
+.next-stop span {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+
+.next-stop strong {
+  font-family: var(--sans);
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.bnd-margin-card p {
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.75;
+  letter-spacing: 0;
+}
+
+.bnd-left-label,
+.bnd-left-note {
+  font-family: var(--sans);
+  font-size: 9.5px;
+  letter-spacing: 0;
+}
+
+.bnd-card-head em {
+  font-family: var(--sans);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.bnd-stack-card h3 {
+  font-family: var(--sans);
+  font-size: 1.2rem;
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: 0;
+}
+
+.bnd-stack-card p {
+  font-size: 14px;
+  line-height: 1.78;
+  color: #20242a;
+}
+
+.bnd-stack-card.is-dark p {
+  color: #e2e5ea;
+}
+
+.tt-body .dl-kicker {
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.tt-body p {
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.7;
+  color: #2f343c;
+}
+
+.tt-stub__hint {
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.65;
+  letter-spacing: 0;
+}
+
+.verify-item h3 {
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.verify-item > p {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  line-height: 1.75;
+  letter-spacing: 0;
+}
+
+.verify-foot,
+.verify-head-note {
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.7;
+  letter-spacing: 0;
+}
+
+.dl-ticket-left p,
+.dl-ticket-right p {
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.7;
+  letter-spacing: 0;
+}
+
+.install-foot-row {
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.7;
+  letter-spacing: 0;
+}
+
+.footer-signoff-zh {
+  font-family: var(--sans);
+  font-size: clamp(1.05rem, 1.35vw, 1.3rem);
+  font-weight: 500;
+  color: #d7dbe2;
+}
+
+.footer-bottom {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+
+@media (max-width: 680px) {
+  .hero-eyebrow,
+  .hero-facts {
+    font-size: 10px;
+  }
+
+  .hero-name {
+    font-size: 12px;
+  }
+
+  .source-card h3 {
+    font-size: 1.3rem;
+  }
+
+  .source-card p,
+  .bnd-stack-card p,
+  .note-card p {
+    font-size: 13px;
+  }
+
+  .point-poster h3 {
+    font-size: 14px;
+  }
+
+  .point-poster__state {
+    font-size: 11px;
+  }
+
+  .zero-index li {
+    font-size: 11px;
+  }
+
+  .zero-stage__note,
+  .poster-note {
+    font-size: 11.5px;
+  }
+
+  .audit-row dd strong {
+    font-size: 12px;
+  }
+
+  .audit-row dd span,
+  .audit-foot {
+    font-size: 10.5px;
+  }
+
+  .poster-time-copy {
+    font-size: 10.5px;
+  }
+
+  .bnd-margin-card p,
+  .tt-body p {
+    font-size: 12px;
+  }
+
+  .tt-stub__hint {
+    font-size: 10px;
+  }
+}
+
+/* ============================================================
+   ONE CONTINUOUS IRIDESCENT FIELD
+   The Hero background is no longer a local block; it is a fixed
+   field behind the whole document. Sections become transparent
+   so the same pastel light runs through every gap and band.
+   ============================================================ */
+
+.site-field {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(58% 72% at 72% 18%, rgba(255, 158, 219, 0.22), transparent 64%),
+    radial-gradient(54% 70% at 24% 44%, rgba(126, 232, 250, 0.22), transparent 62%),
+    var(--paper);
+}
+
+.site-field > div,
+.site-field .iridescence-container,
+.site-field .iridescence-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.site-field-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(242, 243, 246, 0.95) 0%, rgba(242, 243, 246, 0.88) 32%, rgba(242, 243, 246, 0.24) 58%, transparent 76%),
+    linear-gradient(180deg, rgba(242, 243, 246, 0.4) 0%, transparent 22%, transparent 78%, rgba(242, 243, 246, 0.62) 100%);
+}
+
+#main,
+.site-footer {
+  position: relative;
+  z-index: 2;
+}
+
+.hero--holo {
+  background: transparent;
+}
+
+.poster-section {
+  background: transparent;
+  border-top-color: rgba(8, 9, 11, 0.12);
+}
+
+.poster-section--dark {
+  background: transparent;
+  border-top-color: rgba(8, 9, 11, 0.14);
+}
+
+.marquee-band {
+  background: rgba(242, 243, 246, 0.3);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.interstitial {
+  background:
+    linear-gradient(90deg, rgba(255, 158, 219, 0.16), rgba(126, 232, 250, 0.13) 55%, rgba(184, 255, 217, 0.16)),
+    rgba(242, 243, 246, 0.3);
+  -webkit-backdrop-filter: blur(5px);
+  backdrop-filter: blur(5px);
+}
+
+.site-footer {
+  background: rgba(8, 9, 11, 0.92);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+@media (max-width: 680px) {
+  .site-field-veil {
+    background:
+      linear-gradient(180deg, rgba(242, 243, 246, 0.82) 0%, rgba(242, 243, 246, 0.6) 45%, rgba(242, 243, 246, 0.8) 100%);
+  }
+}
+
+.parcel-strip__head {
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: #3f4652;
+}
+
+@media (max-width: 680px) {
+  .parcel-strip__head {
+    font-size: 9px;
+  }
+}
+
+.parcel-strip__note {
+  max-width: 46em;
+  margin: -4px 0 16px;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.75;
+  color: #3f4652;
+}
+
+@media (max-width: 680px) {
+  .parcel-strip__note {
+    font-size: 12px;
+    margin-top: 2px;
+  }
+}
+
+/* --- security: reveal / terminal / status marks --------------------------- */
+
+.env-reveal {
+  position: absolute;
+  left: 8%;
+  bottom: 24%;
+  z-index: 3;
+  width: 40%;
+  height: 24%;
+  border: 1px dashed rgba(194, 31, 114, 0.38);
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.env-reveal .halftone-reveal {
+  width: 100%;
+  height: 100%;
+}
+
+.env-reveal-label {
+  position: absolute;
+  top: 5px;
+  left: 7px;
+  z-index: 2;
+  padding: 2px 4px;
+  background: rgba(255, 255, 255, 0.72);
+  font-family: var(--mono);
+  font-family: var(--sans);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: #3f4652;
+  pointer-events: none;
+}
+
+.audit-terminal {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.14;
+  pointer-events: none;
+}
+
+.audit-card > .audit-terminal {
+  z-index: 0;
+}
+
+.audit-terminal .faulty-terminal-container {
+  width: 100%;
+  height: 100%;
+}
+
+.audit {
+  position: relative;
+  z-index: 2;
+}
+
+.audit-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.audit-tag .status-mark {
+  --sm-size: 11px;
+  --sm-done: currentColor;
+  --sm-color: currentColor;
+  --sm-fill: 0;
+}
+
+@media (max-width: 680px) {
+  .env-reveal {
+    left: 7%;
+    bottom: 21%;
+    width: 46%;
+    height: 21%;
+  }
+}

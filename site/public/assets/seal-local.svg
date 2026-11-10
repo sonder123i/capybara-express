@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <defs>
+    <path id="seal-ring" d="M120,120 m-94,0 a94,94 0 1,1 188,0 a94,94 0 1,1 -188,0"/>
+    <path id="seal-ring-inner" d="M120,120 m-78,0 a78,78 0 1,0 156,0 a78,78 0 1,0 -156,0"/>
+  </defs>
+  <circle cx="120" cy="120" r="112" fill="none" stroke="#c21f72" stroke-width="2"/>
+  <circle cx="120" cy="120" r="102" fill="none" stroke="#c21f72" stroke-width="0.8" opacity="0.6"/>
+  <circle cx="120" cy="120" r="62" fill="none" stroke="#c21f72" stroke-width="1.2"/>
+  <text fill="#c21f72" font-family="SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing="2.2">
+    <textPath href="#seal-ring">PRIVATE BY DEFAULT · NO CLOUD · NO TRACKING · </textPath>
+  </text>
+  <text fill="#c21f72" font-family="Songti SC, STSong, SimSun, serif" font-size="30" font-weight="600" text-anchor="middle">
+    <textPath href="#seal-ring-inner" startOffset="50%">不出门</textPath>
+  </text>
+  <text x="120" y="154" fill="#c21f72" font-family="SFMono-Regular, Consolas, monospace" font-size="8" letter-spacing="3" text-anchor="middle">LOCAL</text>
+  <text x="120" y="174" fill="#c21f72" font-family="SFMono-Regular, Consolas, monospace" font-size="6" letter-spacing="2" text-anchor="middle">CE / 0.4.6</text>
+</svg>
