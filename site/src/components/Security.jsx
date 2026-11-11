@@ -1,8 +1,9 @@
-import { asset, LINKS, VERSION } from '../data.js'
+import { LINKS, VERSION } from '../data.js'
 import { ArrowUpRight } from './Common.jsx'
 import Shredder from './reactbits/Shredder/Shredder.jsx'
-import StickerPeel from './reactbits/StickerPeel/StickerPeel.jsx'
-import HalftoneReveal from './reactbits/HalftoneReveal/HalftoneReveal.jsx'
+import BorderGlow from './reactbits/BorderGlow/BorderGlow.jsx'
+import DepthText from './reactbits/DepthText.jsx'
+import SplitFlapText from './reactbits/SplitFlapText/SplitFlapText.jsx'
 import FaultyTerminal from './reactbits/FaultyTerminal/FaultyTerminal.jsx'
 import StatusMark from './reactbits/StatusMark/StatusMark.jsx'
 import ViewportShaderGate from './ViewportShaderGate.jsx'
@@ -56,6 +57,28 @@ function NoCloud() {
         strokeWidth="1.6"
       />
       <path d="M7 5 64 44" fill="none" stroke="var(--red)" strokeWidth="3.2" />
+    </svg>
+  )
+}
+
+function SealStamp() {
+  return (
+    <svg className="seal-vault__stamp" viewBox="0 0 240 240" role="img" aria-label="本机封存印章">
+      <defs>
+        <path id="sv-ring" d="M120,120 m-94,0 a94,94 0 1,1 188,0 a94,94 0 1,1 -188,0" />
+        <path id="sv-ring-in" d="M120,120 m-78,0 a78,78 0 1,0 156,0 a78,78 0 1,0 -156,0" />
+      </defs>
+      <circle cx="120" cy="120" r="112" fill="none" stroke="currentColor" strokeWidth="2" />
+      <circle cx="120" cy="120" r="102" fill="none" stroke="currentColor" strokeWidth="0.8" opacity="0.6" />
+      <circle cx="120" cy="120" r="62" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <text fill="currentColor" fontSize="10" letterSpacing="2.2" fontFamily="monospace">
+        <textPath href="#sv-ring">PRIVATE BY DEFAULT · NO CLOUD · NO TRACKING ·</textPath>
+      </text>
+      <text fill="currentColor" fontSize="30" fontWeight="600" textAnchor="middle" fontFamily="var(--serif)">
+        <textPath href="#sv-ring-in" startOffset="50%">不出门</textPath>
+      </text>
+      <text x="120" y="154" fill="currentColor" fontSize="9" letterSpacing="3" textAnchor="middle" fontFamily="monospace">LOCAL</text>
+      <text x="120" y="176" fill="currentColor" fontSize="7" letterSpacing="2" textAnchor="middle" fontFamily="monospace">CE / {VERSION}</text>
     </svg>
   )
 }
@@ -141,91 +164,106 @@ export default function Security() {
 
         <PosterCard
           className="span-7 envelope-card"
-          tone="white"
+          tone="dark"
           label="01 / SEALED"
           no="01"
         >
-          <div className="no-cloud">
-            <NoCloud />
-            <span>NO CLOUD</span>
-          </div>
-          <div className="envelope-wrap">
-            <div className="envelope">
-              <div className="env-flap" aria-hidden="true" />
-              <svg className="env-fold" viewBox="0 0 100 70" preserveAspectRatio="none" aria-hidden="true">
-                <path d="M0 0 L50 40 L100 0" />
-                <path d="M0 70 L38 40" />
-                <path d="M100 70 L62 40" />
-              </svg>
-              <div className="env-body">
-                <div className="env-address">
-                  <p>
-                    <span>收件人</span>
-                    <strong>这台手机</strong>
-                  </p>
-                  <p>
-                    <span>寄件人</span>
-                    <strong>你自己</strong>
-                  </p>
-                  <p>
-                    <span>内容</span>
-                    <strong>取件码、取件点、时间</strong>
-                  </p>
-                  <p>
-                    <span>备注</span>
-                    <strong>不出门</strong>
-                  </p>
+          <BorderGlow
+            className="seal-vault"
+            backgroundColor="#0a0b0f"
+            borderRadius={14}
+            edgeSensitivity={26}
+            glowColor="194 31 114"
+            glowRadius={46}
+            glowIntensity={1.15}
+            coneSpread={22}
+            animated
+            colors={['#ff9edb', '#7ee8fa', '#b8ffd9']}
+            fillOpacity={0.5}
+          >
+            <div className="seal-vault__inner">
+              <div className="seal-vault__head">
+                <div className="no-cloud no-cloud--on-dark">
+                  <NoCloud />
+                  <span>NO CLOUD / 封存于本机</span>
                 </div>
-                <div className="env-reveal">
-                  <HalftoneReveal
-                    src={asset('icon.png')}
-                    mode="mono"
-                    shape="dot"
-                    cellSize={5}
-                    inkColor="#c21f72"
-                    accentColor="#121318"
-                    paperColor="#ffffff"
-                    contrast={1.1}
-                    revealRadius={118}
-                    softness={0.75}
-                    linger={1.6}
-                    clickBurst
+                <span className="seal-vault__tag">SEALED · 无出口</span>
+              </div>
+
+              <div className="seal-vault__hero">
+                <div className="seal-vault__word">
+                  <DepthText
+                    text="LOCAL"
+                    layers={26}
+                    depth={2.2}
+                    faceColor="#f7f8fa"
+                    depthColor="#ff5bbd"
+                    tilt={8}
+                    autoOrbit
+                    orbitSpeed={0.32}
+                    fontSize="clamp(46px, 6.4vw, 92px)"
+                    fontWeight={800}
+                    shadow
                     intro={false}
                   />
-                  <span className="env-reveal-label">本地显影 / HALFTONE</span>
+                  <span className="seal-vault__word-sub">SQLite · 卸载即消失</span>
                 </div>
-                <div className="env-stamp" aria-hidden="true">
-                  <span className="stamp-barcode" />
-                  <span>LOCAL</span>
-                  <em>CE / {VERSION}</em>
-                </div>
-                <div className="env-seal env-seal-sticker">
-                  <img className="env-seal-fallback" src={asset('seal-local.svg')} alt="" />
-                  <StickerPeel
-                    imageSrc={asset('seal-local.svg')}
-                    width={140}
-                    rotate={-11}
-                    finish="holo"
-                    peelDirection={18}
-                    initialPosition="center"
-                    className="env-sticker"
+                <div className="seal-vault__ledger" aria-hidden="true">
+                  <span className="seal-vault__ledger-label">CLOUD UPLOADS</span>
+                  <SplitFlapText
+                    text="000000"
+                    padTo={6}
+                    loop
+                    flipDuration={0.2}
+                    stagger={0.06}
+                    flipsPerChar={3}
+                    cycleDelay={3400}
+                    fontSize={26}
+                    gap={3}
+                    tileRadius={4}
+                    tileColor="#101014"
+                    textColor="#7ee8fa"
+                    depth={0.25}
+                    glare={0.1}
+                    charset="0123456789"
+                    words={['000000']}
                   />
+                  <span className="seal-vault__ledger-note">本机解析 · 零上传</span>
                 </div>
-                <div className="env-lines" aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
+              </div>
+
+              <dl className="seal-vault__manifest">
+                <div>
+                  <dt>收件人</dt>
+                  <dd>这台手机</dd>
                 </div>
-                <div className="env-air" aria-hidden="true" />
+                <div>
+                  <dt>寄件人</dt>
+                  <dd>你自己</dd>
+                </div>
+                <div>
+                  <dt>内容</dt>
+                  <dd>取件码 · 取件点 · 时间</dd>
+                </div>
+                <div>
+                  <dt>备注</dt>
+                  <dd>不出门，没有下一站</dd>
+                </div>
+              </dl>
+
+              <div className="seal-vault__foot">
+                <span className="stamp-barcode" aria-hidden="true" />
+                <em>CE / {VERSION} · LOCAL-FIRST</em>
+                <SealStamp />
               </div>
             </div>
-            <p className="envelope-caption">
-              <span className="caption-mark" aria-hidden="true">
-                ↳
-              </span>
-              数据确实只走这一条路：从短信、通知或平台账号，到本机 SQLite。没有下一站。
-            </p>
-          </div>
+          </BorderGlow>
+          <p className="envelope-caption">
+            <span className="caption-mark" aria-hidden="true">
+              ↳
+            </span>
+            数据确实只走这一条路：从短信、通知或平台账号，到本机 SQLite。没有下一站。
+          </p>
         </PosterCard>
 
         <PosterCard

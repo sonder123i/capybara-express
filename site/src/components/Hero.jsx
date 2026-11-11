@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { asset, LINKS, VERSION } from '../data.js'
 import { ArrowDown, ArrowRight, Barcode } from './Common.jsx'
+import HeroConsole from './HeroConsole.jsx'
 import ShinyText from './reactbits/ShinyText.jsx'
 import Magnet from './reactbits/Magnet.jsx'
 import DecryptedText from './reactbits/DecryptedText/DecryptedText/DecryptedText.jsx'
@@ -8,6 +9,7 @@ import VariableProximity from './reactbits/VariableProximity/VariableProximity.j
 
 const SIDE_NAV = [
   { id: 'convenience', label: '方便' },
+  { id: 'screens', label: '界面' },
   { id: 'security', label: '安全' },
   { id: 'calm', label: '省心' },
   { id: 'boundaries', label: '边界' },
@@ -155,32 +157,21 @@ export default function Hero() {
 
         <div className="hero-stage">
           <div className="hero-stage-grid" aria-hidden="true" />
-          <span className="hero-stage-label">SPECIMEN 00 / IRIDESCENT LOCALITY</span>
-          <span className="hero-stage-caption">LIQUID GLASS / NO CLOUD</span>
+          <span className="hero-stage-label">SPECIMEN 00 / LIVE CONSOLE</span>
+          <span className="hero-stage-caption">REAL UI / NO CLOUD</span>
 
-          <div className="hero-sculpture">
+          <div className="hero-sculpture" aria-hidden="true">
             <img
               className="hero-sculpture-base"
               src={asset('holo-ribbon-v4.webp')}
               alt=""
-              width="1200"
-              height="1200"
+              width="900"
+              height="900"
               fetchPriority="high"
             />
           </div>
 
-          <div className="hero-glass-disc">
-            <span
-              className="hero-glass-lens"
-              aria-hidden="true"
-              style={{ backgroundImage: `url(${asset('holo-ribbon-v4.webp')})`, WebkitMaskImage: undefined }}
-            />
-            <span className="hero-glass-tint" aria-hidden="true" />
-            <span className="hero-glass-label">
-              LOCAL
-              <em>100%</em>
-            </span>
-          </div>
+          <HeroConsole />
 
           <div className="hero-bars">
             <span className="hero-bars-glow" aria-hidden="true" />

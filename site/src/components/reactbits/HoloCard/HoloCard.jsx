@@ -265,7 +265,7 @@ void main() {
   bool layered = uPreset == 2 || uPreset == 4 || uPreset == 5 || uPreset == 7;
   vec3 foil = (layered ? tint : mix(tint, vec3(1.0), 0.12)) * (1.15 + 0.3 * sheen) + metal * glint * 1.2;
   float tilted = smoothstep(0.02, 0.21, length(sin(uTilt)));
-  float awake = mix(0.2, 1.0, tilted);
+  float awake = tilted;
   float strength = uIntensity * f.mask * (1.0 - frame) * awake;
   float band = uPreset == 5 ? spoke : layered ? 0.25 + 0.75 * smoothstep(0.3, 0.95, 0.5 + 0.5 * cos(phase * TAU * 0.5 + 1.3)) : 1.0;
   vec3 color = layered
@@ -273,7 +273,7 @@ void main() {
     : mix(art, foil, clamp(strength * look.w, 0.0, 1.0));
   color += sparkles(p, halfway, sweep, mix(0.55, 1.0, tilted)) * uEdge * frame;
   color += uFoil * sheen * 0.12 * frame;
-  color += vec3(sheen * 0.07 + shine * 0.3) * uGlare;
+  color += vec3(sheen * 0.07 + shine * 0.3) * uGlare * awake;
   color = pow(clamp(color, 0.0, 1.0), vec3(1.0 / 2.2));
   outColor = vec4(color * alpha, alpha);
 }
@@ -607,6 +607,7 @@ export default function HoloCard({
         gl.deleteTexture(texture);
         gl.deleteBuffer(buffer);
         gl.deleteProgram(program);
+        gl.getExtension('WEBGL_lose_context')?.loseContext();
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

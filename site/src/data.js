@@ -15,6 +15,7 @@ export const LINKS = {
 
 export const NAV = [
   { id: 'convenience', index: '01', label: '方便', en: 'EFFORTLESS' },
+  { id: 'screens', index: '01.5', label: '界面', en: 'SPECIMENS' },
   { id: 'security', index: '02', label: '安全', en: 'PRIVATE' },
   { id: 'calm', index: '03', label: '省心', en: 'CALM' },
   { id: 'boundaries', index: '04', label: '边界', en: 'BOUNDARIES' },

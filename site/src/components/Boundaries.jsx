@@ -172,6 +172,7 @@ export default function Boundaries() {
           dimAmount={0.06}
           blurAmount={0}
           holdDistance={130}
+          smoothScroll={false}
         >
           {CLAUSES.map((clause, index) => (
             <ScrollStackItem

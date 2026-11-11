@@ -821,6 +821,7 @@ const GlassIcons = ({
         gl.deleteProgram(program);
         gl.deleteShader(vertex);
         gl.deleteShader(fragment);
+        gl.getExtension('WEBGL_lose_context')?.loseContext();
       }
     };
   }, []);

@@ -1802,6 +1802,27 @@
     max-width: 80%;
   }
 
+  .holo-x {
+    width: min(40%, 300px);
+    right: -9%;
+    bottom: -13%;
+    opacity: 0.6;
+  }
+
+  .holo-c {
+    width: min(38%, 280px);
+    right: -11%;
+    bottom: -11%;
+    opacity: 0.6;
+  }
+
+  .holo-ring {
+    width: min(32%, 240px);
+    right: -8%;
+    bottom: -10%;
+    opacity: 0.6;
+  }
+
   .poster-companion {
     min-height: 290px;
   }
@@ -1938,21 +1959,29 @@
   }
 
   .poster-lede {
+    max-width: 24em;
     font-size: 12px;
   }
 
   .holo-x {
-    width: 68%;
-    right: -18%;
-    bottom: -18%;
-    opacity: 0.55;
+    width: 52%;
+    right: -15%;
+    bottom: -11%;
+    opacity: 0.42;
   }
 
   .holo-c {
-    width: 64%;
-    right: -16%;
-    bottom: -16%;
-    opacity: 0.6;
+    width: 48%;
+    right: -13%;
+    bottom: -10%;
+    opacity: 0.45;
+  }
+
+  .holo-ring {
+    width: 42%;
+    right: -10%;
+    bottom: -9%;
+    opacity: 0.45;
   }
 
   .poster-big {

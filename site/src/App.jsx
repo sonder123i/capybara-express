@@ -6,6 +6,7 @@ import Hero from './components/Hero.jsx'
 import MarqueeBand from './components/MarqueeBand.jsx'
 import ClickSpark from './components/reactbits/ClickSpark.jsx'
 import Convenience from './components/Convenience.jsx'
+import Specimens from './components/Specimens.jsx'
 import Security from './components/Security.jsx'
 import Interstitial from './components/Interstitial.jsx'
 import Calm from './components/Calm.jsx'
@@ -16,6 +17,16 @@ import { NAV } from './data.js'
 
 export default function App() {
   const [active, setActive] = useState('')
+  const [compact, setCompact] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 680px)').matches,
+  )
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 680px)')
+    const onChange = (e) => setCompact(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
 
   useLayoutEffect(() => initSiteMotion(), [])
 
@@ -70,7 +81,7 @@ export default function App() {
           amplitude={0.08}
           mouseReact
           scale={1.15}
-          detail={7}
+          detail={compact ? 5 : 7}
           rotation={-8}
           warp={0.9}
           hueShift={-18}
@@ -83,7 +94,7 @@ export default function App() {
           grain={0.12}
           fade={0.42}
           opacity={0.78}
-          resolution={0.65}
+          resolution={compact ? 0.4 : 0.65}
         />
       </div>
       <div className="site-field-veil" aria-hidden="true" />
@@ -108,6 +119,7 @@ export default function App() {
         <Hero />
         <MarqueeBand />
         <Convenience />
+        <Specimens />
         <Security />
         <Interstitial />
         <Calm />

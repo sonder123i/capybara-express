@@ -38,10 +38,13 @@
   --dark-muted: #a7adb8;
   --dark-line: rgba(247, 248, 250, 0.16);
 
-  --sans: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
+  --ui: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
     "Source Han Sans SC", "HarmonyOS Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --serif: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", SimSun, Georgia,
+  --sans: "Noto Serif SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Source Han Sans SC", "HarmonyOS Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --serif: "Noto Serif SC", "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", SimSun, Georgia,
     serif;
+  --brush: "Ma Shan Zheng", "Noto Serif SC", "Songti SC", "STKaiti", "KaiTi", serif;
   --latin: "Bodoni MT", "Bodoni 72", Didot, "Times New Roman", Georgia, serif;
   --mono: "SFMono-Regular", "Cascadia Mono", "Cascadia Code", Consolas, "Liberation Mono", monospace;
 

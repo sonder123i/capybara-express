@@ -2,6 +2,7 @@ import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 
 gsap.registerPlugin(ScrollTrigger)
+gsap.ticker.lagSmoothing(500, 33)
 
 const prefersReduced = () =>
   typeof window !== 'undefined' &&
@@ -44,6 +45,7 @@ export function initSiteMotion() {
         'note-grid',
         'output-grid',
         'parcel-grid',
+        'specimen-grid',
       ])
       const blocks = [...board.children].filter(
         (el) => ![...el.classList].some((c) => skip.has(c)),
@@ -102,7 +104,7 @@ export function initSiteMotion() {
       }
 
       section
-        .querySelectorAll('.source-grid, .note-grid, .output-grid, .parcel-grid')
+        .querySelectorAll('.source-grid, .note-grid, .output-grid, .parcel-grid, .specimen-grid')
         .forEach((grid) => {
           const items = [...grid.children]
           gsap.set(items, { y: 52, autoAlpha: 0 })
@@ -204,8 +206,9 @@ export function initSiteMotion() {
     setFadeUp('.hero-cta-row', 30)
     setFadeUp('.hero-meta', 16)
     gsap.set('.hero-sculpture', { autoAlpha: 0, scale: 1.07, y: 46 })
-    gsap.set('.hero-glass-disc', { autoAlpha: 0, scale: 0.8 })
-    gsap.set('.hero-bars', { autoAlpha: 0, x: 54 })
+    gsap.set('.hero-console', { autoAlpha: 0, y: 64, scale: 0.94 })
+    gsap.set('.hero-chip', { autoAlpha: 0, y: 18, scale: 0.9 })
+    gsap.set('.hero-bars', { autoAlpha: 0, x: -54 })
     gsap.set(['.hero-stage-label', '.hero-stage-caption'], { autoAlpha: 0 })
     gsap.set('.hero-side-nav a', { autoAlpha: 0, x: 16 })
     setFadeUp('.hero-facts-row', 18)
@@ -241,7 +244,8 @@ export function initSiteMotion() {
       .to('.hero-cta-row', { y: 0, autoAlpha: 1, duration: 1 }, 1.02)
       .to('.hero-meta', { y: 0, autoAlpha: 1, duration: 0.9 }, 1.18)
       .to('.hero-sculpture', { autoAlpha: 1, scale: 1, y: 0, duration: 1.6 }, 0.2)
-      .to('.hero-glass-disc', { autoAlpha: 1, scale: 1, duration: 1.2 }, 0.55)
+      .to('.hero-console', { autoAlpha: 1, y: 0, scale: 1, duration: 1.5, ease: 'power3.out' }, 0.45)
+      .to('.hero-chip', { autoAlpha: 1, y: 0, scale: 1, duration: 0.9, stagger: 0.14, ease: 'back.out(1.6)' }, 1.0)
       .to('.hero-bars', { autoAlpha: 1, x: 0, duration: 1.15 }, 0.65)
       .to(
         ['.hero-stage-label', '.hero-stage-caption'],
@@ -283,6 +287,11 @@ export function initSiteMotion() {
       )
       .add(heroIntro, 1.85)
   })
+
+  // Webfont swap changes section heights; re-measure triggers once fonts settle.
+  if (typeof document !== 'undefined' && document.fonts?.ready) {
+    document.fonts.ready.then(() => ScrollTrigger.refresh())
+  }
 
   return () => ctx.revert()
 }

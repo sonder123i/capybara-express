@@ -9,5 +9,14 @@ export default defineConfig({
   build: {
     target: 'es2020',
     cssMinify: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-dom/client'],
+          'vendor-gsap': ['gsap', 'gsap/ScrollTrigger'],
+          'vendor-motion': ['motion'],
+        },
+      },
+    },
   },
 })

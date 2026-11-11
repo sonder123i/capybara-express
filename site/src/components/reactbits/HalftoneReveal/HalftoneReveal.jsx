@@ -821,6 +821,7 @@ const HalftoneReveal = ({
       gl.deleteVertexArray(vao);
       gl.deleteProgram(maskProgram);
       gl.deleteProgram(viewProgram);
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
     };
   }, [src]);
 
