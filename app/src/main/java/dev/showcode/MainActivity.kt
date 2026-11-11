@@ -2,16 +2,20 @@ package dev.showcode
 
 import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.view.WindowCompat
 import dev.showcode.core.LaunchOutcome
 import dev.showcode.data.OfficialAppLauncher
 import dev.showcode.ui.ShowCodeRoot
+import dev.showcode.ui.theme.ShowCodeDarkPalette
+import dev.showcode.ui.theme.ShowCodeLightPalette
 import dev.showcode.ui.theme.ThemeController
 import dev.showcode.ui.theme.ShowCodeTheme
 import dev.showcode.ui.theme.StartupLogoAnimation
@@ -40,12 +44,19 @@ class MainActivity : ComponentActivity() {
             mode = (application as ShowCodeApp).repository.prefs.themeMode,
             systemDark = systemNight,
         )
+        /* 冷启动首帧就按 App 内主题铺窗口底色。values-night/ 只在系统 uiMode=night 时生效，
+           而本 App 允许在系统浅色下固定暗色；层级转场的 slideInHorizontally 会让整页位移，
+           露出的正是这一层——它若是亮色白底，暗色下就是截图里那条贯通的白边。 */
+        applyWindowBackground(ThemeController.isDark)
         setContent {
             ShowCodeTheme(darkTheme = ThemeController.isDark) {
                 /* 系统栏图标跟着**实际**明暗走，而不是跟系统：用户在亮底上强制暗色时，
                    状态栏图标也必须变白。所以它挂在主题里面，主题一变就跟着变。 */
                 val dark = ThemeController.isDark
                 LaunchedEffect(dark) {
+                    /* 主题在 App 内切换时同步窗口底色与系统栏图标，两者同一个真相。
+                       少铺这一层，用户从亮切暗后第一次跳页仍会露出旧的白色窗口底。 */
+                    applyWindowBackground(dark)
                     WindowCompat.getInsetsController(window, window.decorView).apply {
                         isAppearanceLightStatusBars = !dark
                         isAppearanceLightNavigationBars = !dark
@@ -54,6 +65,15 @@ class MainActivity : ComponentActivity() {
                 ShowCodeRoot()
             }
         }
+    }
+
+    /**
+     * 窗口底色跟着 [ThemeController] 走，不依赖 `values-night/` 的资源限定符。
+     * 转场、predictive back、启动入场都会让页面整体位移或半透明，下层露出的就是它。
+     */
+    private fun applyWindowBackground(dark: Boolean) {
+        val canvas = if (dark) ShowCodeDarkPalette.canvas else ShowCodeLightPalette.canvas
+        window.setBackgroundDrawable(ColorDrawable(canvas.toArgb()))
     }
 
     override fun onNewIntent(intent: Intent) {

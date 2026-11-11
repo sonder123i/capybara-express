@@ -65,8 +65,10 @@ internal fun isActiveOrderPrompt(prompt: String): Boolean = OrderStage.isActive(
  * 老卡永远停在「在途」。两边词表重合是退休正确性的前提。
  */
 internal fun isFinishedOrderPrompt(prompt: String): Boolean =
-    listOf("已签收", "待评价", "交易成功", "订单完成", "已完成", "退款成功", "交易已取消")
-        .any { prompt.contains(it) } || OrderStage.stageOf(prompt) == Stage.DONE
+    listOf(
+        "已签收", "待评价", "交易成功", "订单完成", "已完成", "退款成功", "交易已取消",
+        "处理成功", "充值成功",
+    ).any { prompt.contains(it) } || OrderStage.stageOf(prompt) == Stage.DONE
 
 /**
  * 订单列表状态里的「往回走」词。订单列表只有状态文案、没有按钮，可以用宽词表；

@@ -54,3 +54,13 @@ sealed interface FetchOutcome {
  */
 internal fun allDetailsFailed(attempted: Int, failed: Int): Boolean =
     attempted >= 2 && failed >= attempted
+
+/**
+ * 详情批次是否真的失败：必须**尝试过**至少一单，且没有任何包裹结果、也没有识别出退回单。
+ *
+ * attempted=0 时必须返回 false：候选可能全是「状态没变、库里已有」的单，
+ * 这一轮一条详情都没抓。拿 candidates 当分母会误报「0 件详情都没抓到」，
+ * 把一次正常的「没有新件」变成同步失败。
+ */
+internal fun detailBatchFailed(attempted: Int, parcels: Int, returns: Int): Boolean =
+    attempted > 0 && parcels == 0 && returns == 0

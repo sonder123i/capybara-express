@@ -112,6 +112,7 @@ import dev.showcode.ui.theme.StartupLogoAnimation
 import dev.showcode.ui.theme.MotionTokens
 import dev.showcode.ui.theme.NavigationPages
 import dev.showcode.ui.theme.drawEnvironment
+import dev.showcode.ui.theme.environmentBackground
 import dev.showcode.ui.theme.rememberNavigationMotionState
 import dev.showcode.ui.theme.ThemeReveal
 import dev.showcode.ui.theme.ThemeRevealOverlay
@@ -1006,11 +1007,14 @@ fun ShowCodeRoot() {
         navScrollIntent.reset()
     }
 
-    /* 主路由包一层 Box：底部导航要能叠在三个主屏之上。这一层除了给「叠」腾出位置，
-       不做任何别的事——里面的分支一行没改内容。 */
+    /* 主路由包一层 Box：底部导航要能叠在三个主屏之上。
+       这一层自己铺一遍环境层：层级转场 slideIn/out 会让整页（连同它自己的
+       environmentBackground）一起位移、淡入，下层露出的就是这里。铺同一套配方，
+       边缘零色差；不铺的话露出的会是窗口底色（App 内固定暗色而系统浅色时是白）。 */
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .environmentBackground()
             .nestedScroll(
                 /* 教务 MainActivity 的 navBarScrollConnection 同式三段：
                    ① 顶回弹（没得滚还往上拉）→ 展开并清零；② 纵轴守卫（横滑不算）；

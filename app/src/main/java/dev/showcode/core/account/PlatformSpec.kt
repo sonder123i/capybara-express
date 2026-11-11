@@ -52,6 +52,9 @@ data class Session(val values: Map<String, String>) {
 
     operator fun get(name: String): String? = values[name]?.takeIf { it.isNotBlank() }
 
+    /** 重新拼回 Cookie header。抓取过程中平台刷新出的会话要按原格式回存。 */
+    fun header(): String = values.entries.joinToString("; ") { "${it.key}=${it.value}" }
+
     fun has(platform: Platform): Boolean = when (platform) {
         Platform.PDD -> get("PDDAccessToken") != null &&
             (get("pdd_user_id") != null || get("pdduid") != null)
@@ -71,6 +74,33 @@ data class Session(val values: Map<String, String>) {
                     map[pieces[0]] = pieces[1]
                 }
             }
+            return Session(map)
+        }
+
+        /**
+         * 平台用来判定「这是哪个账号」的登录 Cookie 键。
+         *
+         * 抓取 WebView 与登录页共用一个进程级 CookieManager。同步完账号 A 后这些键会残留，
+         * 同步账号 B 时若「只补缺失键」，A 的身份就会留下来，把 A 的订单挂到 B 名下。
+         * 所以恢复会话时这几条必须无条件覆盖，其余风控/辅助键仍以 WebView 运行时值为准。
+         */
+        fun identityKeys(platform: Platform): Set<String> = when (platform) {
+            Platform.PDD -> setOf("PDDAccessToken", "pdd_user_id")
+            Platform.TB -> setOf("cookie2", "unb", "cookie1")
+            Platform.JD -> setOf("pt_key", "pt_pin")
+        }
+
+        /**
+         * 把抓取过程中刷新出的 Cookie 合并进登录时保存的那份。
+         *
+         * 新值覆盖旧值，但旧集合里新结果没出现的键要保留——京东把会话拆在
+         * www / trade / wqs / api / plogin 多个 host 上，只回存其中一个会越抓越少，
+         * 最终退化成未登录。合并后是否仍有登录态由调用方用 [has] 判断。
+         */
+        fun merge(saved: String?, refreshed: String): Session {
+            val map = LinkedHashMap<String, String>()
+            map.putAll(parse(saved).values)
+            map.putAll(parse(refreshed).values)
             return Session(map)
         }
     }

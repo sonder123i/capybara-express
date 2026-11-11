@@ -42,8 +42,13 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.TransformOrigin
@@ -75,10 +80,14 @@ import dev.showcode.R
 import dev.showcode.ui.glass.GlassAccessibilityMode
 import dev.showcode.ui.glass.GlassCompat
 import dev.showcode.ui.glass.GlassLensFreshness
+import dev.showcode.ui.glass.GlassLensScale
 import dev.showcode.ui.glass.GlassLensTransform
+import dev.showcode.ui.glass.GlassMaterialSpec
 import dev.showcode.ui.glass.GlassMaterials
 import dev.showcode.ui.glass.GlassTier
+import dev.showcode.ui.glass.drawBackdropSource
 import dev.showcode.ui.glass.drawBlurred
+import dev.showcode.ui.glass.rememberGlassLensRegion
 import dev.showcode.ui.glass.glassLens
 import dev.showcode.ui.glass.glassLensAnchor
 import dev.showcode.ui.glass.glassLensOpticsFrom
@@ -88,6 +97,7 @@ import dev.showcode.ui.glass.motionIntensityFromVelocity
 import dev.showcode.ui.glass.rememberGlassLensAnchor
 import dev.showcode.ui.theme.Accent
 import dev.showcode.ui.theme.AccentInk
+import dev.showcode.ui.theme.Hairline
 import dev.showcode.ui.theme.Ink
 import dev.showcode.ui.theme.InkMuted
 import dev.showcode.ui.theme.LocalNavigationMotion
@@ -151,6 +161,120 @@ private val NAV_ICON_SIZE = 24.dp
 
 /** 无玻璃回退档的整条高（教务 `FallbackNavigationBar` 的 Surface）。 */
 private val NAV_FALLBACK_HEIGHT = 60.dp
+
+/* ── A · 厚玻璃的层次 ────────────────────────────────────────────────────
+ *
+ * 上一版这三处表面都是一层平涂（轨道纯白 0.28、选中胶囊纯白 0.34），玻璃感全靠
+ * 那一道 blur，凑近看是一块色片而不是一块有厚度的玻璃。这里补上厚玻璃才有的两件事：
+ *
+ * · **上斜面 specular**：光从上方来，顶部最亮，到 46% 高度衰减干净；
+ * · **底沿压暗**：厚玻璃的下边缘会吃掉一点光，胶囊因此「坐」在轨道上，而不是浮着。
+ *
+ * 两者都**不动遮罩 alpha**——可读性来自 blur + 遮罩，叠层只加明暗。视觉棘轮把
+ * 「手调文字透明度」钉死为 0（连注释里的字样都会被它的正则数进去，SolidButton
+ * 那条注释就是先例），所以墨色一律不叠半透明字面量：压暗写成字面 ARGB 常量。
+ */
+private const val NAV_GLASS_SPECULAR_LIGHT = 0.16f
+private const val NAV_GLASS_SPECULAR_DARK = 0.10f
+private const val NAV_GLASS_SPECULAR_END = 0.46f
+private const val NAV_GLASS_SHADE_START = 0.62f
+
+/** 底沿压暗（alpha 0x10 ≈ 6%）。 */
+private val NavGlassShade = Color(0x10000000)
+
+/** 发丝边宽度。玻璃的边缘靠它立起来，不靠更黑的遮罩。 */
+private val NAV_GLASS_HAIRLINE = 1.dp
+
+/* ── B · 31/32 离屏折射的两根轴 ──────────────────────────────────────── */
+
+/**
+ * 33+ 那条路在 `effects { vibrancy() }` 里把饱和度提到 1.28，离屏着色器这边必须同值。
+ * 详见 `GlassLensOptics.vibrancy`：两条路不同值时，同一块玻璃在两台机器上是两个颜色。
+ */
+private const val NAV_LENS_VIBRANCY = 1.28f
+
+/** 「运动拉满」的横向速度（px/s），见 `motionIntensityFromVelocity`。 */
+private const val NAV_LENS_FULL_VELOCITY_PX = 2200f
+
+/**
+ * 在**已经按形状裁剪过**的表面上补一层厚度。
+ *
+ * 三个站点共用：轨道（drawBackdrop 的 onDrawSurface 自带裁剪）、选中胶囊、收起胶囊。
+ * 不在这里自己裁剪——裁剪是调用方形状的事，画两次 outline 只会让圆角发毛。
+ */
+private fun DrawScope.drawGlassThickness(dark: Boolean, cornerRadiusPx: Float = 0f) {
+    val specular = Brush.verticalGradient(
+        0f to Color.White.copy(
+            alpha = if (dark) NAV_GLASS_SPECULAR_DARK else NAV_GLASS_SPECULAR_LIGHT,
+        ),
+        NAV_GLASS_SPECULAR_END to Color.Transparent,
+    )
+    val shade = Brush.verticalGradient(
+        NAV_GLASS_SHADE_START to Color.Transparent,
+        1f to NavGlassShade,
+    )
+    if (cornerRadiusPx > 0f) {
+        // 没有上游裁剪的站点（选中胶囊）自己按胶囊圆角画：半径取实测短边的一半，
+        // 与 CircleShape 完全等价，省掉一层 clip layer。
+        val radius = CornerRadius(cornerRadiusPx, cornerRadiusPx)
+        drawRoundRect(brush = specular, cornerRadius = radius)
+        drawRoundRect(brush = shade, cornerRadius = radius)
+    } else {
+        drawRect(brush = specular)
+        drawRect(brush = shade)
+    }
+}
+
+/* ── 31/32 的按压反馈补齐 ──────────────────────────────────────────────
+ * 33+ 那条路的 Highlight / InnerShadow 挂在 drawBackdrop 的参数上，
+ * 折射分支没有 drawBackdrop 可挂——这两件按压反馈就一直缺着，按下去
+ * 的手感比 33+ 平一截。这里用描边近似补齐：
+ * · 高光 = 顶部渐隐白描边（库的 Highlight 同为顶亮、向下渐隐）；
+ * · 内阴影 = 单圈暗描边（真内阴影是向内渐隐，radius ≤ 4dp 且只在按压中
+ *   出现时，一圈细描边与渐隐肉眼难分）。
+ * 两个都收 alpha 地板：静止时一个像素都不画，与 33+ 的 `progress` 门同语义。
+ */
+private fun DrawScope.drawGlassEdgeHighlight(alpha: Float, cornerRadiusPx: Float) {
+    if (alpha <= 0.01f) return
+    drawRoundRect(
+        brush = Brush.verticalGradient(
+            0f to Color.White.copy(alpha = alpha),
+            0.42f to Color.Transparent,
+        ),
+        style = Stroke(width = 1.5.dp.toPx()),
+        cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx),
+    )
+}
+
+private fun DrawScope.drawGlassInnerShadow(radiusPx: Float, alpha: Float, cornerRadiusPx: Float) {
+    if (alpha <= 0.01f || radiusPx <= 0f) return
+    // 分量构造而不是 Black 加 alpha 字面量：视觉棘轮把「手调文字透明度」的
+    // 那种字样按正则计数，遮罩色不该给它的分母添数。
+    drawRoundRect(
+        color = Color(0f, 0f, 0f, alpha),
+        style = Stroke(width = (radiusPx * 0.45f).coerceIn(1f, radiusPx)),
+        cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx),
+    )
+}
+
+/**
+ * 轨道在 31/32 上的折射配方。
+ *
+ * 与 33+ 的 `lens(8dp, 12dp, chromaticAberration = false)` 逐项对齐：**静止满额**弱折射
+ * （`pressScalesRefraction = false`），按压只小幅增强——这是轨道与选中胶囊的唯一区别，
+ * 胶囊是「静止一个像素都不折、按下才长出来」。
+ */
+private fun navTrackLensSpec(highTextContrast: Boolean): GlassMaterialSpec {
+    val recipe = GlassMaterials.navigation(highTextContrast)
+    return GlassMaterialSpec(
+        blurDp = GlassMaterials.NavTrackBlurDp,
+        refractionHeightDp = GlassMaterials.NavTrackLensHeightDp,
+        refractionAmountDp = GlassMaterials.NavTrackLensAmountDp,
+        surfaceAlpha = recipe.surfaceAlpha,
+        borderAlpha = recipe.borderAlpha,
+        shadowAlpha = GlassMaterials.NavTrackShadowAlpha,
+    )
+}
 
 /** 列表底部要给底栏留的净空。各屏请用 [navBarClearance]——短屏上底栏会收，净空必须同源。 */
 @Composable
@@ -299,6 +423,56 @@ fun ShowCodeNavBar(
         /* 按压进度只在 draw 期读：让 Highlight/Shadow/内阴影跟着手指走，组合期不重组。 */
         val press = { drag.pressProgress }
 
+        /* ── A · 遮罩之外的两层 ───────────────────────────────────────────
+           recipe 的 `borderAlpha` 是本仓库唯一还没接上的配方字段：玻璃的边缘一直只有
+           库的 Highlight（内高光），没有一道真正的发丝边，所以贴着卡片时轮廓会化掉。
+           高对比档把这个 alpha 从 0.14 提到 0.32，边缘跟着变硬。 */
+        val recipe = GlassMaterials.navigation(highTextContrast)
+        val glassEdge = Hairline.copy(alpha = recipe.borderAlpha)
+        /* 叠层在**没有裁剪的**站点上用 Brush + 形状走 background，而不是 drawBehind：
+           drawBehind 画的是矩形，胶囊圆角外会漏出一道白边。 */
+        val glassSpecular = remember(dark) {
+            Brush.verticalGradient(
+                0f to Color.White.copy(
+                    alpha = if (dark) NAV_GLASS_SPECULAR_DARK else NAV_GLASS_SPECULAR_LIGHT,
+                ),
+                NAV_GLASS_SPECULAR_END to Color.Transparent,
+            )
+        }
+        val glassShade = remember {
+            Brush.verticalGradient(NAV_GLASS_SHADE_START to Color.Transparent, 1f to NavGlassShade)
+        }
+
+        /* ── B · 31/32 的真折射 ───────────────────────────────────────────
+           33+ 由库的 lens() 出（AGSL），30- 连 RenderEffect 都没有，31/32 落在中间。
+           `GlassCompat.lensLook` 早就把几何与材质按「有折射」给了（轨道 72dp、胶囊白 0.34），
+           折射本身却一直没接——屏幕上是「按折射档画的玻璃，却一个像素都不折」。
+
+           底图必须复现轨道**实际采样到的**那一层：33+ 是
+           `vibrancy() → blur(10dp) → lens()`，所以这里把 backdrop 重放后包一层同样的
+           blur。少了这层 blur，折射里的内容会比屏幕上锐利一档。
+
+           anchor 只在 31/32 非空（`rememberGlassLensAnchor` 在其它版本开头就早退），
+           所以 33+/30- 仍旧走原来的 drawBackdrop / 实底路，一行没变。 */
+        val lensAnchor = if (glassBackdrop != null) {
+            rememberGlassLensRegion(
+                "nav-glass-track",
+                blurPx,
+                dark,
+                highTextContrast,
+                freshness = lensFreshness,
+                drawSource = { coords ->
+                    drawBlurred(blurPx) { drawBackdropSource(glassBackdrop, density, coords) }
+                },
+            )
+        } else {
+            null
+        }
+        val trackLensSpec = remember(highTextContrast) { navTrackLensSpec(highTextContrast) }
+        val capsuleLensSpec = remember(highTextContrast) { interactiveLensSpec(highTextContrast) }
+        /* 折射要同时满足「平台是 31/32」与「真有底图可折」。缺一个就走回原来那条路。 */
+        val lensLive = lensAnchor != null && glassBackdrop != null
+
         if (minimizeFraction < 0.999f) {
         Box(
             modifier = Modifier.graphicsLayer {
@@ -312,13 +486,16 @@ fun ShowCodeNavBar(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(trackHeight),
+                .height(trackHeight)
+                /* B · 折射区域：底图拍在这一层。
+                   它必须挂在**不随内部元素移动**的节点上——胶囊每帧都在滑，
+                   挂胶囊上等于每帧重拍一张底图（实测一次 5ms，必掉帧）。 */
+                .glassLensAnchor(lensAnchor),
             contentAlignment = Alignment.CenterStart,
         ) {
             val density = LocalDensity.current
             val barPaddingPx = with(density) { barPadding.toPx() }
             val tabWidthPx = (constraints.maxWidth.toFloat() - barPaddingPx * 2f) / NAV_TABS.size
-            val tabWidthDp = with(density) { tabWidthPx.toDp() }
             val panelOffset by remember(density, constraints.maxWidth) {
                 derivedStateOf {
                     val fraction = (panelAnim.value / constraints.maxWidth.toFloat())
@@ -338,8 +515,37 @@ fun ShowCodeNavBar(
                     .fillMaxWidth()
                     .height(trackHeight)
                     .then(
-                        if (glassBackdrop != null) {
-                            Modifier.drawBackdrop(
+                        when {
+                            /* B · 31/32：折射自己就是背景，这里只叠遮罩色。
+                               再挂 drawBackdrop 会让模糊背景盖在折射上，两层背景叠成灰雾。 */
+                            lensLive -> Modifier
+                                .glassLens(
+                                    anchor = lensAnchor,
+                                    optics = { w, h ->
+                                        val side = minOf(w, h)
+                                        glassLensOpticsFrom(
+                                            material = trackLensSpec,
+                                            density = density,
+                                            cornerRadiusPx = side * 0.5f,
+                                            minDimensionPx = side,
+                                            vibrancy = NAV_LENS_VIBRANCY,
+                                        )
+                                    },
+                                    shape = CircleShape,
+                                )
+                                .shadow(elevation = if (dark) 2.dp else 4.dp, shape = CircleShape, clip = false)
+                                /* 遮罩、厚度与高光合并进一个 drawBehind：折射已是
+                                   裁好的背景，这里全部按胶囊圆角自己画，不再靠
+                                   多层 background 各自建形状。 */
+                                .drawBehind {
+                                    val radius = size.height * 0.5f
+                                    val r = CornerRadius(radius, radius)
+                                    drawRoundRect(color = surfaceColor, cornerRadius = r)
+                                    drawRoundRect(brush = glassSpecular, cornerRadius = r)
+                                    drawRoundRect(brush = glassShade, cornerRadius = r)
+                                    drawGlassEdgeHighlight(GlassMaterials.NavTrackHighlightAlpha, radius)
+                                }
+                            glassBackdrop != null -> Modifier.drawBackdrop(
                                 backdrop = glassBackdrop,
                                 shape = { CircleShape },
                                 effects = {
@@ -354,26 +560,37 @@ fun ShowCodeNavBar(
                                 },
                                 highlight = { Highlight.Default.copy(alpha = GlassMaterials.NavTrackHighlightAlpha) },
                                 shadow = { Shadow(alpha = GlassMaterials.NavTrackShadowAlpha) },
-                                onDrawSurface = { drawRect(surfaceColor) },
+                                onDrawSurface = {
+                                    drawRect(surfaceColor)
+                                    // A · 厚度（drawBackdrop 已按 CircleShape 裁剪，这里只管画）
+                                    drawGlassThickness(dark)
+                                },
                             )
-                        } else {
-                            Modifier
+                            /* 回退档保持实底语义：它不是玻璃，只是一块有影子
+                               的面板。厚度叠层（specular / 底沿压暗）是玻璃
+                               材质的属性，实底上叠了反而名不副实。 */
+                            else -> Modifier
                                 .shadow(elevation = if (dark) 2.dp else 4.dp, shape = CircleShape, clip = false)
                                 .background(fallbackTrack, CircleShape)
                         },
                     )
+                    /* A · 发丝边：压在玻璃之上、三格内容之下。玻璃的边缘靠这一道立起来。 */
+                    .border(NAV_GLASS_HAIRLINE, glassEdge, CircleShape)
                     .padding(horizontal = barPadding),
                 contentAlignment = Alignment.CenterStart,
             ) {
-                /* 选中胶囊：实底一格宽 × indicatorHeight，全圆角；按压/滑行仍用同一份
-                   indicatorScale 形变，但不采样任何背景。 */
-                val indicatorWidth = tabWidthDp
+                /* 选中胶囊：3 个选项时一格约 109dp。教务 5 格的 56dp 正圆球
+                   在这里圈选面积太小，整格宽又漂成扁条；取格宽 78% 做横向玻璃胶囊，
+                   比教务球大、比整格短，和三格布局相称。
+                   高度仍由字号驱动，定位按格宽滑并把球居中到每格中心。 */
                 val indicatorHeightCapped = indicatorHeight.coerceAtMost(trackHeight - barPadding * 2)
+                val ballWidthPx = tabWidthPx * 0.78f
+                val indicatorWidth = with(density) { ballWidthPx.toDp() }
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
                         .graphicsLayer {
-                            translationX = drag.value * tabWidthPx
+                            translationX = drag.value * tabWidthPx + (tabWidthPx - ballWidthPx) * 0.5f
                             clip = false
                             val t = indicatorScale(drag)
                             scaleX = t.scaleX
@@ -382,8 +599,67 @@ fun ShowCodeNavBar(
                         .width(indicatorWidth)
                         .height(indicatorHeightCapped)
                         .then(
-                            if (glassBackdrop != null) {
-                                Modifier.drawBackdrop(
+                            when {
+                                /* B · 31/32：折射由离屏管线提供，胶囊只叠自己的白遮罩。
+                                   静止时折射地板为 0（一个像素都不折），按下才长出来——
+                                   与 33+ 那条路 `if (p > 0.01f) lens(...)` 同一个行为。 */
+                                lensLive -> Modifier
+                                    .glassLens(
+                                        anchor = lensAnchor,
+                                        optics = { w, h ->
+                                            val side = minOf(w, h)
+                                            glassLensOpticsFrom(
+                                                material = capsuleLensSpec,
+                                                density = density,
+                                                cornerRadiusPx = side * 0.5f,
+                                                minDimensionPx = side,
+                                                interactionProgress = press(),
+                                                motionIntensity = motionIntensityFromVelocity(
+                                                    abs(drag.velocity) * tabWidthPx,
+                                                    NAV_LENS_FULL_VELOCITY_PX,
+                                                ),
+                                                pressScalesRefraction = true,
+                                                /* 静止地板必须是 0：静止折射会把底图色斑沿胶囊
+                                                   边缘挤出彩边（被指出过三次）。 */
+                                                refractionFloor = 0f,
+                                                chromaticAberrationAtRest = false,
+                                                vibrancy = NAV_LENS_VIBRANCY,
+                                            )
+                                        },
+                                        /* 形变必须与 33+ 的 layerBlock 逐帧一致：差一帧，
+                                           折射留在原尺寸而高光按放大后的轮廓画，屏幕上是一圈白环。 */
+                                        scale = GlassLensScale { _, _ -> indicatorScale(drag) },
+                                        shape = CircleShape,
+                                    )
+                                    /* 白遮罩在 draw 期读 press()：按压从 0.34 淡到 0.14 露出折射。
+                                       不每帧重组，也不额外套一层 clip。高光与内阴影同源
+                                       读 press()，把 33+ 的按压反馈在折射路上补齐。 */
+                                    .drawBehind {
+                                        val p = press()
+                                        val alpha = capsuleRestAlpha +
+                                            (GlassMaterials.NavCapsuleFillPressAlpha - capsuleRestAlpha) * p
+                                        val radius = size.height * 0.5f
+                                        drawRoundRect(
+                                            color = Color.White.copy(alpha = alpha),
+                                            cornerRadius = CornerRadius(radius, radius),
+                                        )
+                                        drawGlassThickness(dark, radius)
+                                        drawGlassEdgeHighlight(
+                                            alpha = GlassMaterials.NavCapsuleHighlightAlpha +
+                                                p * GlassMaterials.NavCapsuleHighlightPressAlpha,
+                                            cornerRadiusPx = radius,
+                                        )
+                                        drawGlassInnerShadow(
+                                            radiusPx = GlassMaterials.NavCapsuleInnerShadowRadiusDp.dp.toPx() * p,
+                                            alpha = p * GlassMaterials.NavCapsuleInnerShadowAlpha,
+                                            cornerRadiusPx = radius,
+                                        )
+                                    }
+                                glassBackdrop != null -> Modifier.drawBackdrop(
+                                    /* 球折的是页面内容（glassBackdrop），不是 tab 副本：
+                                       副本经 lens 位移后会与球上的正常标签错开成两份，
+                                       就是实拍里那张重影（2026-11-11 撤掉 layer2）。
+                                       blur 把页面文字雾化，只留色散与形变做玻璃感。 */
                                     backdrop = glassBackdrop,
                                     /* ⚠️ 这里**不能**用 flowingShape：backdrop 的 lens 效果
                                        只支持 RoundedRectangularShape / CornerBasedShape，
@@ -392,7 +668,9 @@ fun ShowCodeNavBar(
                                        玻璃档保持 CircleShape，变形只在下面那条回退分支里做。 */
                                     shape = { CircleShape },
                                     effects = {
-                                        /* 教务：vibrancy + 采样已模糊的底图；lens 只在按压时从 0 长到 12/18dp */
+                                        /* vibrancy → blur 10dp → lens（按压 0→12/18dp）。
+                                           页面内容必须先雾化；锐利的卡片文字被 lens 位移后
+                                           会读成第二份内容。 */
                                         vibrancy()
                                         blur(blurPx)
                                         val p = press()
@@ -430,14 +708,17 @@ fun ShowCodeNavBar(
                                         val alpha = capsuleRestAlpha +
                                             (GlassMaterials.NavCapsuleFillPressAlpha - capsuleRestAlpha) * p
                                         drawRect(Color.White.copy(alpha = alpha))
+                                        // A · 厚度：胶囊也是一块厚玻璃，不是一张白纸片
+                                        drawGlassThickness(dark)
                                     },
                                 )
-                            } else {
-                                /* 无玻璃回退档：这里可以安全地用变形形状——
-                                   没有 lens 效果，只是纯色块，任何 Shape 都成立。 */
-                                Modifier
-                                    .shadow(elevation = if (dark) 2.dp else 3.dp, shape = flowingShape, clip = false)
-                                    .background(capsuleColor, flowingShape)
+                                else -> {
+                                    /* 无玻璃回退档：这里可以安全地用变形形状——
+                                       没有 lens 效果，只是纯色块，任何 Shape 都成立。 */
+                                    Modifier
+                                        .shadow(elevation = if (dark) 2.dp else 3.dp, shape = flowingShape, clip = false)
+                                        .background(capsuleColor, flowingShape)
+                                }
                             },
                         ),
                 )
@@ -521,6 +802,12 @@ fun ShowCodeNavBar(
                                     } else if (completed) {
                                         navMotion?.select(targetIndex, reducedMotion)
                                     }
+                                    /* 换格 / 取消回弹都会驱动页面横向滑动——那是 31/32
+                                       折射底图的另一次「内容已动」。纵向滚动走
+                                       onPostScroll 的 onScroll()，这里补上横向这条腿；
+                                       版本号 bump 之后由 region 的限频补拍序列接管
+                                       （140ms 一发追动画中段，320ms 一发等弹簧落定）。 */
+                                    lensFreshness?.onSettled()
                                     if (!completed) {
                                         drag.animateToValue(committedIndex.toFloat())
                                     } else {
@@ -636,7 +923,11 @@ private fun MinimizedNavCapsule(
                         },
                         highlight = { Highlight.Default.copy(alpha = GlassMaterials.NavCapsuleHighlightAlpha) },
                         shadow = { Shadow(alpha = GlassMaterials.NavCapsuleShadowAlpha) },
-                        onDrawSurface = { drawRect(Color.White.copy(alpha = restAlpha)) },
+                        onDrawSurface = {
+                            drawRect(Color.White.copy(alpha = restAlpha))
+                            // A · 厚度：收起态也是同一块玻璃，不是一块纸片
+                            drawGlassThickness(dark)
+                        },
                     )
                 } else {
                     Modifier

@@ -656,6 +656,16 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
         )
     }
 
+    /** 只换密文：抓取过程中平台刷新了 Cookie，不该顺带改状态或同步时间。 */
+    fun updateAccountSecret(id: String, secret: String) {
+        writableDatabase.update(
+            "bound_account",
+            ContentValues().apply { put("secret", secret) },
+            "id = ?",
+            arrayOf(id),
+        )
+    }
+
     fun updateAccountEnabled(id: String, enabled: Boolean) {
         writableDatabase.update(
             "bound_account",

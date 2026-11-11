@@ -67,7 +67,7 @@ import dev.showcode.data.update.DownloadPhase
 import dev.showcode.data.update.UpdateCenter
 import dev.showcode.data.update.UpdateChecker
 import dev.showcode.data.update.UpdateState
-import androidx.compose.material3.Switch
+import dev.showcode.ui.JellySwitch
 import dev.showcode.ui.navBarClearance
 import dev.showcode.ui.inbox.ScreenTopBar
 import dev.showcode.ui.theme.AccentInk
@@ -346,7 +346,7 @@ fun SettingsScreen(
                                 style = ShowCodeText.Body,
                                 color = Ink,
                             )
-                            Switch(checked = reminderOn, onCheckedChange = onReminderOn)
+                            JellySwitch(checked = reminderOn, onCheckedChange = onReminderOn)
                         }
                         /* 只在开关打开时说一句「它现在还不会响」的原因。
                            关着的时候解释这些，是在给一个不问的人讲规则。 */
@@ -462,7 +462,7 @@ fun SettingsScreen(
                                 style = ShowCodeText.Body,
                                 color = Ink,
                             )
-                            Switch(checked = glassBarOn, onCheckedChange = onGlassBarOn)
+                            JellySwitch(checked = glassBarOn, onCheckedChange = onGlassBarOn)
                         }
                         /* 开着却没有玻璃时只说原因：这不是开关坏了，是这台设备做不到。 */
                         if (!glassBarAvailable) {
@@ -984,7 +984,7 @@ private fun AboutCard(
                     color = InkMuted,
                 )
             }
-            Switch(checked = autoCheck, onCheckedChange = onToggleAutoCheck)
+            JellySwitch(checked = autoCheck, onCheckedChange = onToggleAutoCheck)
         }
 
         Spacer(Modifier.height(10.dp))

@@ -98,6 +98,11 @@ fun rememberGlassLensRegion(
             anchor.invalidateBackground()
             delay(140)
             anchor.invalidateBackground()
+            /* 第二发补拍：换格弹簧 ~310ms（MotionTokens.NavSettle 0.60/310），
+               140ms 那一拍还在动画中途，落定后的画面只有这一发能追上。
+               collectLatest 保证连续 bump 只留最后一轮。 */
+            delay(320)
+            anchor.invalidateBackground()
         }
     }
     return anchor

@@ -28,6 +28,7 @@ import dev.showcode.core.account.SyncPhase
 import dev.showcode.core.account.SyncProgress
 import dev.showcode.core.account.TraceParser
 import dev.showcode.core.account.conflictsWithOrderStatus
+import dev.showcode.core.account.detailBatchFailed
 import dev.showcode.core.account.detailNeeded
 import dev.showcode.core.account.fallbackFetchedParcel
 import dev.showcode.core.account.isActiveOrderPrompt
@@ -297,10 +298,16 @@ object PddFetcher {
                         detailsFailed++
                     }
                 }
-                Slog.safe(TAG, "skip unchanged=$unchanged details=${detailTargets.size} overflow=${overflow.size} fallback=$fallbackCount")
-                /* 一条都没解析出来时不能说成「成功·没有新件」；这批算瞬时失败，可重试。
+                Slog.safe(
+                    TAG,
+                    "skip unchanged=$unchanged pending=${pending.size} details=${detailTargets.size} " +
+                        "overflow=${overflow.size} result=${result.size} return=${returnSns.size} fallback=$fallbackCount",
+                )
+                /* 只有**真的尝试过详情**却一条都没解析出来，才算这批失败。
+                   候选里全是「状态没变、库里已有」的单时 pending=0，一条详情都没抓，
+                   旧判定拿 candidates 当分母会误报「0 件详情都没抓到」。
                    detailsFailed 也包含 overflow 的兜底失败，不能拿 detailTargets.size 当分母。 */
-                if (candidates.isNotEmpty() && result.isEmpty() && returnSns.isEmpty()) {
+                if (detailBatchFailed(pending.size, result.size, returnSns.size)) {
                     return@withContext FetchOutcome.Failure(
                         "${detailsFailed} 件详情都没抓到，稍后再试",
                     )
@@ -642,10 +649,13 @@ object PddFetcher {
     private val TITLE_KEYS = listOf(
         "goods_name", "goods_title", "goodsName", "item_title", "itemTitle", "wareName", "ware_name",
     )
+    /* 明确属于商品对象的图字段：任何层级都认。 */
     private val IMAGE_KEYS = listOf(
         "goods_thumbnail_url", "goods_thumb_url", "goods_image_url", "goods_img_url",
-        "hd_thumb_url", "thumb_url", "image_url", "img_url", "wareImage", "ware_image",
+        "hd_thumb_url", "thumb_url", "wareImage", "ware_image",
     )
+    /* 通用图字段：只在 goods 容器内才认，避免把订单/店铺/促销横幅的 image_url 当成商品图。 */
+    private val GENERIC_IMAGE_KEYS = listOf("image_url", "img_url", "pic", "image", "img")
     private val PRICE_KEYS = listOf("goods_price", "goods_price_str", "goodsPrice", "price_str", "price")
     private val SHOP_KEYS = listOf(
         "mall_name", "mall_title", "shop_name", "shopName", "store_name", "storeName",
@@ -667,7 +677,7 @@ object PddFetcher {
                         ?: if (inContainer) firstText(node, listOf("title", "name")) else null
                     val image = normalizeImageUrl(
                         firstText(node, IMAGE_KEYS)
-                            ?: if (inContainer) firstText(node, listOf("pic", "image", "img")) else null,
+                            ?: if (inContainer) firstText(node, GENERIC_IMAGE_KEYS) else null,
                     )
                     if (title != null || image != null) {
                         found = GoodsInfo(
@@ -796,7 +806,7 @@ object PddFetcher {
               if (/[￥¥]/.test(t)) { ctx = t; break; }
               p = p.parentElement;
             }
-            if (ctx) images.push({src: src, area: r.width * r.height, ctx: ctx.slice(0, 160)});
+            if (ctx) images.push({src: src, area: r.width * r.height, w: r.width, h: r.height, ctx: ctx.slice(0, 160)});
             if (images.length >= 24) break;
           }
           var goods = null;
@@ -813,7 +823,15 @@ object PddFetcher {
                 val o = arr.optJSONObject(i) ?: continue
                 val src = o.optString("src")
                 if (src.isBlank()) continue
-                add(GoodsImageCandidate(src, o.optDouble("area", 0.0).toFloat(), o.optString("ctx")))
+                add(
+                    GoodsImageCandidate(
+                        src = src,
+                        area = o.optDouble("area", 0.0).toFloat(),
+                        ctx = o.optString("ctx"),
+                        width = o.optDouble("w", 0.0).toFloat(),
+                        height = o.optDouble("h", 0.0).toFloat(),
+                    ),
+                )
             }
         }
     }

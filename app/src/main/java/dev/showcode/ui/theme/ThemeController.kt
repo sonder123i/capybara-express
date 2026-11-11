@@ -13,9 +13,10 @@ import dev.showcode.core.ThemeMode
  *
  * 为什么不重建 Activity：`recreate()` 会吃掉那颗开关的滑动动画——用户点下去，
  * 屏幕闪一下、开关归位，看起来像「没生效」。所以改成只换内存里的快照，
- * 让所有读 [ShowCodePaletteState] 的地方自然重组。代价是 `values-night/` 里的
- * 窗口底色要等到下次启动才跟上；那是启动/换屏过渡那几帧才看得见的东西，
- * 而 App 内容是全屏自绘的，实际看不出来。
+ * 让所有读 [ShowCodePaletteState] 的地方自然重组。窗口底色由 MainActivity 的
+ * applyWindowBackground 运行时同步：`values-night/` 只在系统 uiMode=night 时生效，
+ * 而本 App 允许在系统浅色下固定暗色。层级转场会露出那一层，必须跟着换，
+ * 否则暗色跳页时边缘会出现一条白边（2026-11-11 实拍复现）。
  */
 object ThemeController {
 

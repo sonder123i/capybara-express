@@ -371,7 +371,7 @@
 
 1. 轨道 `drawBackdrop`：blur 10/14dp、饱和补偿 ColorMatrix、Highlight 0.16、Shadow 0.08、图层按压缩放。
 2. 选中胶囊的 `glassLens`（31/32 离屏折射）、`drawBackdrop` 的 lens/highlight/shadow/innerShadow、白 0.34 / 黑 0.1 半透明表面。
-3. 隐藏 tint 副本层（`tabsBackdrop` / `tabsTintBackdrop` / `rememberCombinedBackdrop`）——它会在宽胶囊里印出第二份标签。
+3. 隐藏 tint 副本层（`tabsBackdrop` / `tabsTintBackdrop` / `rememberCombinedBackdrop`）——它会在宽胶囊里印出第二份标签。（2026-11-11 试恢复后撤：球采副本时 `lens()` 把副本位移，与球上的正常标签错开成重影；三格布局改为球折页面内容 + 放大玻璃圈。）
 4. 为通透加的 6% 中性压暗、0.06/0.10 描边叠加、14dp 模糊与 1.15 饱和度。
 5. 底栏不再读 `backdrop` / `glassTier` / `GlassLensFreshness`；没有采样，就没有“采到上一帧”的重影通道。
 6. 收起形态（`MinimizedNavCapsule`）同样改为实底 + hairline，不再 blur。

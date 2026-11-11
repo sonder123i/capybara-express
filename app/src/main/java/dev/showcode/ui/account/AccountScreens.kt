@@ -350,11 +350,7 @@ fun PlatformLoginScreen(
         clearSession(context) {
             webRef?.let { web ->
                 /* 换账号/重新开始必须回到桌面 UA，否则下一轮登录页不会显示二维码。 */
-                web.settings.userAgentString = if (platform == Platform.PDD) {
-                    desktopChromeUa(context)
-                } else {
-                    WebSettings.getDefaultUserAgent(context)
-                }
+                web.settings.userAgentString = loginUa(context, platform)
                 web.post { web.loadUrl(loginUrl(platform)) }
             }
         }
@@ -692,14 +688,7 @@ private fun configureWeb(
     } else {
         WebSettings.MIXED_CONTENT_NEVER_ALLOW
     }
-    s.userAgentString = if (platform == Platform.PDD) {
-        // 手机版 UA 下 PDD 只给「打开拼多多APP / 手机登录」，扫码入口直接消失；
-        // 桌面 UA 才有「扫码登录」二维码。所以首屏固定用桌面 UA。
-        // 扫码后的风控页由 reloadAsMobile() 完整切到手机版（UA + 缓存 + 视口）。
-        desktopChromeUa(context)
-    } else {
-        WebSettings.getDefaultUserAgent(context)
-    }
+    s.userAgentString = loginUa(context, platform)
     with(CookieManager.getInstance()) {
         setAcceptCookie(true)
         setAcceptThirdPartyCookies(web, true)
@@ -805,6 +794,16 @@ private fun mobileChromeUa(context: android.content.Context): String =
     WebSettings.getDefaultUserAgent(context)
         .replace("; wv", "")
         .replace("Version/4.0 ", "")
+
+/**
+ * 登录页 UA：拼多多首屏必须用桌面版才出二维码；京东和抓取侧保持一致，
+ * 去掉 WebView 标记；淘宝沿用默认 UA。
+ */
+private fun loginUa(context: android.content.Context, platform: Platform): String = when (platform) {
+    Platform.PDD -> desktopChromeUa(context)
+    Platform.JD -> mobileChromeUa(context)
+    Platform.TB -> WebSettings.getDefaultUserAgent(context)
+}
 
 /** 桌面 Chrome UA：只用于首屏出二维码；扫码后的验证页必须回到手机版 UA。 */
 private fun desktopChromeUa(context: android.content.Context): String =

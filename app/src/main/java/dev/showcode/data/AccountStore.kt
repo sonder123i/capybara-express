@@ -4,6 +4,7 @@ import dev.showcode.core.Slog
 import dev.showcode.core.account.AccountState
 import dev.showcode.core.account.BoundAccount
 import dev.showcode.core.account.Platform
+import dev.showcode.core.account.Session
 import dev.showcode.security.SecretBox
 
 /**
@@ -66,6 +67,37 @@ class AccountStore(private val db: ShowCodeDb) {
 
     /** 解不开就返回 null；调用方把账号置 BROKEN，而不是在这里抛。 */
     fun cookieOf(account: BoundAccount): String? = SecretBox.decrypt(account.secret)
+
+    /**
+     * 抓取成功后把平台刷新的 Cookie 并回登录时保存的那份。
+     *
+     * 只允许「合并」不允许「替换」：京东会轮换会话键，也会在多个 host 上补键；
+     * 直接用本次读到的集合覆盖会把登录集越写越小。合并后如果连登录判据都不满足，
+     * 说明这次只拿到了匿名 Cookie，宁可不动旧密文。
+     *
+     * @return true = 密文确实更新了。
+     */
+    fun refreshCookie(account: BoundAccount, refreshed: String): Boolean {
+        val saved = cookieOf(account) ?: return false
+        val old = Session.parse(saved)
+        val merged = Session.merge(saved, refreshed)
+        if (!merged.has(account.platform)) return false
+        if (merged.values == old.values) return false
+        val secret = try {
+            SecretBox.encrypt(merged.header())
+        } catch (t: Exception) {
+            Slog.w(TAG, t) { "cookie refresh encrypt failed" }
+            return false
+        }
+        return try {
+            db.updateAccountSecret(account.id, secret)
+            Slog.safe(TAG, "cookie refreshed keys=${merged.values.size}")
+            true
+        } catch (t: Exception) {
+            Slog.w(TAG, t) { "cookie refresh write failed" }
+            false
+        }
+    }
 
     fun setEnabled(account: BoundAccount, enabled: Boolean) {
         db.updateAccountEnabled(account.id, enabled)

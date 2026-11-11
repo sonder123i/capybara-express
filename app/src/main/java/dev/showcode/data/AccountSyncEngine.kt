@@ -72,6 +72,9 @@ object AccountSyncEngine {
         }
         /* 列表阶段先报出去：用户至少知道这 20 秒不是在等一个死界面。 */
         onProgress(SyncProgress.Orders)
+        /* 京东会在抓取过程中轮换/补齐会话 Cookie；抓取器在清理前交回来，
+           这里并回账号密文。失败路径也要收——登录挑战页可能已经补了键。 */
+        val refreshedCookie = java.util.concurrent.atomic.AtomicReference<String?>(null)
         val outcome = when (account.platform) {
             Platform.PDD -> PddFetcher.fetch(activity, account.id, cookie, known, onProgress)
             Platform.TB -> TbFetcher.fetch(
@@ -82,8 +85,16 @@ object AccountSyncEngine {
                 neverSynced = account.lastSyncAt == null,
                 onProgress = onProgress,
             )
-            Platform.JD -> JdFetcher.fetch(activity, account.id, cookie, known, onProgress)
+            Platform.JD -> JdFetcher.fetch(
+                activity = activity,
+                accountId = account.id,
+                cookie = cookie,
+                known = known,
+                onProgress = onProgress,
+                onCookie = { refreshedCookie.set(it) },
+            )
         }
+        refreshedCookie.get()?.let { repository.accounts.refreshCookie(account, it) }
         val at = System.currentTimeMillis()
         when (val decision = decideSync(outcome)) {
             is SyncDecision.Failed -> {
@@ -194,9 +205,18 @@ internal fun decideSync(outcome: FetchOutcome): SyncDecision = when (outcome) {
             message = "登录已失效，需要重新登录",
         )
     } else {
+        /* 瞬时失败原本只剩「没同步上」四个字，看不出卡在页面超时、脚本没起来、接口改版
+           还是详情全没抓到——用户不知道等一等有没有用，排查也只能干瞪眼。
+           这里把抓取侧那句短原因归到一个**白名单类别**再上屏：只做关键词归类，
+           绝不把原始 reason 直接带出去（「抓取中断」那类可能夹着 URL / 单号）。 */
+        val category = transientReasonCategory(outcome.reason)
         SyncDecision.Failed(
             state = AccountState.ACTIVE,
-            message = "这次没同步上，稍后再试",
+            message = if (category != null) {
+                "这次没同步上：$category，稍后再试"
+            } else {
+                "这次没同步上，稍后再试"
+            },
             retryable = true,
         )
     }
@@ -247,5 +267,27 @@ internal fun syncSuccessMessage(result: AccountSyncResult): String {
         if (result.fallbackCount > 0) {
             append(" · ${result.fallbackCount} 件轨迹待补")
         }
+    }
+}
+
+/**
+ * 把抓取失败的原因归类成一句可上屏的短标签。
+ * 只按关键词匹配我们自己的文案，任何未识别的原因一律返回 null（退回通用措辞），
+ * 这样异常 message 里可能夹带的 URL / 单号永远不会被写进账号卡。
+ */
+internal fun transientReasonCategory(reason: String): String? {
+    val r = reason.trim()
+    if (r.isBlank()) return null
+    return when {
+        r.contains("超时") -> "页面加载超时"
+        r.contains("window.name") || r.contains("脚本没有响应") || r.contains("脚本注入") -> "页面脚本没响应"
+        r.contains("改版") || r.contains("没有返回数据") -> "订单接口没返回，可能已改版"
+        r.contains("跳到了其它页面") -> "订单页被重定向"
+        /* 京东/淘宝写「N 件都没有可用信息」，PDD 写「N 件详情都没抓到」。
+           只认这几种自有文案，别把异常 message 里可能夹带的 URL / 单号带出去。 */
+        (r.contains("详情") && r.contains("没抓")) ||
+            r.contains("没有可用信息") ||
+            r.contains("件都没有可用") -> "详情页没抓到"
+        else -> null
     }
 }

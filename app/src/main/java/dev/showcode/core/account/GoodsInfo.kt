@@ -32,6 +32,9 @@ data class GoodsImageCandidate(
     val src: String,
     val area: Float,
     val ctx: String,
+    /** 渲染宽高（px）。0 = 未知（老调用与纯逻辑测试）。 */
+    val width: Float = 0f,
+    val height: Float = 0f,
 )
 
 /**
@@ -48,6 +51,15 @@ internal fun pickGoodsImage(candidates: List<GoodsImageCandidate>, title: String
         .asSequence()
         .filter { it.src.startsWith("http") && it.area >= 40f * 40f }
         .filter { it.ctx.filterNot { c -> c.isWhitespace() }.contains(head) }
+        /* 商品主图接近方形；详情页里「抢，到手价」这类整宽促销横幅又宽又扁、面积还大，
+           会靠 maxBy(area) 抢走缩略图——所有件的详情页都有同一条横幅，于是每行显示成同一张。
+           已知宽高时只接受接近方形的候选（含 3:4 竖图），宽扁横幅直接丢弃；
+           宽高未知（老调用/测试）时沿用老行为。宁可「无图」，也不把促销横幅当商品图。 */
+        .filter { c ->
+            if (c.width <= 0f || c.height <= 0f) return@filter true
+            val aspect = c.width / c.height
+            c.width >= 60f && c.height >= 60f && aspect >= 0.5f && aspect <= 2.0f
+        }
         .maxByOrNull { it.area }
         ?.src
 }

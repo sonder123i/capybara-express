@@ -61,19 +61,34 @@ object JdFetcher {
         "https://trade.m.jd.com/order/orderlist_jdm.shtml?orderType=all&source=m_outer_jx_order"
     /** 每单详情要整页加载一次；上限保留，但只从真正待取/在途的单里按状态排序取。 */
     private const val MAX_DETAILS = 8
-    /* 和原来那两处固定睡眠对齐：上限不变，只是数据到了就提前返回。 */
-    private const val FIRST_SCREEN_WAIT_MS = 2_500L
+    /* 首屏轮询上限：数据一到就继续；京东 SPA 在冷启动/慢机上可能 3~4 秒才发列表请求。 */
+    private const val FIRST_SCREEN_WAIT_MS = 4_000L
     private const val PAGE_WAIT_MS = 2_500L
+    /* 京东订单页是重 SPA；冷启动（刚安装/刚清进程）在模拟器上会超过 20 秒。 */
+    private const val PAGE_LOAD_TIMEOUT_MS = 30_000L
     /* 单件详情导航的超时：从 20s 收紧到和淘宝单件详情同档，慢页快速放弃、由列表兜底顶上。 */
     private const val DETAIL_LOAD_TIMEOUT_MS = 12_000L
     /** 京东运单号：带标签的优先，其次 JD 段位码 / 通用段位码。 */
     private val TRACKING_LABELED = Regex("(?:运单号|快递单号|物流单号|货运单号)[：:\\s]*([A-Za-z0-9\\-]{8,})")
     private val TRACKING_CODE = Regex("(JD[VA]?[0-9]{8,}|[A-Z]{2,4}[0-9]{8,})")
-    private val HOSTS = setOf(
+    /** 注入页面钩子的 origin：订单页和可能承载订单接口的域。 */
+    private val SCRIPT_HOSTS = setOf(
         "https://trade.m.jd.com",
         "https://wqs.jd.com",
         "https://www.jd.com",
         "https://api.m.jd.com",
+        "https://o.m.jd.com",
+        "https://wq.jd.com",
+    )
+    /** 登录会话分散在这些 host 上；读取、恢复、清理都按同一组走。 */
+    private val COOKIE_HOSTS = listOf(
+        "https://www.jd.com",
+        "https://trade.m.jd.com",
+        "https://wqs.jd.com",
+        "https://api.m.jd.com",
+        "https://plogin.m.jd.com",
+        "https://home.m.jd.com",
+        "https://jingfen.jd.com",
     )
 
     suspend fun fetch(
@@ -84,6 +99,8 @@ object JdFetcher {
         known: Map<String, Parcel> = emptyMap(),
         /** 这一轮走到哪一步：顶栏的「读取详情 2/8」就是它。 */
         onProgress: suspend (SyncProgress) -> Unit = {},
+        /** 抓取过程中京东刷新出的完整 Cookie；由上层并回登录时保存的那份。 */
+        onCookie: (String) -> Unit = {},
     ): FetchOutcome =
         withContext(Dispatchers.Main) {
             val pages = Channel<String>(Channel.BUFFERED)
@@ -101,9 +118,9 @@ object JdFetcher {
                 if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
                     return@withContext FetchOutcome.Failure("这台设备的 WebView 不支持页面脚本注入")
                 }
-                WebViewCompat.addDocumentStartJavaScript(web, HOOK_JS, HOSTS)
+                WebViewCompat.addDocumentStartJavaScript(web, HOOK_JS, SCRIPT_HOSTS)
                 web.loadUrl(ORDER_CENTER)
-                var first = withTimeoutOrNull(20_000) { pages.receive() }
+                var first = withTimeoutOrNull(PAGE_LOAD_TIMEOUT_MS) { pages.receive() }
                     ?: return@withContext FetchOutcome.Failure("订单页加载超时")
                 httpCode?.let {
                     return@withContext FetchOutcome.Failure(
@@ -117,7 +134,7 @@ object JdFetcher {
                     drain(pages)
                     delay(700)
                     web.loadUrl(ORDER_CENTER)
-                    val again = withTimeoutOrNull(20_000) { pages.receive() }
+                    val again = withTimeoutOrNull(PAGE_LOAD_TIMEOUT_MS) { pages.receive() }
                         ?: return@withContext FetchOutcome.Failure("订单页加载超时")
                     if (!isJdOrdersPage(again)) {
                         Slog.w(TAG) { "订单页重试仍失败: $again" }
@@ -133,9 +150,14 @@ object JdFetcher {
 
                 val captures = mutableListOf<String>()
                 var nameReadable = false
-                /* 首屏保留固定等待：虚拟列表要先渲染出来才吃得下滑动。
-                   从这里往后才是条件等待——每轮有响应就立刻进下一轮，没有就收工。 */
-                delay(FIRST_SCREEN_WAIT_MS)
+                /* 首屏轮询：列表接口响应一到就进滑动，不再白等固定 2.5 秒；
+                   慢机/冷启动最多等 FIRST_SCREEN_WAIT_MS。 */
+                val firstStart = SystemClock.uptimeMillis()
+                while (SystemClock.uptimeMillis() - firstStart < FIRST_SCREEN_WAIT_MS) {
+                    if (readsCaps(web, captures)) nameReadable = true
+                    if (captures.isNotEmpty()) break
+                    delay(120)
+                }
                 if (readsCaps(web, captures)) nameReadable = true
                 var rounds = 0
                 while (rounds < 5) {
@@ -143,6 +165,13 @@ object JdFetcher {
                     rounds++
                     /* 这一轮没有新响应就收工；再滑也不会凭空多出页来。 */
                     if (awaitCaptures(web, captures, PAGE_WAIT_MS) <= 0) break
+                }
+                /* 京东会在页面壳加载完之后才用 JS 跳到通行证页：只看 onPageFinished
+                   的第一跳会把它误判成「接口没返回」。这里补一次当前位置判定。 */
+                if (looksLikeLogin(evaluate(web, "location.href").orEmpty())) {
+                    return@withContext FetchOutcome.Failure(
+                        "登录已失效，需要重新登录", FailureKind.AUTH,
+                    )
                 }
                 httpCode?.let {
                     return@withContext FetchOutcome.Failure(
@@ -248,18 +277,36 @@ object JdFetcher {
                         if (parsed == null) fallbackCount++
                     } else {
                         detailsFailed++
+                        Slog.i(TAG) { "worklist-null status=${order.status.take(16)}" }
                     }
                 }
-                /* 有候选却一条结果都拼不出来才算整批失败；有兜底时不再误报（对齐淘宝）。 */
-                if (worklist.isNotEmpty() && result.isEmpty()) {
-                    return@withContext FetchOutcome.Failure("${detailsFailed} 件都没有可用信息，稍后再试")
-                }
+                Slog.safe(
+                    TAG,
+                    "result parcels=${result.size} detailsFailed=$detailsFailed fallback=$fallbackCount",
+                )
                 /* 只在接口给出「没有下一页」的结束信号时才交 seen：
                    抓取不完整时保持空集，不让退休逻辑误删没翻到的在途件。 */
                 val seen = if (listEnded(captures, orders.size)) {
                     orders.map { it.id }.toSet()
                 } else {
                     emptySet()
+                }
+                /* 有候选却一条结果都拼不出来：只有至少一条状态是认识的活跃单时，
+                   才算抓取失败。全是认不出的状态（例如新出现的已结束文案）时，
+                   说明列表链路是通的，只是没有可用件——不能拿「没同步上」吓用户。 */
+                if (worklist.isNotEmpty() && result.isEmpty()) {
+                    if (worklist.any { it.stage != null }) {
+                        return@withContext FetchOutcome.Failure(
+                            "${detailsFailed} 件都没有可用信息，稍后再试",
+                        )
+                    }
+                    return@withContext FetchOutcome.Success(
+                        parcels = emptyList(),
+                        historyOrderSns = history,
+                        seenOrderSns = seen,
+                        detailsFailed = detailsFailed,
+                        retireOrderSns = virtualIds.toList(),
+                    )
                 }
                 FetchOutcome.Success(
                     parcels = result,
@@ -274,12 +321,18 @@ object JdFetcher {
                 Slog.w(TAG, t) { "fetch failed" }
                 FetchOutcome.Failure("抓取中断：${t.message ?: "未知错误"}")
             } finally {
+                /* 先收 Cookie 再销毁/清理：页面跑完后 trade/api 上的会话键才是完整的。
+                   空串或匿名集合由 AccountStore 挡掉，不会覆盖登录态。 */
+                runCatching { collectCookies() }.getOrNull()
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { refreshed -> runCatching { onCookie(refreshed) } }
                 runCatching {
                     (web.parent as? ViewGroup)?.removeView(web)
                     web.loadUrl("about:blank")
                     web.destroy()
                 }
-                FetcherCookies.clear(HOSTS)
+                /* 不清 Cookie：下一次同步还要靠这份会话。登录页进入时会统一清。 */
+                runCatching { CookieManager.getInstance().flush() }
             }
         }
 
@@ -308,10 +361,23 @@ object JdFetcher {
         s.useWideViewPort = true
         s.loadWithOverviewMode = true
         s.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-        FetcherCookies.clear(HOSTS)
+        /* 默认 WebView UA 带 "; wv" / "Version/4.0"，京东风控会把它当非浏览器环境；
+           去掉这两个标记，和登录页保持一致。 */
+        s.userAgentString = WebSettings.getDefaultUserAgent(activity)
+            .replace("; wv", "")
+            .replace("Version/4.0 ", "")
+        /* 京东的会话不能每轮清空后平铺恢复：清掉再按 header 写回会丢 domain/属性，
+           下一次请求就被判未登录。这里只补 WebView 里缺的键，已有的以浏览器为准。
+           但登录身份键（pt_key/pt_pin）例外——必须无条件覆盖成当前账号的值：
+           CookieManager 是进程级的，同步完上一个账号后这两个键会残留，
+           「只补缺失」会让本轮拿上一个账号的会话去抓订单，结果挂错账号。 */
         CookieManager.getInstance().let { cm ->
-            Session.parse(cookie).values.forEach { (k, v) ->
-                HOSTS.forEach { host -> cm.setCookie(host, "$k=$v") }
+            val saved = Session.parse(cookie).values
+            COOKIE_HOSTS.forEach { host ->
+                val existing = Session.parse(cm.getCookie(host)).values
+                saved.forEach { (k, v) ->
+                    if (shouldRestoreCookieKey(k, existing[k])) cm.setCookie(host, "$k=$v")
+                }
             }
             cm.flush()
             cm.setAcceptCookie(true)
@@ -376,6 +442,13 @@ object JdFetcher {
                 }
             }
         }
+        /* 状态原文只在 debug 打；release 只留阶段计数（UNKNOWN 占比能说明词表是否又漏了）。 */
+        Slog.i(TAG) {
+            out.values.groupingBy { it.status.take(16) }.eachCount()
+                .entries.joinToString(",") { "${it.key}:${it.value}" }
+        }
+        val stages = out.values.groupingBy { OrderStage.stageOf(it.status)?.name ?: "UNKNOWN" }.eachCount()
+        Slog.safe(TAG, "stages=$stages")
         return out.values.toList()
     }
 
@@ -406,13 +479,31 @@ object JdFetcher {
         }.getOrDefault(false)
     }
 
-    /** 京东订单页：jd 域、path 里带 order；登录/通行证页不算（登录判据见 FetchSignals）。 */
+    /** 京东订单页：jd 域、path 里带 order；新域 o.m.jd.com 的 /list 也算。登录页不算。 */
     private fun isJdOrdersPage(url: String): Boolean {
         if (looksLikeLogin(url)) return false
         val bare = urlWithoutQuery(url).lowercase()
         val host = bare.substringAfter("://", "").substringBefore('/')
         val path = bare.substringAfter("://", "").substringAfter('/', "")
-        return (host.endsWith("jd.com") || host.endsWith("jd.hk")) && path.contains("order")
+        val orderPath = path.contains("order") ||
+            (host == "o.m.jd.com" && (path == "list" || path.startsWith("list/")))
+        return isJdHost(host) && orderPath
+    }
+
+    /**
+     * 把所有京东 host 的 Cookie 并成一条 header。
+     *
+     * 不能只读 `www.jd.com`：登录集被拆在 www / trade / wqs / api / plogin 上，
+     * 页面跑完时 trade/api 才会补齐风险与会话键。读取顺序保持稳定，后者覆盖同名键。
+     */
+    private fun collectCookies(): String {
+        val cm = CookieManager.getInstance()
+        val merged = LinkedHashMap<String, String>()
+        COOKIE_HOSTS.forEach { host ->
+            val raw = runCatching { cm.getCookie(host) }.getOrNull()
+            Session.parse(raw).values.forEach { (k, v) -> merged[k] = v }
+        }
+        return Session(merged).header()
     }
 
     /** 详情页导航落到登录页：会话在抓取途中失效，整批按 AUTH 处理。 */
@@ -431,11 +522,19 @@ object JdFetcher {
         accountId: String,
         order: Order,
     ): FetchedParcel? {
-        if (order.trackLink.isBlank()) return null
+        /* progressLink 来自接口响应，服务端可控：先钉死在京东域再加载，
+           否则带页面钩子的隐藏 WebView 会被导到第三方站点。 */
+        if (!isSafeJdUrl(order.trackLink)) {
+            Slog.safe(TAG, "detail-link-rejected")
+            return null
+        }
         drain(pages)
         web.loadUrl(order.trackLink)
         val loaded = withTimeoutOrNull(DETAIL_LOAD_TIMEOUT_MS) { pages.receive() } ?: return null
         if (!loaded.startsWith("http")) return null
+        /* 初始链接过了校验，但服务端仍可 302 到第三方：带钩子的 WebView 会读它的 DOM
+           交给 TraceParser。重定向后的实际地址必须同样落在京东域。 */
+        if (!isSafeJdUrl(loaded)) return null
         /* 详情页导航落到通行证/登录页 = 会话失效的硬证据，整批按 AUTH 处理。 */
         if (looksLikeLogin(loaded)) throw DetailAuthExpired()
         /* 等正文就绪而不是固定睡眠；上限收紧到详情超时同档，慢页快速放弃、由列表兜底顶上。 */
@@ -444,7 +543,11 @@ object JdFetcher {
         val text = evaluate(web, "document.body ? document.body.innerText : ''").orEmpty()
         val tracking = TRACKING_LABELED.find(text)?.groupValues?.getOrNull(1)
             ?: TRACKING_CODE.find(text)?.groupValues?.getOrNull(1)
-            ?: return null
+        if (tracking == null) {
+            /* Slog.safe 的契约只允许计数/错误码：URL path 可能带订单号，不能进 release 日志。 */
+            Slog.safe(TAG, "detail-no-tracking len=${text.length} has-label=${TRACKING_LABELED.containsMatchIn(text)}")
+            return null
+        }
         Slog.i(TAG) { "detail tracking=${Slog.mask(tracking)} len=${text.length}" }
         return TraceParser.parse(
             platform = Platform.JD,

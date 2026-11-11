@@ -36,12 +36,26 @@ object OrderStage {
     /** 终态：已经拿走或交易结束。 */
     private val DONE = Regex(
         "已签收|签收成功|已代收|已投递|交易成功|订单完成|已完成|待评价|已收货|" +
+            /* 京东列表真实文案里直接写「完成」；「未完成/待完成」还活着，不能归档。 */
+            "(?<!未)(?<!待)完成|处理成功|充值成功|" +
             /* 「待确认收货 / 等待确认收货」还活着，不能因为含「确认收货」就归档。 */
             "(?<!待)确认收货|" +
             "已取件|已取走|本人取件|本人签收|完成取件|取件完成|取件成功",
     )
 
     private val DELIVERING = Regex("派送中|派件中|正在派送|待派送")
+
+    /**
+     * 「动作 + 完成」是**在途节点**播报，不是整单结束：揽收完成 / 出库完成 /
+     * 支付完成 / 发货完成…… DONE 里的裸「完成」会把它们全部误判成终态，而 DONE
+     * 又先于 IN_TRANSIT 命中，结果在途件被归档、甚至被退休逻辑删掉。
+     * 这类文案要么落到 IN_TRANSIT（如「揽收完成」），要么认不出返回 null，
+     * 两者都比误判 DONE 安全。带明确终态词的（「订单已完成」）仍按 DONE 走。
+     */
+    private val IN_FLIGHT_COMPLETION = Regex(
+        "(揽收|揽件|出库|支付|下单|打包|发货|入库|处理|拣货|分拣|装车|运输|配送|派送|清关|中转|核对)完成",
+    )
+    private val TERMINAL_COMPLETION = Regex("交易完成|订单完成|已完成|订单已完成")
 
     /**
      * 运输中。`揽件`/`揽收` 必须单独列——淘宝真实文案写的是「已揽件」，
@@ -55,9 +69,12 @@ object OrderStage {
     fun stageOf(prompt: String): Stage? {
         val text = prompt.trim()
         if (text.isEmpty()) return null
+        /* 「揽收完成」这类过程播报不算终态；除非文案里另有明确终态词。 */
+        val inFlightCompletion = IN_FLIGHT_COMPLETION.containsMatchIn(text) &&
+            !TERMINAL_COMPLETION.containsMatchIn(text)
         return when {
             HOLDING.containsMatchIn(text) -> Stage.AT_STATION
-            DONE.containsMatchIn(text) -> Stage.DONE
+            !inFlightCompletion && DONE.containsMatchIn(text) -> Stage.DONE
             DELIVERING.containsMatchIn(text) -> Stage.DELIVERING
             IN_TRANSIT.containsMatchIn(text) -> Stage.IN_TRANSIT
             else -> null

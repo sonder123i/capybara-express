@@ -61,6 +61,36 @@ class SessionTest {
     }
 
     @Test
+    fun `合并 - 刷新集新补的键保留，旧键不丢`() {
+        val merged = Session.merge("pt_key=a; pt_pin=b", "thor=x; jxsid=y")
+        assertEquals("a", merged["pt_key"])
+        assertEquals("b", merged["pt_pin"])
+        assertEquals("x", merged["thor"])
+        assertEquals("y", merged["jxsid"])
+        assertTrue(merged.has(Platform.JD))
+    }
+
+    @Test
+    fun `合并 - 同名键以刷新集为准`() {
+        val merged = Session.merge("pt_key=old; pt_pin=b", "pt_key=new")
+        assertEquals("new", merged["pt_key"])
+        assertEquals("b", merged["pt_pin"])
+    }
+
+    @Test
+    fun `合并 - 匿名刷新集仍不满足登录判据`() {
+        assertFalse(Session.merge("pt_key=a; pt_pin=b", "thor=x; jxsid=y").has(Platform.TB))
+        val anonJd = Session.merge("pt_key=a; pt_pin=b", "pt_key=; thor=x")
+        assertFalse(anonJd.has(Platform.JD))
+    }
+
+    @Test
+    fun `header - 拼回后能再次解析`() {
+        val s = Session.parse("PDDAccessToken=abc==; pdd_user_id=123")
+        assertEquals(s.values, Session.parse(s.header()).values)
+    }
+
+    @Test
     fun `平台 id 大小写不敏感，未知返回 null`() {
         assertEquals(Platform.PDD, Platform.of(" PDD "))
         assertEquals(Platform.TB, Platform.of("tb"))

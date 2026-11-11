@@ -120,6 +120,7 @@ import dev.showcode.ui.theme.MotionEasing
 import dev.showcode.ui.theme.MotionTokens
 import dev.showcode.ui.theme.OnsiteSurface
 import dev.showcode.ui.theme.moduleEntrance
+import dev.showcode.ui.RevealingCodeText
 import dev.showcode.ui.theme.rememberReducedMotion
 import dev.showcode.ui.theme.environmentBackground
 import dev.showcode.ui.theme.ShowCodeShapes
@@ -1326,6 +1327,12 @@ private fun PointCard(
                 if (group.worst == Urgency.DUE_SOON) {
                     // 临期档以前一个图形都没有，而它恰恰是最需要被一眼认出的那一档。
                     // 安全用已有的勾、过期风险用已有的告警三角，不在这里重复造。
+                    /* 柜件额外补 18h 保管环：临期的「还剩多少」从一行字变成一个比例。
+                       非柜件与算不出时效的件由组件自己早退，绝不伪造。 */
+                    group.items.firstOrNull()?.let { first ->
+                        CircularHoldDial(parcel = first, now = now)
+                        Spacer(Modifier.width(6.dp))
+                    }
                     Icon(
                         painter = painterResource(id = URGENCY_DUE_SOON_ICON),
                         contentDescription = null,
@@ -1440,8 +1447,10 @@ private fun CardParcelRow(parcel: Parcel, now: Long) {
                 color = InkMuted,
             )
         } else {
-            Text(
-                text = parcel.code,
+            /* 卡面码（非现场屏）：换码时逐位收敛，把「刚解析出来」说出口。
+               现场屏的码仍走 OnsiteCodeBody 的瞬时全墨，两者不共用。 */
+            RevealingCodeText(
+                code = parcel.code,
                 style = if (hasLocker) ShowCodeText.Code else ShowCodeText.CodeLarge,
                 color = Ink,
             )

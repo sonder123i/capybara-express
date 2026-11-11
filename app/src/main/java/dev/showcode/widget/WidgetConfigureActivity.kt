@@ -2,6 +2,8 @@ package dev.showcode.widget
 
 import android.appwidget.AppWidgetManager
 import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -31,6 +33,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
+import androidx.core.view.WindowCompat
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -48,10 +52,13 @@ import dev.showcode.ui.theme.Hairline
 import dev.showcode.ui.theme.Ink
 import dev.showcode.ui.theme.InkMuted
 import dev.showcode.ui.theme.OnsiteSurface
+import dev.showcode.ui.theme.ShowCodeDarkPalette
+import dev.showcode.ui.theme.ShowCodeLightPalette
 import dev.showcode.ui.theme.ShowCodeShapes
 import dev.showcode.ui.theme.ShowCodeText
 import dev.showcode.ui.theme.ShowCodeTheme
 import dev.showcode.ui.theme.SurfaceCard
+import dev.showcode.ui.theme.ThemeController
 
 /**
  * 添加组件时的配置页（方案丙：绑定点是一等公民，但不强制）。
@@ -73,8 +80,20 @@ class WidgetConfigureActivity : ComponentActivity() {
             return
         }
         setResult(RESULT_CANCELED)
+        /* 这个 Activity 可能被系统在进程冷启动后直接拉起（没经过 MainActivity），
+           所以主题快照与窗口底色要自己装一次：只跟系统时，用户在 App 内固定暗色，
+           弹出的配置页会是一整块亮白，而且会把全局色板快照改回亮色。 */
+        val systemNight = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        ThemeController.install(mode = app.repository.prefs.themeMode, systemDark = systemNight)
+        val canvas = if (ThemeController.isDark) ShowCodeDarkPalette.canvas else ShowCodeLightPalette.canvas
+        window.setBackgroundDrawable(ColorDrawable(canvas.toArgb()))
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !ThemeController.isDark
+            isAppearanceLightNavigationBars = !ThemeController.isDark
+        }
         setContent {
-            ShowCodeTheme {
+            ShowCodeTheme(darkTheme = ThemeController.isDark) {
                 ConfigureScreen(onPick = { key, name -> confirm(key, name) })
             }
         }
