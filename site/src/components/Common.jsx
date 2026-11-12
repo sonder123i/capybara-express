@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { asset } from '../data.js'
 
 export function ArrowRight({ className = '' }) {
   return (
@@ -26,18 +27,15 @@ export function ArrowUpRight({ className = '' }) {
 
 export function BrandMark({ className = '' }) {
   return (
-    <svg className={`brand-mark ${className}`} viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="1.5" fill="var(--brand-bg, currentColor)" />
-      <g fill="var(--brand-bar, var(--paper, #f2ede2))">
-        <rect x="5" y="7" width="2" height="18" />
-        <rect x="9" y="7" width="3.2" height="18" />
-        <rect x="14.2" y="7" width="1.4" height="18" />
-        <rect x="17.6" y="7" width="3.4" height="18" />
-        <rect x="23" y="7" width="2.1" height="18" />
-        <rect x="27" y="7" width="1.4" height="18" />
-      </g>
-      <circle cx="26.5" cy="26.5" r="2.2" fill="var(--red, #c21f72)" />
-    </svg>
+    <img
+      className={`brand-mark ${className}`.trim()}
+      src={asset('logo-mark.png')}
+      alt=""
+      width="128"
+      height="128"
+      draggable="false"
+      aria-hidden="true"
+    />
   )
 }
 

@@ -248,14 +248,15 @@
     grid-template-columns: 1fr;
   }
 
-  .verify-item {
+  .verify-grid > .verify-spotlight:first-child .verify-item,
+  .verify-grid > .verify-spotlight:last-child .verify-item {
     padding-right: 0;
+    padding-left: 0;
     border-right: 0;
   }
 
-  .verify-item + .verify-item {
+  .verify-grid > .verify-spotlight:last-child .verify-item {
     margin-top: 22px;
-    padding-left: 0;
     padding-top: 22px;
     border-top: 1px solid var(--line);
   }

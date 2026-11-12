@@ -34,9 +34,11 @@
 }
 
 .brand-mark {
+  display: block;
   width: 30px;
   height: 30px;
   flex: none;
+  object-fit: contain;
 }
 
 .brand-type {
@@ -420,8 +422,6 @@
 .footer-brand .brand-mark {
   width: 46px;
   height: 46px;
-  --brand-bg: var(--paper);
-  --brand-bar: var(--ink);
 }
 
 .footer-brand h2 {

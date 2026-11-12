@@ -2961,14 +2961,18 @@
 }
 
 .verify-item {
-  padding: 22px 30px 0 0;
+  padding-top: 22px;
+}
+
+/* 两个校验项各自包在 SpotlightCard 里，不再互为兄弟节点，
+   所以按包层取第一/第二列，避免第二列丢掉左内边距。 */
+.verify-grid > .verify-spotlight:first-child .verify-item {
+  padding-right: 30px;
   border-right: 1px solid var(--line);
 }
 
-.verify-item + .verify-item {
+.verify-grid > .verify-spotlight:last-child .verify-item {
   padding-left: 30px;
-  padding-right: 0;
-  border-right: 0;
 }
 
 .verify-no {
