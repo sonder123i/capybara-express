@@ -89,6 +89,30 @@ object StageMachine {
         return AGENT_SIGNED.containsMatchIn(head) && HOLDING.containsMatchIn(head)
     }
 
+    /**
+     * 最新一条是代签文案，但它和上一次「待取件」隔了很久：按取件后的签收算。
+     *
+     * 代收点入库时代签和「待取件」通常同一时刻前后；用户真的取走后，平台会在
+     * 原来那条待取件之后很久再补一条「已签收（凭取件码）」。这是目前能从文本里
+     * 区分两者的唯一可靠信号。
+     */
+    private fun isLatePickupAfterStation(latest: TraceEntry, older: List<TraceEntry>): Boolean {
+        val latestAt = latest.at ?: return false
+        if (!isAgentSigned(latest.text)) return false
+        val previous = older.firstOrNull { entry ->
+            entry.at != null && !isAgentSigned(entry.text) && (
+                stageOfTrace(entry.text) == Stage.AT_STATION ||
+                    entry.text.contains("待取件") ||
+                    entry.text.contains("代收点") ||
+                    entry.text.contains("暂存")
+                )
+        } ?: return false
+        /* 只认「刚从驿站取走」这条新签收：几天/几十天前就存在的旧签收
+           多半是平台自动代签，没取件证据，仍应留在待取。 */
+        val recent = latestAt >= System.currentTimeMillis() - RECENT_SIGN_WINDOW_MS
+        return recent && latestAt - previous.at!! >= AGENT_SIGNED_PICKUP_GAP_MS
+    }
+
     private val DELIVERING = Regex("派送中|派件中|正在派送")
 
     private val IN_TRANSIT = Regex(
@@ -99,6 +123,12 @@ object StageMachine {
     private val PICKUP_INFO = Regex(
         "驿站|代收点|快递柜|自提柜|服务点|取件码|取货码|提货码|自提码|驿站码|单号后五位",
     )
+
+    /** 代签文案之后隔这么久才出现的「已签收」，按用户取件处理。 */
+    private const val AGENT_SIGNED_PICKUP_GAP_MS = 12L * 60 * 60 * 1000
+
+    /** 只有最近出现的新签收才可能是用户刚取走；旧签收不做这个推断。 */
+    private const val RECENT_SIGN_WINDOW_MS = 14L * 24 * 60 * 60 * 1000
 
     /** 一次阶段决策的来龙去脉：用了第几条（1 = 最新）、时间、为什么。 */
     internal data class StagePick(
@@ -128,7 +158,17 @@ object StageMachine {
         if (timed.isNotEmpty() && timed.size == usable.size) {
             val sorted = timed.sortedByDescending { it.at!! }
             sorted.forEachIndexed { i, entry ->
-                val stage = stageOfTrace(entry.text)
+                val rawStage = stageOfTrace(entry.text)
+                /* 代收点先写「已签收（凭取件码）」，用户实际取走时平台又补一条同样的
+                   「已签收」。两条文字一样，只能看时间：最新的签收离上一次「待取件」
+                   已经隔了半天以上，说明这是取件后的签收，不是入库代签。 */
+                val stage = if (i == 0 && rawStage == Stage.AT_STATION &&
+                    isLatePickupAfterStation(entry, sorted.drop(1))
+                ) {
+                    Stage.DONE
+                } else {
+                    rawStage
+                }
                 if (stage != Stage.UNKNOWN) {
                     val reason = if (i == 0) {
                         "最新第1条（时间 ${entry.at}）"

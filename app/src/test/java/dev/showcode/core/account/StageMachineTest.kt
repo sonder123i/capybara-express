@@ -108,6 +108,34 @@ class StageMachineTest {
     }
 
     @Test
+    fun `代收点先待取_用户几天后取走_最新签收不再留在待取`() {
+        val now = System.currentTimeMillis()
+        val day = 86_400_000L
+        val item = TraceParser.parseTraces(
+            platform = Platform.TB,
+            accountId = "tb",
+            orderSn = "000000-0000000000000000",
+            trackingNo = "JT0000000000000",
+            traces = listOf(
+                TraceEntry(
+                    "包裹已签收！（凭取件码）如有问题请电联：代收点 13800000000",
+                    at = now - 2L * 60 * 60 * 1000,
+                ),
+                TraceEntry(
+                    "待取件 快件已由兔兔快递员送达代收点暂存,取件地址:示例大学旁多多驿站,请及时取件",
+                    at = now - 3 * day,
+                ),
+            ),
+            at = now,
+            status = "待收货",
+            rawText = "取件码 4-6-05004\n示例大学旁多多驿站",
+        )
+        assertNotNull(item)
+        assertEquals(Stage.DONE, item!!.stage)
+        assertFalse(item.explicitPickup)
+    }
+
+    @Test
     fun `真机原文 - 极兔代收点签收凭取件码留在待取`() {
         val item = TraceParser.parseTraces(
             platform = Platform.TB,

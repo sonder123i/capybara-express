@@ -715,7 +715,9 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
             put("account_id", action.item.accountId)
             put("stage", action.item.stage.name)
             put("code_kind", action.item.codeKind.name)
-            put("last_synced_at", at)
+            /* 列表兜底不是一次详情刷新：时间留空，下一轮仍会进详情页；
+               把它记成「刚刚同步过」会让 detailNeeded 永远跳过这一单。 */
+            if (!action.item.fromListFallback) put("last_synced_at", at)
             action.item.goodsTitle?.let { put("goods_title", it) }
             action.item.goodsImage?.let { put("goods_image", it) }
             action.item.goodsPrice?.let { put("goods_price", it) }
@@ -734,7 +736,8 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
             put("tracking_no", action.item.trackingNo)
             put("order_sn", action.item.orderSn)
             put("account_id", action.item.accountId)
-            put("last_synced_at", at)
+            /* 同上：列表兜底不刷新详情时间，否则老轨迹会被 6 小时窗口永久跳过。 */
+            if (!action.item.fromListFallback) put("last_synced_at", at)
             /* 平台重新给出这件（哪怕只是 AT_STATION），退休行就该回到待取。
                retired 与 picked 分家后，这一步不会再被 Skip(ALREADY_PICKED) 挡住。 */
             put("retired", 0)
