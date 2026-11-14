@@ -271,6 +271,17 @@ object StageMachine {
                 localMs(LocalDate.now().year, m.toInt(), d.toInt(), h.toInt(), min.toInt(), s.toIntOrNull() ?: 0)
             }.getOrNull()
         }
+        val relative = Regex("(今天|昨天)\\s*(\\d{1,2}):(\\d{2})(?::(\\d{2}))?").find(text)
+        if (relative != null) {
+            val label = relative.groupValues[1]
+            val h = relative.groupValues[2]
+            val min = relative.groupValues[3]
+            val s = relative.groupValues[4].ifBlank { "0" }
+            val date = if (label == "昨天") LocalDate.now().minusDays(1) else LocalDate.now()
+            return runCatching {
+                localMs(date.year, date.monthValue, date.dayOfMonth, h.toInt(), min.toInt(), s.toInt())
+            }.getOrNull()
+        }
         return null
     }
 

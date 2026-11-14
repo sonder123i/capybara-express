@@ -28,6 +28,13 @@ const val DETAIL_REUSE_MS = 6L * 60 * 60 * 1000
 const val TRANSIT_DETAIL_REUSE_MS = 20L * 60 * 1000
 
 /**
+ * 到站件也要短窗口自愈：用户可能在两次同步之间去驿站取走，
+ * 平台详情会新增「已签收」轨迹，但列表状态仍可能停在「待取件」。
+ * 6 小时窗口会让这段时间的刷新一直显示旧轨迹。
+ */
+const val STATION_DETAIL_REUSE_MS = 15L * 60 * 1000
+
+/**
  * 订单列表里的一行状态文案 → 阶段。认不出来返回 null，调用方据此退回「照旧抓」。
  *
  * 这里只看列表级文案，粒度和 [fallbackFetchedParcel] 一致：列表说不清到达与否时，
@@ -64,6 +71,7 @@ fun detailNeeded(
     /* 在途/派送中用更短的复用窗口：这两档正是「轨迹一直在变」的件。 */
     val reuse = when (row.stage) {
         Stage.IN_TRANSIT, Stage.DELIVERING -> minOf(maxAgeMs, TRANSIT_DETAIL_REUSE_MS)
+        Stage.AT_STATION -> minOf(maxAgeMs, STATION_DETAIL_REUSE_MS)
         else -> maxAgeMs
     }
     return now - at >= reuse

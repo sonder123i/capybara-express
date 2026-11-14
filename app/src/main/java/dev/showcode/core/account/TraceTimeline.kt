@@ -30,7 +30,8 @@ data class TraceRow(
  */
 private val TIMESTAMP = Regex(
     "(?:\\d{4}-\\d{1,2}-\\d{1,2}[ T]\\d{1,2}:\\d{2}(?::\\d{2})?)" +
-        "|(?:\\d{1,2}-\\d{1,2}\\s+\\d{1,2}:\\d{2}(?::\\d{2})?)",
+        "|(?:\\d{1,2}-\\d{1,2}\\s+\\d{1,2}:\\d{2}(?::\\d{2})?)" +
+        "|(?:(?:今天|昨天)\\s*\\d{1,2}:\\d{2}(?::\\d{2})?)",
 )
 
 /** 详情页里的营销/商品区：看到这些整块就到此为止，不许进轨迹。 */
@@ -44,6 +45,7 @@ private val PRICE_ONLY = Regex("^[¥￥]?\\s*\\d+(\\.\\d+)?\\s*$")
 
 private val FULL_TIME = Regex("(\\d{4})-(\\d{1,2})-(\\d{1,2})[ T](\\d{1,2}):(\\d{2})")
 private val MD_TIME = Regex("(\\d{1,2})-(\\d{1,2})\\s+(\\d{1,2}):(\\d{2})")
+private val RELATIVE_TIME = Regex("(今天|昨天)\\s*(\\d{1,2}):(\\d{2})")
 
 private fun isTailStop(line: String): Boolean =
     TAIL_EXACT.matches(line) || TAIL_TOKEN.containsMatchIn(line) || PRICE_ONLY.matches(line)
@@ -56,6 +58,10 @@ private fun shortTime(raw: String): String {
     MD_TIME.find(raw)?.let {
         val (m, d, h, min) = it.destructured
         return "%02d-%02d %02d:%02d".format(m.toInt(), d.toInt(), h.toInt(), min.toInt())
+    }
+    RELATIVE_TIME.find(raw)?.let {
+        val (label, h, min) = it.destructured
+        return "%s %02d:%02d".format(label, h.toInt(), min.toInt())
     }
     return raw.trim()
 }

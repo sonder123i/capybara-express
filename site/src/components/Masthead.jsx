@@ -97,7 +97,7 @@ export default function Masthead({ active, progress }) {
           </nav>
           <div className="mobile-menu-foot">
             <a className="btn btn--ink" href={LINKS.apk} onClick={() => setOpen(false)}>
-              下载 APK · 0.4.9
+              下载 APK · 0.4.10
               <ArrowRight />
             </a>
             <a href={LINKS.github} target="_blank" rel="noreferrer">

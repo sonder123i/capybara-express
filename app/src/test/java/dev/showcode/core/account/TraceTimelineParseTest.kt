@@ -72,6 +72,15 @@ class TraceTimelineParseTest {
     }
 
     @Test
+    fun `今天和昨天的时间戳也能进时间线`() {
+        val raw = "已签收 今天 11:27:53\n包裹已签收！\n待取件 昨天 16:45:09\n请及时取件"
+        val rows = parseTraceTimeline(raw)
+        assertEquals(listOf("已签收", "待取件"), rows.map { it.stage })
+        assertEquals("今天 11:27", rows[0].time)
+        assertEquals("昨天 16:45", rows[1].time)
+    }
+
+    @Test
     fun `阶段词和时间戳分行也能识别`() {
         val raw =
             "运输中\n2026-11-10 09:14:13\n包裹已发出，正在通知承运商\n" +

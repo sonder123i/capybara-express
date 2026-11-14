@@ -101,6 +101,26 @@ class DetailGateTest {
     }
 
     @Test
+    fun `到站件超过短窗口也重抓 - 用户可能刚取走`() {
+        assertFalse(
+            detailNeeded(
+                sn,
+                Stage.AT_STATION,
+                known(parcel(lastSyncedAt = now - 5 * 60_000)),
+                now,
+            ),
+        )
+        assertTrue(
+            detailNeeded(
+                sn,
+                Stage.AT_STATION,
+                known(parcel(lastSyncedAt = now - STATION_DETAIL_REUSE_MS - 1)),
+                now,
+            ),
+        )
+    }
+
+    @Test
     fun `列表没有状态 - 阶段无从比较，只按时间自愈`() {
         assertFalse(detailNeeded(sn, null, known(parcel()), now))
         assertTrue(
