@@ -84,6 +84,61 @@ class StageMachineTest {
     }
 
     @Test
+    fun `代收点代签 - 已签收凭取件码仍是待取而不是归档`() {
+        /* 极兔真机原文：代收点入库后系统写「已签收（凭取件码）」，
+           件其实还躺在驿站等取；括号里的「凭取件码」不是祈使句，也不是本人取件。 */
+        val text = "包裹已签收！（凭取件码）如有问题请电联：代收点 13800000000/" +
+            "示例员-示例学院 13800000000，投诉电话：021-00000000"
+        assertEquals(Stage.AT_STATION, StageMachine.stageOfTrace(text))
+        assertFalse(StageMachine.isExplicitPickup(text))
+        assertTrue(StageMachine.isAgentSigned(text))
+    }
+
+    @Test
+    fun `代收点代签 - 只给签收词或只给取件码都不算`() {
+        listOf(
+            "已签收",
+            "包裹已放入多多驿站，请凭取件码取件",
+            "请凭取件码取件 5-1-2277",
+            "确认收货 取件码 3-1-1111",
+            "您的快件已取出签收，签收代收点：示例大学示例驿站",
+        ).forEach {
+            assertFalse(it, StageMachine.isAgentSigned(it))
+        }
+    }
+
+    @Test
+    fun `真机原文 - 极兔代收点签收凭取件码留在待取`() {
+        val item = TraceParser.parseTraces(
+            platform = Platform.TB,
+            accountId = "tb",
+            orderSn = "000000-0000000000000000",
+            trackingNo = "JT0000000000000",
+            traces = listOf(
+                TraceEntry(
+                    "包裹已签收！（凭取件码）如有问题请电联：代收点 13800000000/" +
+                        "示例员-示例学院 13800000000，投诉电话：021-00000000",
+                    at = 3_000_000,
+                ),
+                TraceEntry(
+                    "快件已由兔兔快递员示例员-示例学院 13800000000送达代收点暂存,取件地址:" +
+                        "示例大学示例校区旁多多驿站,请及时取件。代理点电话:13800000000," +
+                        "投诉电话:021-00000000",
+                    at = 2_000_000,
+                ),
+            ),
+            at = 4_000_000,
+            status = "待收货",
+            rawText = "取件码 4-6-05004\n示例大学示例校区旁多多驿站",
+        )
+        assertNotNull(item)
+        assertEquals(Stage.AT_STATION, item!!.stage)
+        assertFalse(item.explicitPickup)
+        assertEquals("4-6-05004", item.code)
+        assertEquals("示例大学示例校区旁多多驿站", item.pointName)
+    }
+
+    @Test
     fun `本人签收或已取件 - 归档`() {
         assertEquals(Stage.DONE, StageMachine.stageOfTrace("本人签收，包裹已交付"))
         assertEquals(Stage.DONE, StageMachine.stageOfTrace("已取件 本人取件 中通快递 465700000020382"))

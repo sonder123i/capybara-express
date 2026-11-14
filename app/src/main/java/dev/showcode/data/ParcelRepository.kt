@@ -42,6 +42,7 @@ import dev.showcode.core.UnrecognizedAction
 import dev.showcode.core.UnrecognizedState
 import dev.showcode.core.UrgencyThresholds
 import dev.showcode.core.bodyFingerprint
+import dev.showcode.core.expandDismissals
 import dev.showcode.core.healthReport
 import dev.showcode.core.messageFingerprint
 import dev.showcode.core.muteKey
@@ -815,10 +816,16 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
     fun mergeHistoryFor(canonicalKey: String): List<PointAlias> =
         _data.value.aliases.values.filter { resolvePointKey(it.targetKey, _data.value.aliases) == canonicalKey }
 
-    /** 「不是同一个点」。本地表态优先，V2 的社区别名数据不得覆盖（edge boundary-alias-conflict）。 */
-    fun dismissSuspect(pairKey: String) {
+    /**
+     * 「不是同一个点」。本地表态优先，V2 的社区别名数据不得覆盖（edge boundary-alias-conflict）。
+     *
+     * 一次表态写两把键：精确的一把 + 剥掉平台词后的地点键（见 [dev.showcode.core.dismissKeysOf]）。
+     * 只记精确键的话，同一个地点换一种叫法进来就又变成新问题。
+     */
+    fun dismissSuspect(keys: Collection<String>) {
+        if (keys.isEmpty()) return
         scope.launch {
-            db.putDismissal(pairKey, System.currentTimeMillis())
+            db.putDismissals(keys, System.currentTimeMillis())
             reload()
         }
     }
@@ -1129,7 +1136,7 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
             // 被屏蔽发件人的那些仍然在库里，只是不显示——所以「恢复」能原样拿回来。
             unrecognized = db.allUnrecognized().filterNot { muteKey(it.sender) in muted },
             aliases = db.allAliases().associateBy { it.aliasKey },
-            dismissals = db.allDismissals(),
+            dismissals = expandDismissals(db.allDismissals()),
             mutedSenders = muted.toList(),
             rules = db.allRules(),
             identityCodes = db.allIdentityCodes(),

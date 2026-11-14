@@ -79,11 +79,79 @@ fun nameSamplesOf(parcels: List<Parcel>, limit: Int = 3): List<String> =
 /** 一对「可能是同一个点」的候选，按 [PickupPointGroup.key] 定序，便于做去重键。 */
 data class SuspectPair(val first: PickupPointGroup, val second: PickupPointGroup) {
     /** 用户点「不是」之后要长期记住这条判断（V2 的社区别名数据不得覆盖本地表态）。 */
-    val dismissKey: String get() = pairKey(first.key, second.key)
+    val dismissKeys: List<String> get() = dismissKeysOf(first.key, second.key)
 }
 
+/**
+ * 一次「不是」要落两把键：
+ * 1. 精确键——这一对写法永远不再问；
+ * 2. 地点键——同一个地点换一种叫法（多/少一个平台词）也不再问。
+ *
+ * 用户否掉的是「这两张卡不是一处」，不是「这两个字符串不是一处」。只记第一把键的话，
+ * 同一个点明天来一条少写一个品牌词的短信，就又变成一张新卡、又一次新提问。
+ */
+fun dismissKeysOf(a: String, b: String): List<String> =
+    listOf(pairKey(a, b), placePairKey(a, b)).distinct()
+
+/**
+ * 地点核心：剥掉平台与类别词，只留下地点本体。
+ *
+ * **只服务「不是同一个点」这条记忆**，不参与 [pointKey] 归一化、不参与分组、不合并任何数据。
+ * 刻意不剥承运商名（顺丰/中通/申通…）：同一地址上不同承运商常常是两个真实的取件点，
+ * 把它们合成一把键，会静默吃掉本该提醒的候选。
+ *
+ * 剥完不足 [MIN_CORE_LEN] 个字时退回原名：像「菜鸟驿站」这种纯通用名剥成空串，
+ * 会和所有点撞成同一把键——那等于一次「不是」把所有提示都关掉。
+ *
+ * 输入必须是 [pointKey] 的结果（已小写、无空白与标点），否则词表可能对不上原文。
+ */
+fun placeCore(key: String): String {
+    var core = key
+    for (word in PLATFORM_WORDS) core = core.replace(word, "")
+    return core.takeIf { it.length >= MIN_CORE_LEN } ?: key
+}
+
+fun placePairKey(a: String, b: String): String = pairKey(placeCore(a), placeCore(b))
+
+/** 三种键都要查：新精确键、地点键、旧版本落库的 NUL 键。 */
+fun isDismissed(a: String, b: String, dismissed: Set<String>): Boolean {
+    if (dismissed.isEmpty()) return false
+    return pairKey(a, b) in dismissed ||
+        placePairKey(a, b) in dismissed ||
+        legacyPairKey(a, b) in dismissed
+}
+
+/**
+ * 把库里已有的键展开成地点键，让升级前说过的「不是」对新写法也立刻生效。
+ *
+ * 旧库只有 NUL 精确键，**没有迁移脚本**：读取时补出它对应的地点键即可，写不写回都不影响。
+ * 对已经是地点键的行走一遍是幂等的——剥词是终态，再剥不会再变。
+ */
+fun expandDismissals(stored: Set<String>): Set<String> {
+    if (stored.isEmpty()) return emptySet()
+    val out = LinkedHashSet<String>(stored.size * 2)
+    for (key in stored) {
+        out += key
+        val parts = key.split('\u0000', '\u001F')
+        if (parts.size == 2 && parts[0].isNotEmpty() && parts[1].isNotEmpty()) {
+            out += placePairKey(parts[0], parts[1])
+        }
+    }
+    return out
+}
+
+/**
+ * 两个键的配对键，与顺序无关。
+ *
+ * 分隔符不用 `\u0000`：它同时是 C 字符串的终止符，放在 TEXT 主键里没有任何好处，
+ * 只留着跨实现被截断的风险。旧库里的 NUL 键由 [legacyPairKey] 只读兼容。
+ */
 fun pairKey(a: String, b: String): String =
-    if (a <= b) "$a\u0000$b" else "$b\u0000$a"
+    if (a <= b) "$a$PAIR_SEP$b" else "$b$PAIR_SEP$a"
+
+/** 0.4.x 及以前写进 `point_dismiss` 的键。只用于读取与判重，不再写入。 */
+internal fun legacyPairKey(a: String, b: String): String =
+    if (a <= b) "$a$LEGACY_PAIR_SEP$b" else "$b$LEGACY_PAIR_SEP$a"
 
 /**
  * 疑似重复的轻提示候选（AC4）。红线是**绝不自动合并**，所以这里宁可漏报：
@@ -103,7 +171,7 @@ fun suspectDuplicates(
             val a = ordered[i]
             val b = ordered[j]
             if (a.kind != b.kind) continue
-            if (pairKey(a.key, b.key) in dismissed) continue
+            if (isDismissed(a.key, b.key, dismissed)) continue
             if (maxCommonFragment(a, b) < minCommon) continue
             add(SuspectPair(a, b))
         }
@@ -137,3 +205,27 @@ fun longestCommonSubstring(a: String, b: String): Int {
 
 private const val MAX_ALIAS_HOPS = 8
 private const val DEFAULT_MIN_COMMON = 4
+
+/** 键内分隔符。见 [pairKey]。 */
+private const val PAIR_SEP = "\u001F"
+
+/** 旧版本写入的分隔符，只读兼容。 */
+private const val LEGACY_PAIR_SEP = "\u0000"
+
+/** 地点核心至少要有这么多字，否则退回原名。两个字是中文地名的常识下限（「东门」）。 */
+private const val MIN_CORE_LEN = 2
+
+/**
+ * [placeCore] 要剥掉的平台与类别词。长的排在前面——
+ * 「菜鸟驿站」必须先于「菜鸟」「驿站」被吃掉，否则会留下半个词。
+ *
+ * 这里**不列承运商名**（顺丰/中通/申通…）：同址不同承运商常常是两个真实的点，
+ * 剥掉它们会把本该提醒的候选一并闭嘴。理由见 [placeCore]。
+ */
+private val PLATFORM_WORDS = listOf(
+    "菜鸟驿站", "多多驿站", "妈妈驿站", "兔喜生活", "快递超市", "生活超市",
+    "菜鸟", "多多", "兔喜", "丰巢",
+    "驿站", "快递柜", "自提柜", "智能柜",
+    "代收点", "自提点", "取件点", "服务点",
+    "便利店", "超市", "门店", "商店", "柜机",
+)

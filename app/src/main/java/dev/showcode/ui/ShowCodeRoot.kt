@@ -1167,7 +1167,7 @@ fun ShowCodeRoot() {
                                 }
                             },
                             onSuspectYes = { if (!demo) suspect?.let { openMergePreview(it.first, it.second) } },
-                            onSuspectNo = { if (!demo) suspect?.let { repository.dismissSuspect(it.dismissKey) } },
+                            onSuspectNo = { if (!demo) suspect?.let { repository.dismissSuspect(it.dismissKeys) } },
                             mergeUndoName = if (demo) null else lastMerge?.targetName,
                             onUndoMerge = {
                                 if (!demo) {

@@ -26,6 +26,12 @@ data class UpdateInfo(
     val sizeBytes: Long?,
     val source: UpdateSource,
     val pageUrl: String,
+    /**
+     * 另一家同版本发行版的 APK 直链。Gitee 的下载链要两次 302 且第一跳会 Set-Cookie，
+     * 系统 DownloadManager 在国内 ROM 上常卡在 0 字节；这时自动换到 GitHub 的单跳直链。
+     * 两边上传的是同一个签名包，校验和通用。
+     */
+    val fallbackApkUrl: String? = null,
 )
 
 sealed interface UpdateResult {
@@ -87,6 +93,11 @@ object UpdateChecker {
 
         val apk = best.release.apkAsset() ?: return@withContext UpdateResult.NoRelease
         val sha = resolveSha256(best.release, apk, github = best.source == UpdateSource.GITHUB)
+        /* 备用源必须与主源同版本：拿一个旧版本的直链去兜底，装完会直接降级。 */
+        val other = if (best.source == UpdateSource.GITEE) github else gitee
+        val fallbackUrl = other
+            ?.takeIf { compareVersions(other.release.tag, best.release.tag) == 0 }
+            ?.release?.apkAsset()?.url
         UpdateResult.Available(
             UpdateInfo(
                 versionName = displayVersion(best.release.tag),
@@ -96,6 +107,7 @@ object UpdateChecker {
                 sizeBytes = apk.size?.takeIf { it > 0 },
                 source = best.source,
                 pageUrl = if (best.source == UpdateSource.GITEE) GITEE_PAGE else GITHUB_PAGE,
+                fallbackApkUrl = fallbackUrl,
             )
         )
     }

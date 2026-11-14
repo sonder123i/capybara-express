@@ -43,6 +43,9 @@ class MergeTest {
         worst = Urgency.SAFE,
     )
 
+    /** 造一个「真实规则下」的点：key 必须等于 pointKey(名字)，否则断言的是错误的键。 */
+    private fun named(name: String) = group(pointKey(name), name)
+
     // ---------- 别名解析 ----------
 
     @Test
@@ -175,9 +178,70 @@ class MergeTest {
     fun `说过不是同一个点之后就闭嘴`() {
         val groups = listOf(group("a", "XX小区菜鸟驿站"), group("b", "XX小区菜鸟驿站2号门"))
         val pair = suspectDuplicates(groups).single()
-        assertEquals(0, suspectDuplicates(groups, dismissed = setOf(pair.dismissKey)).size)
+        assertEquals(0, suspectDuplicates(groups, dismissed = pair.dismissKeys.toSet()).size)
         // 定序无关：谁在前都记同一把键
-        assertEquals(pair.dismissKey, pairKey(groups[1].key, groups[0].key))
+        assertEquals(pair.dismissKeys, dismissKeysOf(groups[1].key, groups[0].key))
+    }
+
+    @Test
+    fun `同一个地点换个平台写法也只问一次`() {
+        val a = named("示例大学东门驿站")
+        val b = named("示例大学东门菜鸟驿站")
+        val pair = suspectDuplicates(listOf(a, b)).single()
+        // 一次表态 = 精确键 + 地点键，两把都要落
+        assertEquals(2, pair.dismissKeys.size)
+        val dismissed = pair.dismissKeys.toSet()
+
+        // 第三种写法：品牌词在前面。归一化后地点核心与上面两个相同。
+        val third = named("菜鸟驿站(示例大学东门)")
+        assertEquals("示例大学东门", placeCore(third.key))
+        assertEquals(0, suspectDuplicates(listOf(a, b, third), dismissed).size)
+    }
+
+    @Test
+    fun `不同地点不会被顺带闭嘴`() {
+        val a = named("示例大学东门驿站")
+        val b = named("示例大学东门菜鸟驿站")
+        val dismissed = suspectDuplicates(listOf(a, b)).single().dismissKeys.toSet()
+
+        // 同一个校区、不同门口：剥词后核心不同，必须继续提示
+        val other = named("示例大学西门多多驿站")
+        assertEquals("示例大学西门", placeCore(other.key))
+        assertEquals(1, suspectDuplicates(listOf(a, other), dismissed).size)
+    }
+
+    @Test
+    fun `旧库里只有 NUL 精确键也照样生效并展开`() {
+        val a = named("示例大学东门驿站")
+        val b = named("示例大学东门菜鸟驿站")
+        val legacy = legacyPairKey(a.key, b.key)
+
+        assertTrue(legacy.contains('\u0000'))
+        assertTrue(placePairKey(a.key, b.key) in expandDismissals(setOf(legacy)))
+
+        val third = named("菜鸟驿站(示例大学东门)")
+        assertEquals(0, suspectDuplicates(listOf(a, third), expandDismissals(setOf(legacy))).size)
+    }
+
+    @Test
+    fun `纯通用名剥完不许变空`() {
+        assertEquals(pointKey("菜鸟驿站"), placeCore(pointKey("菜鸟驿站")))
+        assertEquals(pointKey("驿站"), placeCore(pointKey("驿站")))
+        assertEquals(pointKey("丰巢"), placeCore(pointKey("丰巢")))
+    }
+
+    @Test
+    fun `记忆键与两侧顺序无关`() {
+        val a = named("示例大学东门驿站")
+        val b = named("示例大学西门多多驿站")
+        assertEquals(dismissKeysOf(a.key, b.key), dismissKeysOf(b.key, a.key))
+    }
+
+    @Test
+    fun `承运商名不进剥词表`() {
+        // 同址不同承运商常常是两个真实的点：剥词后必须仍然能区分开。
+        assertEquals("顺丰东门", placeCore(pointKey("顺丰快递柜(东门)")))
+        assertEquals("中通东门", placeCore(pointKey("中通快递柜(东门)")))
     }
 
     @Test

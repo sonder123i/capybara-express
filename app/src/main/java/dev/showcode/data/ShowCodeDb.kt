@@ -842,13 +842,29 @@ class ShowCodeDb(context: Context) : SQLiteOpenHelper(context.applicationContext
         .rawQuery("SELECT pair_key FROM point_dismiss", null)
         .use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) }.toSet() }
 
-    fun putDismissal(pairKey: String, at: Long) {
-        writableDatabase.insertWithOnConflict(
-            "point_dismiss",
-            null,
-            ContentValues().apply { put("pair_key", pairKey); put("created_at", at) },
-            SQLiteDatabase.CONFLICT_REPLACE,
-        )
+    /**
+     * 写一批「不是同一个点」的键（一次表态 = 精确键 + 地点键两把）。
+     *
+     * 必须包在一个事务里：两把键只落下一把，下一次那对写法还会再弹一次——
+     * 用户看到的是「我明明点过不是」，查起来却是数据半成功，最难交代。
+     */
+    fun putDismissals(keys: Collection<String>, at: Long) {
+        if (keys.isEmpty()) return
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (key in keys) {
+                db.insertWithOnConflict(
+                    "point_dismiss",
+                    null,
+                    ContentValues().apply { put("pair_key", key); put("created_at", at) },
+                    SQLiteDatabase.CONFLICT_REPLACE,
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     // ---------- 解析规则 ----------

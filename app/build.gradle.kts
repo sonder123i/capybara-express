@@ -32,8 +32,8 @@ android {
         applicationId = "dev.showcode"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.4.7"
+        versionCode = 13
+        versionName = "0.4.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

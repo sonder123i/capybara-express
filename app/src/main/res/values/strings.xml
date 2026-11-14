@@ -503,6 +503,9 @@
     <string name="detail_open_official">去官方 App 查看取件码</string>
     <string name="detail_view">查看详情</string>
     <string name="stage_at_station">待取件</string>
+    <!-- 代收点代签：平台轨迹写着「已签收」，件其实还在驿站等你去取。 -->
+    <string name="stage_at_station_signed">代收点已签收 · 待取</string>
+    <string name="detail_agent_signed_hint">轨迹里的「已签收」是代收点代签，件还在驿站；凭取件码取走后才算取件。</string>
     <string name="stage_delivering">派送中</string>
     <string name="stage_in_transit">运输中</string>
     <string name="stage_done">已签收</string>
@@ -571,6 +574,7 @@
     <string name="update_dialog_later">稍后提醒</string>
     <string name="update_dialog_background">后台继续下载</string>
     <string name="update_dialog_cancel">取消这次下载</string>
+    <string name="update_dialog_browser">用浏览器下载</string>
     <string name="update_dialog_verifying">正在校验安装包…</string>
     <string name="update_dialog_verifying_short">校验中…</string>
     <string name="update_dialog_ready">已通过 SHA-256 校验，可以安装。</string>

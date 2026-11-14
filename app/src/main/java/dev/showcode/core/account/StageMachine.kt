@@ -25,6 +25,7 @@ data class TraceEntry(val text: String, val at: Long? = null)
  *
  * 「代收」与「取件」的先后靠轨迹本身区分：一条轨迹里同时出现「已签收」和「已放入驿站 /
  * 取件码」时，按「驿站代收未取」处理，留在待取；只有明确本人取件才归档。
+ * 「包裹已签收（凭取件码）」这类代收点代签同理，见 [isAgentSigned]。
  */
 object StageMachine {
 
@@ -65,6 +66,28 @@ object StageMachine {
         "已签收|签收成功|已代收|已投递|驿站签收|快递柜签收|交易成功|订单完成|已完成|" +
             "待评价|已收货|确认收货",
     )
+
+    /**
+     * 代收点写进轨迹的签收词。刻意不收「确认收货 / 待评价」——那是订单侧按钮文案，
+     * 详情页 innerText 里经常混着它们，不能据此说「代收点已签收」。
+     */
+    private val AGENT_SIGNED = Regex("已签收|签收成功|已代签收")
+
+    /**
+     * 这段原文是不是「代收点代签、件还在驿站」。
+     *
+     * 极兔真机原文：`包裹已签收！（凭取件码）如有问题请电联：代收点 138…/示例员-示例学院 …`。
+     * 这类「已签收」是代收点入库后的系统签收（存放超过 5 天也会自动出这条），
+     * 件通常仍躺在驿站、凭码可取；所以阶段仍是 [Stage.AT_STATION]，不能归档。
+     *
+     * 详情页用它把「平台显示已签收」和「仍需去取」同时讲清楚，
+     * 免得用户把 App 的「待取件」当成误判。
+     */
+    fun isAgentSigned(text: String): Boolean {
+        val head = text.take(1200)
+        if (head.isBlank() || PICKED.containsMatchIn(head)) return false
+        return AGENT_SIGNED.containsMatchIn(head) && HOLDING.containsMatchIn(head)
+    }
 
     private val DELIVERING = Regex("派送中|派件中|正在派送")
 

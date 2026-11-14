@@ -197,9 +197,16 @@ class UpdateCenter private constructor(context: Context) {
 
     /* ── 下载 ───────────────────────────────────────────────────────── */
 
-    private fun enqueue(current: UpdateState.Available) {
+    private fun enqueue(
+        current: UpdateState.Available,
+        usedFallback: Boolean = false,
+        keepNotice: Boolean = false,
+    ) {
         val info = current.info
-        if (info.sha256.isNullOrBlank()) return
+        if (info.sha256.isNullOrBlank()) {
+            _state.value = current.copy(notice = "这个版本没有校验和，请点「用浏览器下载」手动安装")
+            return
+        }
         /* 重新下载（含系统挂起后重来）时先把上一笔记录撤掉：两条记录指向同一个目标文件，
            旧的那条晚点恢复会把新下载覆盖成一个半截文件。 */
         if (downloadId > 0) {
@@ -210,7 +217,7 @@ class UpdateCenter private constructor(context: Context) {
             phase = DownloadPhase.Downloading,
             bytes = 0L,
             file = null,
-            notice = null,
+            notice = if (keepNotice) current.notice else null,
         )
         scope.launch {
             val id = UpdateInstaller.enqueue(app, info)
@@ -221,13 +228,16 @@ class UpdateCenter private constructor(context: Context) {
             }
             downloadId = id
             persist(info, id, DownloadPhase.Downloading)
-            startPolling(id, info)
+            startPolling(id, info, usedFallback)
         }
     }
 
-    private fun startPolling(id: Long, info: UpdateInfo) {
+    private fun startPolling(id: Long, info: UpdateInfo, usedFallback: Boolean = false) {
         pollJob?.cancel()
         pollJob = scope.launch {
+            /* DownloadManager 卡在 PENDING 时会一直返回 0 字节、也不报错。
+               记录「0 字节持续了多久」，超时就换源或让用户走浏览器，不再无限转圈。 */
+            var stallSince: Long? = null
             while (isActive) {
                 val progress = UpdateInstaller.progress(app, id)
                 if (progress == null) {
@@ -285,10 +295,49 @@ class UpdateCenter private constructor(context: Context) {
                             bytes = progress.bytes,
                             total = total,
                         )
+                        val now = System.currentTimeMillis()
+                        if (progress.bytes > 0) {
+                            stallSince = null
+                        } else if (stallSince == null) {
+                            stallSince = now
+                        } else if (now - stallSince!! > STALL_TIMEOUT_MS) {
+                            switchDownloadSource(id, info, usedFallback)
+                            return@launch
+                        }
                     }
                 }
                 delay(POLL_MS)
             }
+        }
+    }
+
+    /**
+     * 下载长时间 0 字节：Gitee 的下载链要两次 302、第一跳还会 Set-Cookie，
+     * 系统 DownloadManager 在国内 ROM 上常卡在这一步，既不报错也不推进。
+     * 先换另一家的单跳直链重试；换过还不动就停下来，把「用浏览器下载」
+     * 这条一定能走通的路交给用户。
+     */
+    private fun switchDownloadSource(id: Long, info: UpdateInfo, usedFallback: Boolean) {
+        UpdateInstaller.cancel(app, id)
+        downloadId = -1
+        pollJob?.cancel()
+        runCatching { UpdateInstaller.fileFor(app, info.versionName).delete() }
+        clearPersisted()
+        val fallback = info.fallbackApkUrl?.takeIf { it.isNotBlank() && it != info.apkUrl }
+        if (!usedFallback && fallback != null) {
+            val switched = info.copy(apkUrl = fallback, fallbackApkUrl = null)
+            _state.value = UpdateState.Available(
+                info = switched,
+                phase = DownloadPhase.Idle,
+                notice = "国内源没动，已自动切到备用源重新下载",
+            )
+            enqueue(_state.value as UpdateState.Available, usedFallback = true, keepNotice = true)
+        } else {
+            _state.value = UpdateState.Available(
+                info = info,
+                phase = DownloadPhase.Idle,
+                notice = "下载一直没动，请点「用浏览器下载」手动安装",
+            )
         }
     }
 
@@ -403,6 +452,7 @@ class UpdateCenter private constructor(context: Context) {
             .put("sizeBytes", info.sizeBytes ?: -1L)
             .put("source", info.source.name)
             .put("pageUrl", info.pageUrl)
+            .put("fallbackApkUrl", info.fallbackApkUrl ?: "")
             .put("downloadId", id)
             .put("phase", phase.name)
         prefs.edit().putString(KEY_TASK, json.toString()).apply()
@@ -420,6 +470,7 @@ class UpdateCenter private constructor(context: Context) {
             source = runCatching { UpdateSource.valueOf(json.optString("source")) }
                 .getOrDefault(UpdateSource.GITHUB),
             pageUrl = json.optString("pageUrl"),
+            fallbackApkUrl = json.optString("fallbackApkUrl").takeIf { it.isNotBlank() },
         )
     }
 
@@ -437,6 +488,8 @@ class UpdateCenter private constructor(context: Context) {
         private const val AUTO_INTERVAL_MS = 6 * 60 * 60 * 1000L
         private const val DEFER_MS = 24 * 60 * 60 * 1000L
         private const val POLL_MS = 600L
+        /** 0 字节持续这么久就判定卡住：换源，别让用户对着「正在下载…」干等。 */
+        private const val STALL_TIMEOUT_MS = 20_000L
 
         @Volatile
         private var instance: UpdateCenter? = null

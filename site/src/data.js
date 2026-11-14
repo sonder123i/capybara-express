@@ -1,11 +1,11 @@
-export const VERSION = '0.4.7'
-export const APK_BYTES = '12,760,701'
+export const VERSION = '0.4.8'
+export const APK_BYTES = '12,762,057'
 export const APK_SIZE = '12.8 MB'
 
 export const LINKS = {
-  apk: 'https://gitee.com/sonder123i/capybara-express/releases/download/v0.4.7/showcode-0.4.7.apk',
+  apk: 'https://gitee.com/sonder123i/capybara-express/releases/download/v0.4.8/showcode-0.4.8.apk',
   releases: 'https://github.com/sonder123i/capybara-express/releases',
-  releaseTag: 'https://github.com/sonder123i/capybara-express/releases/tag/v0.4.7',
+  releaseTag: 'https://github.com/sonder123i/capybara-express/releases/tag/v0.4.8',
   github: 'https://github.com/sonder123i/capybara-express',
   gitee: 'https://gitee.com/sonder123i/capybara-express',
   issues: 'https://github.com/sonder123i/capybara-express/issues',

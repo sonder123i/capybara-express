@@ -49,6 +49,8 @@ import dev.showcode.R
 import dev.showcode.core.CodeKind
 import dev.showcode.core.LaunchOutcome
 import dev.showcode.core.Parcel
+import dev.showcode.core.Stage
+import dev.showcode.core.account.StageMachine
 import dev.showcode.core.account.TraceRow
 import dev.showcode.core.account.parseTraceTimeline
 import dev.showcode.ui.copyCode
@@ -117,14 +119,31 @@ fun ParcelDetailScreen(
                 style = ShowCodeText.Section,
                 color = Ink,
             )
+            /* 「已签收」不一定代表件被取走了：极兔等承运商在代收点入库后就会写
+               「包裹已签收（凭取件码）」，件其实还在驿站。这时状态必须两件事一起说，
+               否则用户会以为 App 漏看了平台的签收。 */
+            val agentSigned = parcel.stage == Stage.AT_STATION &&
+                StageMachine.isAgentSigned(parcel.raw)
+            val stageText = if (agentSigned) {
+                stringResource(R.string.stage_at_station_signed)
+            } else {
+                stageLabel(parcel.stage)
+            }
             Text(
                 text = listOf(
                     parcel.carrier,
-                    stageLabel(parcel.stage),
+                    stageText,
                 ).joinToString(" · "),
                 style = ShowCodeText.Meta,
                 color = InkMuted,
             )
+            if (agentSigned) {
+                Text(
+                    text = stringResource(R.string.detail_agent_signed_hint),
+                    style = ShowCodeText.Caption,
+                    color = InkMuted,
+                )
+            }
 
             if (parcel.code.isBlank()) {
                 Column(
@@ -209,7 +228,7 @@ fun ParcelDetailScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 DetailRow(stringResource(R.string.detail_tracking), parcel.trackingNo ?: "—")
-                DetailRow(stringResource(R.string.detail_stage), stageLabel(parcel.stage))
+                DetailRow(stringResource(R.string.detail_stage), stageText)
                 DetailRow(
                     stringResource(R.string.detail_point),
                     parcel.pointName.ifBlank { stringResource(R.string.parcel_no_point) },

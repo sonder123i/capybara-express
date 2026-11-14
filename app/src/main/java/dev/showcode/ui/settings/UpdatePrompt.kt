@@ -176,6 +176,25 @@ fun UpdatePrompt(
                 },
                 onClick = { center.dismissPrompt() },
             )
+            /* 系统下载器在国内 ROM 上可能整笔卡在 0 字节；浏览器一定能走完
+               Gitee 的重定向与登录，这是任何阶段都留着的一条手动出口。 */
+            if (available.phase != DownloadPhase.Ready && !noHash) {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = androidx.compose.ui.Alignment.Center,
+                ) {
+                    Text(
+                        text = stringResource(R.string.update_dialog_browser),
+                        modifier = Modifier
+                            .clickable { openUrl(context, info.pageUrl) }
+                            .padding(vertical = 8.dp, horizontal = 12.dp),
+                        style = ShowCodeText.Action,
+                        color = Accent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             if (available.phase in setOf(DownloadPhase.Downloading, DownloadPhase.Paused)) {
                 Box(
                     modifier = Modifier.fillMaxWidth(),
