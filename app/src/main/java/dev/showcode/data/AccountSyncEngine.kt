@@ -2,10 +2,12 @@ package dev.showcode.data
 
 import android.app.Activity
 import dev.showcode.core.Slog
+import dev.showcode.core.SyncPerf
 import dev.showcode.core.account.AccountState
 import dev.showcode.core.account.BoundAccount
 import dev.showcode.core.account.FetchOutcome
 import dev.showcode.core.account.FailureKind
+import dev.showcode.core.account.FetchedParcel
 import dev.showcode.core.account.Platform
 import dev.showcode.core.account.SYNC_OK_PREFIX
 import dev.showcode.core.account.SyncProgress
@@ -13,6 +15,9 @@ import dev.showcode.core.account.planAccountSync
 import dev.showcode.data.fetch.JdFetcher
 import dev.showcode.data.fetch.PddFetcher
 import dev.showcode.data.fetch.TbFetcher
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -39,8 +44,10 @@ object AccountSyncEngine {
         force: Boolean = false,
         /** 同步走到哪一步；调用方负责切回主线程再改 UI 状态。 */
         onProgress: suspend (SyncProgress) -> Unit = {},
+        /** 分段耗时；null = 不打点。 */
+        perf: SyncPerf? = null,
     ): AccountSyncResult? = withContext(Dispatchers.IO) {
-        syncOnIo(activity, repository, account, force, onProgress)
+        syncOnIo(activity, repository, account, force, onProgress, perf)
     }
 
     private suspend fun syncOnIo(
@@ -49,6 +56,7 @@ object AccountSyncEngine {
         account: BoundAccount,
         force: Boolean,
         onProgress: suspend (SyncProgress) -> Unit,
+        perf: SyncPerf?,
     ): AccountSyncResult? {
         if (!account.enabled) return null
         if (activity == null) {
@@ -70,13 +78,29 @@ object AccountSyncEngine {
                 .filter { it.accountId == account.id && !it.orderSn.isNullOrBlank() }
                 .associateBy { it.orderSn.orEmpty() }
         }
+        perf?.mark("known_ready", account.platform.id, "known=${known.size}")
         /* 列表阶段先报出去：用户至少知道这 20 秒不是在等一个死界面。 */
         onProgress(SyncProgress.Orders)
+        perf?.mark("fetch_start", account.platform.id)
+        /* 提前落库：详情一产出带码的到站件就写，不等整批。
+           同一件靠 key 去重；真实写了才计入 early，整批应用时按 key 排除。 */
+        val early = EarlyWrites()
+        val onParcelReady: suspend (FetchedParcel) -> Unit = { item ->
+            early.accept(repository, account.id, item, perf, account.platform.id)
+        }
         /* 京东会在抓取过程中轮换/补齐会话 Cookie；抓取器在清理前交回来，
            这里并回账号密文。失败路径也要收——登录挑战页可能已经补了键。 */
         val refreshedCookie = java.util.concurrent.atomic.AtomicReference<String?>(null)
         val outcome = when (account.platform) {
-            Platform.PDD -> PddFetcher.fetch(activity, account.id, cookie, known, onProgress)
+            Platform.PDD -> PddFetcher.fetch(
+                activity = activity,
+                accountId = account.id,
+                cookie = cookie,
+                known = known,
+                onProgress = onProgress,
+                onParcelReady = onParcelReady,
+                perf = perf,
+            )
             Platform.TB -> TbFetcher.fetch(
                 activity = activity,
                 accountId = account.id,
@@ -84,6 +108,8 @@ object AccountSyncEngine {
                 known = known,
                 neverSynced = account.lastSyncAt == null,
                 onProgress = onProgress,
+                onParcelReady = onParcelReady,
+                perf = perf,
             )
             Platform.JD -> JdFetcher.fetch(
                 activity = activity,
@@ -92,9 +118,12 @@ object AccountSyncEngine {
                 known = known,
                 onProgress = onProgress,
                 onCookie = { refreshedCookie.set(it) },
+                onParcelReady = onParcelReady,
+                perf = perf,
             )
         }
         refreshedCookie.get()?.let { repository.accounts.refreshCookie(account, it) }
+        perf?.mark("fetch_done", account.platform.id)
         val at = System.currentTimeMillis()
         when (val decision = decideSync(outcome)) {
             is SyncDecision.Failed -> {
@@ -103,10 +132,16 @@ object AccountSyncEngine {
                    瞬时失败不改账号既有的状态（原来是 EXPIRED 就还是 EXPIRED，不能因为一次断网
                    把「需要重新登录」擦成 ACTIVE）；只记一次退避时间，别每次回前台都重试。 */
                 val state = if (decision.retryable) account.state else decision.state
-                val message = if (account.platform == Platform.PDD && !decision.retryable) {
+                val baseMessage = if (account.platform == Platform.PDD && !decision.retryable) {
                     "拼多多登录已失效，请用扫码重新登录（手机号登录会互踢）"
                 } else {
                     decision.message
+                }
+                /* 失败也要如实说：码已经先上屏了，不能让它看起来「什么都没发生」。 */
+                val message = if (early.count > 0) {
+                    "$baseMessage（码已先更新 ${early.count} 件）"
+                } else {
+                    baseMessage
                 }
                 repository.accounts.mark(account, state, message)
                 if (decision.retryable) {
@@ -114,15 +149,21 @@ object AccountSyncEngine {
                 } else {
                     repository.prefs.lastTransientFailureAt = 0L
                 }
+                perf?.mark("failed", account.platform.id, "retryable=${decision.retryable} early=${early.count}")
                 /* release 只留错误码与平台标识；原因文案属于业务信息，只在 debug 打。 */
                 Slog.failure(TAG, if (decision.retryable) "TRANSIENT" else "AUTH", account.platform.id)
                 Slog.i(TAG) { "failure reason=${decision.message}" }
                 return null
             }
             is SyncDecision.Succeeded -> {
+                perf?.mark("apply_start", account.platform.id, "parcels=${decision.parcels.size}")
+                /* 提前写过的件不再进整批：同一件写两次会把「新增 1」记成「新增 1 · 更新 1」，
+                   也会让整批的规划拿它自己刚写的行做一次无意义匹配。 */
+                val appliedEarly = early.appliedKeys()
+                val remaining = decision.parcels.filterNot { earlyKeyOf(it) in appliedEarly }
                 // 必须看见退休行：平台重新给出这件时要能把它从 retirement 里捞回来。
-                val actions = planAccountSync(decision.parcels, repository.parcelsForAccountSync())
-                Slog.safe(TAG, "actions=${actions.size}")
+                val actions = planAccountSync(remaining, repository.parcelsForAccountSync())
+                Slog.safe(TAG, "actions=${actions.size} early=${early.count} remaining=${remaining.size}")
                 actions.forEach { action ->
                     val item = action.item
                     val verdict = when (action) {
@@ -151,8 +192,16 @@ object AccountSyncEngine {
                 /* 单件详情失败的数量属于本次抓取，不进库；带上它，状态行才不会把
                    「3 件没抓到」说成「没有新件」。 */
                 val withDetails = result.copy(
+                    added = result.added + early.added,
+                    updated = result.updated + early.updatedCount,
                     detailsFailed = decision.detailsFailed,
                     fallbackCount = decision.fallbackCount,
+                )
+                perf?.mark(
+                    "apply_done",
+                    account.platform.id,
+                    "actions=${actions.size} early=${early.count} " +
+                        "added=${withDetails.added} updated=${withDetails.updated}",
                 )
                 repository.accounts.mark(account, AccountState.ACTIVE, syncSuccessMessage(withDetails), at)
                 return withDetails
@@ -291,3 +340,57 @@ internal fun transientReasonCategory(reason: String): String? {
         else -> null
     }
 }
+
+/**
+ * 提前落库的记账。key 只用于同一次同步内部去重，不落库。
+ *
+ * 只有真实写了（INSERTED/UPDATED）的 key 会被整批应用排除；
+ * SKIPPED（已取/无身份）与 FAILED（撞约束/异常）放回整批，让既有的
+ * 规划与计数逻辑照常处理——不在这里另造一套跳过语义。
+ */
+private class EarlyWrites {
+    private val keys = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val inserted = AtomicInteger()
+    private val updated = AtomicInteger()
+    private val firstMarked = AtomicBoolean()
+
+    val added: Int get() = inserted.get()
+    val updatedCount: Int get() = updated.get()
+    val count: Int get() = added + updatedCount
+
+    fun appliedKeys(): Set<String> = synchronized(keys) { keys.toSet() }
+
+    suspend fun accept(
+        repository: ParcelRepository,
+        accountId: String,
+        item: FetchedParcel,
+        perf: SyncPerf?,
+        platform: String,
+    ) {
+        val key = earlyKeyOf(item) ?: return
+        if (!keys.add(key)) return
+        val verdict = try {
+            repository.applyFetchedNow(accountId, item, System.currentTimeMillis())
+        } catch (cancel: CancellationException) {
+            keys.remove(key)
+            throw cancel
+        } catch (t: Throwable) {
+            Slog.w("AccountSyncEngine", t) { "early-write failed" }
+            EarlyWrite.FAILED
+        }
+        when (verdict) {
+            EarlyWrite.INSERTED -> inserted.incrementAndGet()
+            EarlyWrite.UPDATED -> updated.incrementAndGet()
+            EarlyWrite.SKIPPED, EarlyWrite.FAILED -> keys.remove(key)
+        }
+        if ((verdict == EarlyWrite.INSERTED || verdict == EarlyWrite.UPDATED) &&
+            firstMarked.compareAndSet(false, true)
+        ) {
+            perf?.mark("first_code_persisted", platform, "early=$count")
+        }
+    }
+}
+
+/** 提前写的去重键：订单号优先，退回运单号；两者都没有就不提前写。 */
+private fun earlyKeyOf(item: FetchedParcel): String? =
+    item.orderSn?.takeIf { it.isNotBlank() } ?: item.trackingNo.takeIf { it.isNotBlank() }

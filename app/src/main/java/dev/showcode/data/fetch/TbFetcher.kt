@@ -3,6 +3,7 @@ package dev.showcode.data.fetch
 import android.app.Activity
 import dev.showcode.core.Parcel
 import dev.showcode.core.Slog
+import dev.showcode.core.SyncPerf
 import dev.showcode.core.Stage
 import dev.showcode.core.account.FetchOutcome
 import dev.showcode.core.account.FailureKind
@@ -65,6 +66,10 @@ object TbFetcher {
         neverSynced: Boolean = false,
         /** 这一轮走到哪一步：顶栏的「读取详情 2/8」就是它。 */
         onProgress: suspend (SyncProgress) -> Unit = {},
+        /** 最终条目里带码的到站件；上层可立即落库，不必等整批。 */
+        onParcelReady: suspend (FetchedParcel) -> Unit = {},
+        /** 分段耗时；null = 不打点。 */
+        perf: SyncPerf? = null,
     ): FetchOutcome =
         withContext(Dispatchers.IO) {
             if (cookie.isBlank()) {
@@ -88,6 +93,7 @@ object TbFetcher {
             if (activity != null &&
                 (page == null || (page.orders.isEmpty() && (activeKnown > 0 || neverSynced)))
             ) {
+                perf?.mark("second_source_start")
                 val webOrders = (try {
                     TbWebSource.fetchOrders(activity, cookie)
                 } catch (t: Throwable) {
@@ -95,6 +101,7 @@ object TbFetcher {
                     Slog.w(TAG, t) { "second source failed" }
                     null
                 }).orEmpty()
+                perf?.mark("second_source_done", extra = "orders=${webOrders.size}")
                 if (webOrders.isNotEmpty()) {
                     Slog.safe(TAG, "second-source orders=${webOrders.size}")
                     page = OrderPage(webOrders, ended = false)
@@ -106,6 +113,7 @@ object TbFetcher {
             )
             val orders = resolved.orders
             Slog.safe(TAG, "orders=${orders.size} ended=${resolved.ended}")
+            perf?.mark("list_ready", extra = "orders=${orders.size} ended=${resolved.ended}")
             /* 覆盖度自检：库里有活跃账号件，这次却一条订单都没读到——更可能是接口改版/被风控，
                不是「件都没了」。按瞬时失败处理，不写空快照、不退休任何已有卡。 */
             if (orders.isEmpty() && activeKnown > 0) {
@@ -163,18 +171,29 @@ object TbFetcher {
             /* 详情是纯 HTTP、彼此独立：四路并发把多单的等待从「串行累加」压成「几轮」。
                进度按**完成数**报，所以并发下也只增不减。 */
             val done = AtomicInteger()
+            perf?.mark("details_start", extra = "targets=${detailTargets.size} pending=${pending.size}")
             val attempts = coroutineScope {
                 detailTargets.map { order ->
                     async(detailDispatcher) {
                         val attempt = try {
-                            Attempt(order, detail(cookie, accountId, order), null)
+                            val outcome = detail(cookie, accountId, order)
+                            val parsed = outcome.parcel
+                            if (parsed != null &&
+                                parsed.stage == Stage.AT_STATION &&
+                                parsed.code.isNotBlank()
+                            ) {
+                                onParcelReady(parsed)
+                            }
+                            Attempt(order, outcome, null)
                         } catch (f: FetchFailure) {
                             Attempt(order, null, f)
                         } catch (t: Throwable) {
                             t.rethrowIfCancellation()
                             Attempt(order, DetailOutcome(null, "exception:${t.message}", ""), null)
                         }
-                        onProgress(SyncProgress(SyncPhase.DETAILS, done.incrementAndGet(), detailTargets.size))
+                        val at = done.incrementAndGet()
+                        onProgress(SyncProgress(SyncPhase.DETAILS, at, detailTargets.size))
+                        perf?.mark("detail_done", extra = "done=$at/${detailTargets.size}")
                         attempt
                     }
                 }.awaitAll()

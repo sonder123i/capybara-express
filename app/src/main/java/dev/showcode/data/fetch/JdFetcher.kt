@@ -14,6 +14,7 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import dev.showcode.core.Parcel
 import dev.showcode.core.Slog
+import dev.showcode.core.SyncPerf
 import dev.showcode.core.Stage
 import dev.showcode.core.account.FetchOutcome
 import dev.showcode.core.account.FailureKind
@@ -101,6 +102,10 @@ object JdFetcher {
         onProgress: suspend (SyncProgress) -> Unit = {},
         /** 抓取过程中京东刷新出的完整 Cookie；由上层并回登录时保存的那份。 */
         onCookie: (String) -> Unit = {},
+        /** 最终条目里带码的到站件；上层可立即落库，不必等整批。 */
+        onParcelReady: suspend (FetchedParcel) -> Unit = {},
+        /** 分段耗时；null = 不打点。 */
+        perf: SyncPerf? = null,
     ): FetchOutcome =
         withContext(Dispatchers.Main) {
             val pages = Channel<String>(Channel.BUFFERED)
@@ -159,13 +164,19 @@ object JdFetcher {
                     delay(120)
                 }
                 if (readsCaps(web, captures)) nameReadable = true
+                perf?.mark("list_ready", extra = "caps=${captures.size}")
                 var rounds = 0
                 while (rounds < 5) {
                     swipeUp(web)
                     rounds++
                     /* 这一轮没有新响应就收工；再滑也不会凭空多出页来。 */
                     if (awaitCaptures(web, captures, PAGE_WAIT_MS) <= 0) break
+                    /* 接口已经明确说没有下一页：不再白滑下一轮。解析失败不改变原行为。 */
+                    if (runCatching { listEnded(captures, parseOrders(captures).size) }
+                            .getOrDefault(false)
+                    ) break
                 }
+                perf?.mark("paging_done", extra = "rounds=$rounds caps=${captures.size}")
                 /* 京东会在页面壳加载完之后才用 JS 跳到通行证页：只看 onPageFinished
                    的第一跳会把它误判成「接口没返回」。这里补一次当前位置判定。 */
                 if (looksLikeLogin(evaluate(web, "location.href").orEmpty())) {
@@ -235,6 +246,7 @@ object JdFetcher {
                 )
                 /* 详情是单 WebView 串行导航：只对真正要读的 detailTargets 逐单进详情，
                    单件失败不影响整批，结果按 orderId 暂存。 */
+                perf?.mark("details_start", extra = "targets=${detailTargets.size}")
                 val byOrder = HashMap<String, FetchedParcel?>()
                 var detailIndex = 0
                 for (order in detailTargets) {
@@ -250,6 +262,14 @@ object JdFetcher {
                         null
                     }
                     byOrder[order.id] = item
+                    if (item != null && item.stage == Stage.AT_STATION && item.code.isNotBlank()) {
+                        onParcelReady(item)
+                    }
+                    perf?.mark(
+                        "detail_done",
+                        extra = "index=$detailIndex/${detailTargets.size} " +
+                            "parsed=${item != null} stage=${item?.stage ?: "none"}",
+                    )
                 }
                 /* 详情阶段若明确 401/403：整批按登录失效处理（对齐淘宝的 auth 聚合）。 */
                 httpCode?.let {

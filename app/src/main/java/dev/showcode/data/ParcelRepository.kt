@@ -14,9 +14,11 @@ import dev.showcode.core.DAY_MS
 import dev.showcode.core.DEFAULT_CLOSING_MINUTE
 import dev.showcode.core.Attempt
 import dev.showcode.core.account.AccountSyncAction
+import dev.showcode.core.account.FetchedParcel
 import dev.showcode.core.account.SkipReason
 import dev.showcode.core.account.isAgedOutTransitRow
 import dev.showcode.core.account.isStaleTransitRow
+import dev.showcode.core.account.planAccountSync
 import dev.showcode.core.DeepLinkLadder
 import dev.showcode.core.EntryPurpose
 import dev.showcode.core.ExistingParcel
@@ -86,6 +88,9 @@ data class AccountSyncResult(
     /** 详情没抓到、用列表状态先展示的件数（轨迹待补）。 */
     val fallbackCount: Int = 0,
 )
+
+/** 单件提前落库的结局：只有 INSERTED/UPDATED 算真正写了。 */
+enum class EarlyWrite { INSERTED, UPDATED, SKIPPED, FAILED }
 
 data class AppData(
     /** false = 还没读过库。首页的三种空态语义完全不同，不能把「加载中」当成「还没有快递」。 */
@@ -570,6 +575,36 @@ class ParcelRepository(private val context: Context, private val db: ShowCodeDb)
     /** 账号同步匹配必须看见退休行，否则平台重新给出这件时找不回原行。 */
     suspend fun parcelsForAccountSync(): List<Parcel> =
         withContext(io) { db.allParcels(includeRetired = true) }
+
+    /**
+     * 单件提前落库：只写这一件，不退休、不写账号同步章。
+     *
+     * 规划前重读现有行：同步途中到达的短信行可能已经占了同一件，
+     * 拿旧快照规划会多插一张卡。写入仍走与整批相同的 [planAccountSync] 与
+     * `accountInsertValues`/`accountUpdateValues`，所以结果与整批应用逐字节一致。
+     */
+    suspend fun applyFetchedNow(accountId: String, item: FetchedParcel, at: Long): EarlyWrite =
+        withContext(io) {
+            val action = planAccountSync(listOf(item), db.allParcels(includeRetired = true))
+                .firstOrNull() ?: return@withContext EarlyWrite.FAILED
+            val verdict = when (action) {
+                is AccountSyncAction.Insert -> {
+                    val id = db.insertParcel(accountInsertValues(action, at))
+                    if (id > 0) EarlyWrite.INSERTED else EarlyWrite.FAILED
+                }
+                is AccountSyncAction.Update -> {
+                    db.updateParcel(action.id, accountUpdateValues(action, at))
+                    EarlyWrite.UPDATED
+                }
+                is AccountSyncAction.Skip -> EarlyWrite.SKIPPED
+            }
+            if (verdict == EarlyWrite.INSERTED || verdict == EarlyWrite.UPDATED) reload()
+            Slog.i(TAG) {
+                "early-write sn=${Slog.mask(item.orderSn)} tracking=${Slog.mask(item.trackingNo)} " +
+                    "stage=${item.stage} verdict=$verdict account=$accountId"
+            }
+            verdict
+        }
 
     /**
      * 执行账号同步的合并结果。

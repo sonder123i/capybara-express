@@ -64,6 +64,7 @@ import dev.showcode.core.IdentityKind
 import dev.showcode.core.Owner
 import dev.showcode.core.PointAlias
 import dev.showcode.core.PickupPointGroup
+import dev.showcode.core.SyncPerf
 import dev.showcode.core.shouldShowBackgroundNote
 import dev.showcode.core.account.AccountState
 import dev.showcode.core.account.Platform
@@ -72,6 +73,7 @@ import dev.showcode.core.account.SyncProgress
 import dev.showcode.core.account.SyncRailState
 import dev.showcode.core.account.isAgedOutTransit
 import dev.showcode.core.account.isReturnOrRefundTrace
+import dev.showcode.core.account.orderAccountsForRefresh
 import dev.showcode.core.account.syncRailState
 import dev.showcode.core.bodyFingerprint
 import dev.showcode.core.groupByPoint
@@ -450,12 +452,34 @@ fun ShowCodeRoot() {
         /** true = 忽略「状态没变就跳过详情」，这次当全量重抓。 */
         force: Boolean = false,
     ): AccountSyncResult? {
+        val perf = SyncPerf.begin(tag)
+        perf.mark("sync_start", extra = "accounts=${targets.size}")
+        /* 先跑最可能有码的那家：只重排顺序，不增删账号、不改变任何数据判定。
+           读库失败就退回原顺序，调度问题绝不能挡住同步本身。 */
+        val ordered = try {
+            withContext(Dispatchers.IO) {
+                orderAccountsForRefresh(
+                    targets,
+                    repository.parcelsForAccountSync(),
+                    System.currentTimeMillis(),
+                )
+            }
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (error: Exception) {
+            Slog.i(tag) { "order fallback: ${error.message}" }
+            targets
+        }
+        perf.mark(
+            "order_ready",
+            extra = ordered.joinToString(",") { it.platform.id },
+        )
         var added = 0
         var updated = 0
         var skipped = 0
         var succeeded = 0
         val lines = mutableListOf<String>()
-        for (account in targets) {
+        for (account in ordered) {
             val activity = context as? android.app.Activity
             if (activity == null || activity.isFinishing || activity.isDestroyed) {
                 Slog.i(tag) { "stop: activity 不在了" }
@@ -464,6 +488,7 @@ fun ShowCodeRoot() {
             accountSyncing = account.id
             accountProgress = null
             accountSyncMessage = null
+            perf.mark("account_start", account.platform.id)
             Slog.i(tag) { "start ${account.platform.id}" }
             /* 一个账号失败不能中止其余账号：按账号记台账，循环继续。
                取消是另一回事，必须原样抛出去，否则取消会被当成一次普通失败吞掉。 */
@@ -475,6 +500,7 @@ fun ShowCodeRoot() {
                     force = force,
                     /* 抓取器在 IO/主线程之间切换，UI 状态只在这里（主线程）改。 */
                     onProgress = { step -> withContext(Dispatchers.Main) { accountProgress = step } },
+                    perf = perf,
                 )
             } catch (cancel: kotlinx.coroutines.CancellationException) {
                 throw cancel
@@ -482,6 +508,11 @@ fun ShowCodeRoot() {
                 Slog.i(tag) { "fail ${account.platform.id}" }
                 null
             }
+            perf.mark(
+                "account_done",
+                account.platform.id,
+                "ok=${result != null} added=${result?.added ?: 0} updated=${result?.updated ?: 0}",
+            )
             accountSyncing = null
             accountProgress = null
             /* 账号表在加密库里，读它也要下 IO；Compose 状态只在这里（主线程）改。 */
@@ -517,6 +548,7 @@ fun ShowCodeRoot() {
             else -> joined
         }
         // 全部账号都失败才算整体失败；只要有一个成功，其余失败只留在状态行里。
+        perf.mark("all_done", extra = "succeeded=$succeeded of ${targets.size}")
         if (succeeded == 0) return null
         lastDigest = SyncDigest(
             added = added,

@@ -209,9 +209,6 @@ data class SyncDigest(
 /** 数据超过这个时长没同步过就算陈旧。陈旧的码比没有码更危险。 */
 private const val STALE_THRESHOLD_MS = 120 * MINUTE_MS
 
-/** 卡片内最多列出的件数，多出来的收成「+N」。卡片高度因此不会随件数撑破布局。 */
-private const val CARD_ITEM_LIMIT = 3
-
 /** 卡片内一行的固定高度：有柜号与没柜号的行必须一样高，否则卡片高度会随数据抖动。 */
 private val CARD_ROW_HEIGHT = 30.dp
 
@@ -1385,24 +1382,9 @@ private fun PointCard(
             )
 
             Spacer(Modifier.height(8.dp))
-            group.items.take(CARD_ITEM_LIMIT).forEach { parcel ->
+            // 件数全列出来，不收「+N」：列表本身在 LazyColumn 里滚，卡片高一点不破布局。
+            group.items.forEach { parcel ->
                 CardParcelRow(parcel = parcel, now = now)
-            }
-            // boundary-overflow：多出来的收成角标，不撑破卡片高度
-            val rest = group.items.size - CARD_ITEM_LIMIT
-            if (rest > 0) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(CARD_ROW_HEIGHT),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = stringResource(R.string.home_card_overflow, rest),
-                        style = ShowCodeText.Caption.withTabular(),
-                        color = InkMuted,
-                    )
-                }
             }
         }
     }

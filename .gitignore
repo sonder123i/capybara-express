@@ -56,3 +56,9 @@ site/dist/
 
 # 官网交接快照（截图 + page.html，本地产物不入库）
 site/docs/handoff/
+
+# 宣传片工程（Remotion 脚手架；node_modules 与渲染产物不入库）
+promo/node_modules/
+promo/out/
+promo/install.log
+promo/render.log

@@ -16,6 +16,7 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import dev.showcode.core.Parcel
 import dev.showcode.core.Slog
+import dev.showcode.core.SyncPerf
 import dev.showcode.core.Stage
 import dev.showcode.core.account.FetchOutcome
 import dev.showcode.core.account.FailureKind
@@ -95,6 +96,10 @@ object PddFetcher {
         known: Map<String, Parcel> = emptyMap(),
         /** 这一轮走到哪一步：顶栏的「读取详情 2/4」就是它。 */
         onProgress: suspend (SyncProgress) -> Unit = {},
+        /** 最终条目里带码的到站件；上层可立即落库，不必等整批。 */
+        onParcelReady: suspend (FetchedParcel) -> Unit = {},
+        /** 分段耗时；null = 不打点。 */
+        perf: SyncPerf? = null,
     ): FetchOutcome =
         withContext(Dispatchers.Main) {
             val pages = Channel<String>(Channel.BUFFERED)
@@ -154,6 +159,7 @@ object PddFetcher {
                     delay(120)
                 }
                 if (readsCaps(web, captures)) nameReadable = true
+                perf?.mark("list_ready", extra = "caps=${captures.size}")
                 var rounds = 0
                 while (rounds < 4) {
                     clickMore(web)
@@ -162,7 +168,12 @@ object PddFetcher {
                     /* 这一轮一个新响应都没有：更靠后的页不会自己出现，直接收工。
                        有数据时 awaitCaptures 会在安静 400ms 后提前返回，不等满上限。 */
                     if (awaitCaptures(web, captures, PAGE_WAIT_MS) <= 0) break
+                    /* 接口已经明确说没有下一页：不再白滑下一轮。解析失败不改变原行为。 */
+                    if (runCatching { ordersEnded(captures, parseOrders(captures).size) }
+                            .getOrDefault(false)
+                    ) break
                 }
+                perf?.mark("paging_done", extra = "rounds=$rounds caps=${captures.size}")
                 httpCode?.let {
                     return@withContext FetchOutcome.Failure(
                         "订单接口请求失败：HTTP $it（$httpUrl）", httpFailureKind(it),
@@ -257,6 +268,10 @@ object PddFetcher {
                 val detailTargets = pending.take(MAX_DETAILS)
                 val overflow = pending.drop(MAX_DETAILS)
                 val unchanged = candidates.size - pending.size
+                perf?.mark(
+                    "details_start",
+                    extra = "pending=${pending.size} targets=${detailTargets.size} unchanged=$unchanged",
+                )
                 val detailStart = SystemClock.uptimeMillis()
                 detailTargets.forEachIndexed { index, order ->
                     onProgress(SyncProgress(SyncPhase.DETAILS, index + 1, detailTargets.size))
@@ -283,10 +298,21 @@ object PddFetcher {
                         if (item != null) {
                             result.add(item)
                             if (trace.parcel == null) fallbackCount++
+                            if (trace.parcel != null &&
+                                item.stage == Stage.AT_STATION &&
+                                item.code.isNotBlank()
+                            ) {
+                                onParcelReady(item)
+                            }
                         } else {
                             detailsFailed++
                         }
                     }
+                    perf?.mark(
+                        "detail_done",
+                        extra = "index=${index + 1}/${detailTargets.size} " +
+                            "parsed=${trace.parcel != null} stage=${trace.parcel?.stage ?: "none"}",
+                    )
                 }
                 /* 超出详情名额的候选：用列表状态兜底成「轨迹待补」，不消失。 */
                 overflow.forEach { order ->

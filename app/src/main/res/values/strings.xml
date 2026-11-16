@@ -28,7 +28,6 @@
     <!-- 首页（管理模式） -->
     <string name="home_title">待取件</string>
     <string name="home_count_unit">件</string>
-    <string name="home_card_overflow">+%1$d</string>
     <string name="home_stale">更新于 %1$s · 可能不是最新</string>
     <string name="home_stale_failed">上次同步没成功，看到的码可能不是最新的</string>
     <string name="home_stale_retry">重试</string>
